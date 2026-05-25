@@ -1,0 +1,11 @@
+# /etc/sudoers.d/castadhan
+# Allow the 'castadhan' service user to run a very narrow set of root commands
+# from the web console (Update Now button, settings save). This is much safer
+# than running the whole web service as root.
+#
+# Installed to /etc/sudoers.d/castadhan by setup-pi.sh (mode 0440).
+
+castadhan ALL=(root) NOPASSWD: /usr/bin/systemctl start castadhan-update.service
+castadhan ALL=(root) NOPASSWD: /usr/bin/systemctl restart castadhan-portable.service
+castadhan ALL=(root) NOPASSWD: /usr/bin/systemctl status castadhan-portable.service
+castadhan ALL=(root) NOPASSWD: /usr/bin/cp /tmp/.castadhan-update.defaults.new /etc/default/castadhan-update

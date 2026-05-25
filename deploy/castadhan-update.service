@@ -1,0 +1,18 @@
+[Unit]
+Description=CastAdhan Portable — auto-update check & apply
+Documentation=file:///opt/castadhan-portable/deploy/castadhan-update.sh
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/bash /opt/castadhan-portable/deploy/castadhan-update.sh
+# Log to journald (queryable via `journalctl -u castadhan-update`).
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=castadhan-update
+# Allow up to 10 min for download + install
+TimeoutStartSec=600
+
+[Install]
+WantedBy=multi-user.target

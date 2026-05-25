@@ -1,0 +1,18 @@
+# CastAdhan Portable — auto-update configuration
+# Sourced by /opt/castadhan-portable/deploy/castadhan-update.sh
+# Installed at:  /etc/default/castadhan-update
+#
+# CHANGE GITHUB_REPO before shipping — the default is a placeholder.
+
+# Where to pull releases from. Format: "owner/repo".
+# Make sure the repo's "Releases" tab contains versioned tags (v1.0.0, v1.0.1, ...).
+GITHUB_REPO="yourname/castadhan-portable"
+
+# Update channel:
+#   stable = use the GitHub "latest release" (no pre-releases)
+#   beta   = use the most recent release including pre-releases
+# Recommendation: ship recipients on "stable", keep your own pilot on "beta".
+UPDATE_CHANNEL="stable"
+
+# Set to "false" on any Pi you don't want to auto-update.
+UPDATE_ENABLED="true"

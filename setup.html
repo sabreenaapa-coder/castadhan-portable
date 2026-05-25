@@ -1,0 +1,472 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CastAdhan — Welcome</title>
+<style>
+  :root {
+    --gold: #d4af37;
+    --gold-dark: #b8941f;
+    --teal: #0e4d4a;
+    --cream: #fff8e7;
+    --soft-grey: #f4f1ea;
+    --accent-bg: #faf6e9;
+    --bg: #0c0a08;
+    --panel: #161310;
+    --text: #f4f1ea;
+    --muted: #8d847b;
+    --line: #2b251f;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", system-ui, sans-serif;
+    background: radial-gradient(circle at 50% 0%, #1a1611 0%, var(--bg) 70%);
+    color: var(--text);
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+  }
+  .card {
+    width: 100%;
+    max-width: 640px;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 16px;
+    padding: 40px;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+    position: relative;
+    overflow: hidden;
+  }
+  .card::before {
+    content: "";
+    position: absolute; top: 0; left: 0; right: 0; height: 3px;
+    background: linear-gradient(90deg, transparent, var(--gold), transparent);
+  }
+  h1 { color: var(--gold); font-size: 1.6rem; margin: 0 0 8px 0; font-weight: 600; }
+  h2 { color: var(--gold); font-size: 1.3rem; margin: 0 0 12px 0; font-weight: 500; }
+  p { color: var(--text); line-height: 1.6; margin: 0 0 16px 0; }
+  .muted { color: var(--muted); font-size: 0.9rem; }
+  .stepper {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 32px;
+    position: relative;
+  }
+  .stepper::before {
+    content: "";
+    position: absolute;
+    top: 14px;
+    left: 14px;
+    right: 14px;
+    height: 2px;
+    background: var(--line);
+    z-index: 0;
+  }
+  .step-dot {
+    width: 28px; height: 28px;
+    border-radius: 50%;
+    background: var(--panel);
+    border: 2px solid var(--line);
+    color: var(--muted);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.8rem;
+    font-weight: 600;
+    z-index: 1;
+    transition: all 0.3s;
+  }
+  .step-dot.active { background: var(--gold); border-color: var(--gold); color: #0c0a08; }
+  .step-dot.done { background: var(--teal); border-color: var(--teal); color: var(--cream); }
+  .step-panel { display: none; min-height: 280px; }
+  .step-panel.active { display: block; animation: fade 0.3s ease; }
+  @keyframes fade { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+  .btn {
+    display: inline-block;
+    background: var(--gold);
+    color: #0c0a08;
+    border: none;
+    border-radius: 8px;
+    padding: 12px 24px;
+    font-size: 1rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+    text-decoration: none;
+    font-family: inherit;
+  }
+  .btn:hover { background: var(--gold-dark); }
+  .btn.secondary {
+    background: transparent;
+    color: var(--gold);
+    border: 1px solid var(--gold);
+  }
+  .btn.secondary:hover { background: rgba(212,175,55,0.1); }
+  .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  .btn-row { display: flex; justify-content: space-between; margin-top: 28px; gap: 12px; }
+  .input, select {
+    width: 100%;
+    background: #0c0a08;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 12px 14px;
+    color: var(--text);
+    font-size: 1rem;
+    font-family: inherit;
+    margin-bottom: 12px;
+  }
+  .input:focus, select:focus { outline: none; border-color: var(--gold); }
+  .speaker-list { margin: 16px 0; max-height: 240px; overflow-y: auto; }
+  .speaker-row {
+    display: flex; align-items: center;
+    padding: 10px 12px;
+    margin-bottom: 6px;
+    background: #0c0a08;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+  }
+  .speaker-row label { flex: 1; cursor: pointer; }
+  .speaker-row input[type="checkbox"] { width: 18px; height: 18px; accent-color: var(--gold); margin-right: 12px; }
+  .toast {
+    position: fixed;
+    top: 24px;
+    right: 24px;
+    background: var(--teal);
+    color: var(--cream);
+    padding: 12px 18px;
+    border-radius: 8px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+    z-index: 1000;
+    opacity: 0;
+    transform: translateY(-8px);
+    transition: all 0.3s;
+  }
+  .toast.show { opacity: 1; transform: none; }
+  .pill {
+    display: inline-block;
+    background: var(--accent-bg);
+    color: var(--teal);
+    padding: 6px 12px;
+    border-radius: 999px;
+    font-size: 0.85rem;
+    font-weight: 600;
+  }
+  .summary-row {
+    display: flex;
+    justify-content: space-between;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--line);
+  }
+  .summary-row:last-child { border-bottom: none; }
+  .summary-label { color: var(--muted); }
+  .summary-value { color: var(--gold); font-weight: 600; }
+  .emoji { font-size: 2.4rem; display: block; text-align: center; margin-bottom: 12px; }
+  .center { text-align: center; }
+  .spinner {
+    display: inline-block;
+    width: 14px; height: 14px;
+    border: 2px solid var(--gold);
+    border-top-color: transparent;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+    margin-right: 6px;
+    vertical-align: middle;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+</style>
+</head>
+<body>
+  <div id="toast" class="toast"></div>
+
+  <div class="card">
+    <div class="stepper" id="stepper">
+      <div class="step-dot active" data-step="0">1</div>
+      <div class="step-dot" data-step="1">2</div>
+      <div class="step-dot" data-step="2">3</div>
+      <div class="step-dot" data-step="3">4</div>
+      <div class="step-dot" data-step="4">5</div>
+    </div>
+
+    <!-- Step 0: Welcome -->
+    <div class="step-panel active" data-panel="0">
+      <span class="emoji">🕌</span>
+      <h1 class="center">Assalamu alaikum</h1>
+      <p class="center muted">Welcome to <strong>CastAdhan Portable</strong>.</p>
+      <p>Over the next minute we'll set up your prayer times, find your speakers, and play your first test adhan.</p>
+      <p class="muted">You'll need: your home WiFi (already on), and at least one Google Cast / Nest speaker powered on.</p>
+      <div class="btn-row">
+        <span></span>
+        <button class="btn" onclick="goto(1)">Let's begin →</button>
+      </div>
+    </div>
+
+    <!-- Step 1: Location -->
+    <div class="step-panel" data-panel="1">
+      <h2>📍 Where are you?</h2>
+      <p class="muted">Prayer times depend entirely on your location. We can detect it automatically from your internet connection, or you can search for it manually.</p>
+      <div style="margin: 20px 0;">
+        <button class="btn" onclick="autoDetect()" id="auto-btn">📡 Auto-detect my location</button>
+      </div>
+      <p class="muted center" style="margin: 18px 0;">— or —</p>
+      <input class="input" id="loc-search" placeholder="e.g. London, UK">
+      <button class="btn secondary" onclick="searchLoc()">🔍 Search</button>
+      <div id="loc-result" style="margin-top: 18px;"></div>
+      <div class="btn-row">
+        <button class="btn secondary" onclick="goto(0)">← Back</button>
+        <button class="btn" onclick="goto(2)" id="loc-next" disabled>Next →</button>
+      </div>
+    </div>
+
+    <!-- Step 2: Method -->
+    <div class="step-panel" data-panel="2">
+      <h2>🧮 Calculation method</h2>
+      <p class="muted">Different scholars use slightly different angles to calculate Fajr and Isha. If you're not sure, leave it on ISNA — it's the most widely used in the UK and US.</p>
+      <select class="input" id="method-select">
+        <option value="ISNA">ISNA — Islamic Society of North America (Fajr 15°, Isha 15°)</option>
+        <option value="MWL">MWL — Muslim World League (Fajr 18°, Isha 17°)</option>
+        <option value="Egyptian">Egyptian General Authority (Fajr 19.5°, Isha 17.5°)</option>
+        <option value="Karachi">Karachi University (Fajr 18°, Isha 18°)</option>
+        <option value="Umm al-Qura">Umm al-Qura, Makkah</option>
+      </select>
+      <div class="btn-row">
+        <button class="btn secondary" onclick="goto(1)">← Back</button>
+        <button class="btn" onclick="goto(3)">Next →</button>
+      </div>
+    </div>
+
+    <!-- Step 3: Speakers -->
+    <div class="step-panel" data-panel="3">
+      <h2>🔊 Your speakers</h2>
+      <p class="muted">Choose which rooms should play the adhan. We'll scan your network now.</p>
+      <div id="speaker-list" class="speaker-list">
+        <p class="muted center"><span class="spinner"></span>Searching for speakers…</p>
+      </div>
+      <button class="btn secondary" onclick="rediscover()" style="font-size:0.9rem; padding:8px 14px;">🔄 Scan again</button>
+      <p class="muted" style="font-size:0.85rem; margin-top:12px;">
+        Don't see your speaker? Make sure it's powered on, connected to the same WiFi, and that it's a Google Cast / Nest / Chromecast device (Amazon Alexa doesn't work).
+      </p>
+      <div class="btn-row">
+        <button class="btn secondary" onclick="goto(2)">← Back</button>
+        <button class="btn" onclick="goto(4)">Next →</button>
+      </div>
+    </div>
+
+    <!-- Step 4: Summary / Test / Complete -->
+    <div class="step-panel" data-panel="4">
+      <span class="emoji">✅</span>
+      <h1 class="center">You're all set</h1>
+      <div style="margin: 20px 0; padding: 16px; background: #0c0a08; border-radius: 8px; border: 1px solid var(--line);">
+        <div class="summary-row"><span class="summary-label">Location</span><span class="summary-value" id="sum-loc">—</span></div>
+        <div class="summary-row"><span class="summary-label">Method</span><span class="summary-value" id="sum-method">—</span></div>
+        <div class="summary-row"><span class="summary-label">Speakers enabled</span><span class="summary-value" id="sum-speakers">—</span></div>
+        <div class="summary-row"><span class="summary-label">Next prayer</span><span class="summary-value" id="sum-next">—</span></div>
+      </div>
+      <p class="center"><button class="btn secondary" onclick="testAdhan()">🔔 Play a test adhan now</button></p>
+      <p class="muted center" style="font-size:0.85rem;">You can change anything later in Settings.</p>
+      <div class="btn-row">
+        <button class="btn secondary" onclick="goto(3)">← Back</button>
+        <button class="btn" onclick="finishSetup()" id="finish-btn">Open my dashboard →</button>
+      </div>
+    </div>
+  </div>
+
+<script>
+  const $ = id => document.getElementById(id);
+  let currentStep = 0;
+  let chosenLat = null, chosenLon = null, chosenCity = "", chosenCountry = "", chosenTz = "";
+  let speakers = [];
+  let speakerSelections = {};
+
+  function toast(msg, ms = 2400) {
+    const t = $('toast');
+    t.textContent = msg;
+    t.classList.add('show');
+    clearTimeout(t._h);
+    t._h = setTimeout(() => t.classList.remove('show'), ms);
+  }
+
+  function goto(step) {
+    document.querySelectorAll('.step-panel').forEach(p => p.classList.remove('active'));
+    document.querySelector(`.step-panel[data-panel="${step}"]`).classList.add('active');
+    document.querySelectorAll('.step-dot').forEach((d, i) => {
+      d.classList.remove('active', 'done');
+      if (i < step) d.classList.add('done');
+      else if (i === step) d.classList.add('active');
+    });
+    currentStep = step;
+    if (step === 3) discoverSpeakers();
+    if (step === 4) buildSummary();
+  }
+
+  async function autoDetect() {
+    const btn = $('auto-btn');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner"></span>Detecting…';
+    try {
+      const res = await fetch('/api/location/auto-detect?save=true', { method: 'POST' });
+      const data = await res.json();
+      if (!data.ok) {
+        toast('Auto-detect failed — try search instead');
+        btn.disabled = false;
+        btn.innerHTML = '📡 Auto-detect my location';
+        return;
+      }
+      const loc = data.location;
+      chosenLat = loc.lat; chosenLon = loc.lon;
+      chosenCity = loc.city; chosenCountry = loc.country; chosenTz = loc.timezone || '';
+      $('loc-result').innerHTML = `<span class="pill">📍 ${loc.city}, ${loc.country}</span>`;
+      $('loc-next').disabled = false;
+      btn.innerHTML = '📡 Detect again';
+      btn.disabled = false;
+      toast('Location set');
+    } catch (e) {
+      toast('Network error');
+      btn.disabled = false;
+      btn.innerHTML = '📡 Auto-detect my location';
+    }
+  }
+
+  async function searchLoc() {
+    const q = $('loc-search').value.trim();
+    if (!q) return;
+    try {
+      const res = await fetch('/api/location/search?q=' + encodeURIComponent(q));
+      const data = await res.json();
+      if (!Array.isArray(data) || data.length === 0) { toast('No results'); return; }
+      const p = data[0];
+      chosenLat = parseFloat(p.lat); chosenLon = parseFloat(p.lon);
+      chosenCity = p.city || p.name.split(',')[0].trim();
+      chosenCountry = p.country || '';
+      // Save via /api/config
+      await fetch('/api/config', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+          app: { location: { latitude: chosenLat, longitude: chosenLon, city: chosenCity, country: chosenCountry } }
+        })
+      });
+      $('loc-result').innerHTML = `<span class="pill">📍 ${chosenCity}, ${chosenCountry}</span>`;
+      $('loc-next').disabled = false;
+      toast('Location saved');
+    } catch (e) {
+      toast('Search failed');
+    }
+  }
+
+  async function discoverSpeakers() {
+    const listEl = $('speaker-list');
+    listEl.innerHTML = '<p class="muted center"><span class="spinner"></span>Searching for speakers…</p>';
+    try {
+      await fetch('/api/rediscover', { method: 'POST' });
+      // Small delay for discovery
+      await new Promise(r => setTimeout(r, 2500));
+      // D7 FIX (2026-05-23): /api/speaker/status returns {ok, status: {name: playing-bool}}
+      // — NOT a {speakers: []} array as this code originally expected. Pull from /api/state
+      // which has the full devices.speakers list + enabled flags. Patched on Pi 4 Sat morning,
+      // backported to Mac source Sat night so it never reappears on a fresh flash.
+      const res = await fetch('/api/state');
+      const data = await res.json();
+      const allEnabled = (data.enabled && data.enabled.speakers) || {};
+      speakers = ((data.devices && data.devices.speakers) || []).map(sp => Object.assign({}, sp, { enabled: allEnabled[sp.name] !== false }));
+      if (speakers.length === 0) {
+        listEl.innerHTML = '<p class="muted center">No speakers found yet. Make sure they\'re powered on and on the same WiFi, then click "Scan again".</p>';
+        return;
+      }
+      listEl.innerHTML = '';
+      speakers.forEach(sp => {
+        const wasEnabled = sp.enabled !== false;
+        speakerSelections[sp.name] = wasEnabled;
+        const row = document.createElement('div');
+        row.className = 'speaker-row';
+        row.innerHTML = `
+          <input type="checkbox" id="sp-${sp.name.replace(/[^a-z0-9]/gi, '_')}" ${wasEnabled ? 'checked' : ''}>
+          <label for="sp-${sp.name.replace(/[^a-z0-9]/gi, '_')}">${sp.name}</label>
+        `;
+        const cb = row.querySelector('input');
+        cb.addEventListener('change', async () => {
+          speakerSelections[sp.name] = cb.checked;
+          try {
+            await fetch('/api/speaker/toggle', {
+              method: 'POST',
+              headers: {'Content-Type': 'application/json'},
+              body: JSON.stringify({ name: sp.name, enabled: cb.checked })
+            });
+          } catch (e) { /* silent */ }
+        });
+        listEl.appendChild(row);
+      });
+    } catch (e) {
+      listEl.innerHTML = '<p class="muted center">Couldn\'t reach the speaker service. Try again.</p>';
+    }
+  }
+  async function rediscover() { await discoverSpeakers(); }
+
+  async function buildSummary() {
+    $('sum-loc').textContent = chosenCity ? `${chosenCity}, ${chosenCountry}` : 'Not set';
+    $('sum-method').textContent = $('method-select').value;
+    const enabledCount = Object.values(speakerSelections).filter(v => v).length;
+    $('sum-speakers').textContent = `${enabledCount} of ${speakers.length}`;
+    // Save method
+    try {
+      await fetch('/api/config', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ app: { calculation_method: $('method-select').value } })
+      });
+    } catch (e) {}
+    // Pull next prayer
+    try {
+      const res = await fetch('/api/state');
+      const data = await res.json();
+      const next = data.next_prayer || data.next || null;
+      if (next && next.name) {
+        const t = next.time_pretty || (next.when ? next.when.slice(11,16) : '');
+        $('sum-next').textContent = `${next.name} at ${t}`;
+      }
+    } catch (e) {}
+  }
+
+  async function testAdhan() {
+    try {
+      toast('Playing test adhan…');
+      await fetch('/api/test/play', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ type: 'adhan' })
+      });
+    } catch (e) { toast('Couldn\'t play test'); }
+  }
+
+  async function finishSetup() {
+    const btn = $('finish-btn');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner"></span>Finishing…';
+    try {
+      const res = await fetch('/api/setup/complete', { method: 'POST' });
+      const data = await res.json();
+      if (data.ok) {
+        toast('Setup complete!');
+        setTimeout(() => { window.location.href = '/'; }, 700);
+      } else {
+        toast('Could not save: ' + (data.error || 'unknown'));
+        btn.disabled = false;
+        btn.innerHTML = 'Open my dashboard →';
+      }
+    } catch (e) {
+      toast('Network error');
+      btn.disabled = false;
+      btn.innerHTML = 'Open my dashboard →';
+    }
+  }
+
+  // If setup is already complete, send them to /
+  fetch('/api/setup/status').then(r => r.json()).then(d => {
+    if (d.setup_complete) window.location.href = '/';
+  });
+</script>
+</body>
+</html>

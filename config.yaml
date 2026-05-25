@@ -1,0 +1,81 @@
+app:
+  calculation_method: ISNA
+  host: 0.0.0.0
+  # Location is intentionally empty in the default config. The welcome wizard
+  # fills it in via "Search & Set" (recommended) or the IP-geolocation
+  # auto-detect button (known unreliable on some UK ISPs — see B-Belgium-1,
+  # O3 in INCIDENT_REPORT for context).
+  location:
+    city: ''
+    country: ''
+    latitude: 0.0
+    longitude: 0.0
+  port: 8786
+  # Timezone is also filled by the wizard once the location is set. Default is
+  # London; the wizard's timezone dropdown auto-suggests based on lat/lon and
+  # has 55+ entries with regional optgroups.
+  timezone: Europe/London
+
+# Full audio library. Files are pre-converted on the build machine to
+# *_compatible.mp3 siblings so the Pi never needs to invoke pydub (which OOMs
+# on Pi 3 A+ / Pi Zero W). See Issues 4-9 in the incident report.
+audio:
+  adhan: audio/adhan.mp3
+  asr_warning: audio/asr_warning.mp3
+  barry_dua: audio/friday_prayer_BARRY_DUA.mp3
+  dhuhr_warning: audio/dhuhr_warning.mp3
+  evening_dhikr: audio/evening_dhikr.mp3
+  fajr_warning: audio/fajr_warning.mp3
+  friday_prayer: audio/friday_prayer.mp3
+  maghrib_warning: audio/maghrib_warning.mp3
+  morning_dhikr: audio/morning_dhikr.mp3
+  suhoor_alarm: audio/suhoor_alarm.mp3
+  surah_kahf: audio/surah_kahf.mp3
+  takbeeraat: audio/takbeeraat.mp3
+  twilight: audio/twilight.mp3
+  wakeup: audio/wakey_wakey.mp3
+
+rules:
+  # Auto-detect was found unreliable on UK ISPs that return the carrier's POP
+  # instead of the customer's actual location (TalkTalk -> Birkenhead/Chester).
+  # Default is OFF — users should use the wizard's Search & Set instead.
+  auto_detect_location_on_startup: false
+  enable_eid_takbeeraat: true
+  evening_after_maghrib_minutes: 30
+  evening_dhikr_cutoff_time: '20:00'
+  fajr_at_start_when_isha_capped: true
+  fajr_weekend_offset_minutes: -30
+  fajr_workday_cap: 07:00
+  friday_prayer_gap_seconds: 5
+  # combine_prayers is correct for high latitudes (Belgium, Netherlands, UK
+  # north of London): Isha cannot be reliably calculated in summer and is
+  # combined with Maghrib; Fajr defers to sunrise-30 when raw Fajr lands in
+  # persistent twilight.
+  high_latitude_method: combine_prayers
+  isha_max_time: ''
+  isha_static_offset_minutes: 90
+  morning_dhikr_time: 07:00
+  setup_complete: false
+  skip_isha_during_persistent_twilight: true
+  suhoor_lead_minutes: 30
+  twilight_scan_frequency_days: 14
+  wakeup_enabled: true
+  wakeup_time: 06:30
+  wakeup_weekdays_only: true
+  # UI language: en / nl / fr / ar. The wizard exposes a language picker.
+  language: en
+
+speakers:
+  audio_routing: {}
+  # Exclude common Cast "displays" (Nest Hub etc.) which appear as Cast targets
+  # but don't really suit adhan playback.
+  exclude_if_name_contains_any:
+  - display
+  - hub
+  - nest hub
+  general_volume: 0.7
+  # MUST be empty by default. Earlier shipped "speaker" — blocked any speaker
+  # without the English word "speaker" in its name (e.g. Dutch "Huiskamer").
+  # See B-Belgium-1 in INCIDENT_REPORT for the field bug that surfaced this.
+  include_if_name_contains: ""
+  suhoor_exclude_names: []

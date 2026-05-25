@@ -1,0 +1,11 @@
+flask>=3.0.0
+apscheduler>=3.10.0
+requests>=2.31.0
+pychromecast>=14.0.0
+pydub>=0.25.1
+# audioop-lts is required on Python 3.13+ (the audioop stdlib module was
+# removed in 3.13 but pydub still imports it). Harmless on older Pythons.
+audioop-lts>=0.2.1; python_version >= "3.13"
+PyYAML>=6.0
+pytz>=2024.1
+gunicorn>=21.0.0

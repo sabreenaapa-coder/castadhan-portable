@@ -1,0 +1,16 @@
+[Unit]
+Description=Run CastAdhan auto-update daily at 04:00 local time
+Requires=castadhan-update.service
+
+[Timer]
+# Run daily at 04:00 local time + up to 1 hour of jitter
+# (so a thousand Pis don't all hit GitHub at exactly 04:00:00)
+OnCalendar=*-*-* 04:00:00
+RandomizedDelaySec=3600
+Persistent=true
+
+# Also run 10 minutes after boot, in case the Pi was off at 04:00
+OnBootSec=10min
+
+[Install]
+WantedBy=timers.target

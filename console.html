@@ -1,0 +1,2254 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>CastAdhan - Complete Speaker Management Console</title>
+<style>
+  :root{
+    --bg:#0d0d0d; --fg:#f0f0f0; --gold:#D4AF37; --silver:#b0b0b0;
+    --card-bg:rgba(20,20,20,.6); --card-bd:rgba(212,175,55,.3); --card-hi:rgba(212,175,55,.15);
+    --clock:55vh;
+    --zone-night: #111111;
+    --zone-dawn: #1a1a1a;
+    --zone-morning: #2a2a2a;
+    --zone-noon: #3a3a3a;
+    --zone-afternoon: #333333;
+    --zone-evening: #222222;
+    --emergency-red: #ff4444;
+    --emergency-dark: #aa2222;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--bg);color:var(--fg);font-family:"Segoe UI",system-ui,-apple-system,sans-serif;height:100vh;display:flex;align-items:center;justify-content:center;overflow:hidden;transition:background 2s ease;}
+  .container{width:95%;height:95%;display:grid;grid-template-rows:auto 1fr auto auto;position:relative;gap:10px;}
+  .header{text-align:center}
+  .title{color:var(--gold);letter-spacing:.18em;text-transform:uppercase;font-weight:300;font-size:2.2rem}
+  .subtitle{color:var(--silver);opacity:.9;font-size:1rem;margin-top:.2rem}
+  .main{display:grid;grid-template-columns:1fr 1.5fr 1fr;gap:1.5vw;align-items:center}
+  /* LAYOUT FIX (2026-05-23): align-self:end matches Home v4.5 — pushes Fajr/Asr cards to the
+     BOTTOM of the grid row so they clear the absolutely-positioned Speakers + Quick Actions panels
+     at the top. .center stays vertically centered. */
+  .panel{display:flex;flex-direction:column;gap:1.5vh;align-self:end}
+  .center{align-self:center}
+  .card{background:var(--card-bg);border:1px solid var(--card-bd);border-radius:8px;padding:1vh 1vw;display:flex;justify-content:space-between;align-items:center}
+  .card.next{background:var(--card-hi);border-color:var(--gold);box-shadow:0 0 10px rgba(212,175,55,.35)}
+  .card .name{font-size:1.2rem}
+  .card .time{font-size:1.8rem;font-weight:800;color:var(--gold);letter-spacing:.02em}
+  .center{position:relative;display:flex;flex-direction:column;align-items:center}
+  .clock{width:var(--clock);height:var(--clock);border-radius:50%;border:4px solid var(--gold);position:relative;background:#1a1a1a;box-shadow:0 0 30px rgba(212,175,55,.2) inset, 0 0 25px rgba(212,175,55,.15)}
+  .zones{position:absolute;inset:0;border-radius:50%;transition:background .5s ease}
+  .glow{position:absolute;inset:0;border-radius:50%;background:radial-gradient(circle at center, rgba(212,175,55,0.15) 0%, transparent 70%);z-index:2;pointer-events:none;transition:transform 1s linear;}
+  .hub{position:absolute;inset:auto;left:50%;top:50%;transform:translate(-50%,-50%);width:16px;height:16px;border-radius:50%;background:var(--gold);border:2px solid var(--bg);z-index:5}
+  .hand{position:absolute;left:50%;bottom:50%;transform-origin:bottom center;border-radius:4px}
+  .hour{width:5px;height:35%;background:var(--gold);z-index:4}
+  .minute{width:3px;height:45%;background:var(--fg);opacity:.95;z-index:3}
+  .second{width:1px;height:48%;background:var(--gold);opacity:.7;z-index:2}
+  .num{position:absolute;font-size:0.8rem;color:var(--silver);transform:translate(-50%,-50%);user-select:none}
+  .pin{position:absolute;top:0;left:50%;width:8px;height:50%;transform-origin:bottom center;z-index:6}
+  .dot{position:absolute;top:8px;left:50%;transform:translateX(-50%);width:8px;height:8px;border-radius:50%;background:var(--gold);box-shadow:0 0 8px var(--gold)}
+  .prayer-line {
+    position: absolute;
+    top: 0;
+    left: 50%;
+    height: 50%;
+    width: 1px;
+    transform-origin: bottom center;
+    background: rgba(180, 180, 180, 0.3);
+    z-index: 1;
+    pointer-events: none;
+  }
+  .time-big{font-size:2rem;margin-top:2vh;color:var(--gold);font-weight:800;letter-spacing:.08em}
+  .date{margin-top:0.5vh;font-size:0.9rem;color:var(--silver)}
+  .hijri{margin-top:.2vh;font-size:0.8rem;color:var(--silver);opacity:.9}
+  /* D9-followup v2 (2026-05-23): make countdown flow inline (centered) so it doesn't
+     overlap the Hijri date OR the Isha card. Sits between Hijri and footer naturally. */
+  .countdown{display:inline-block;margin:14px auto 6px auto;background: rgba(20, 20, 20, 0.85);border: 1px solid var(--gold);border-radius: 8px;padding: 6px 14px;font-size: 0.95rem;min-width: 180px;text-align: center;}
+  .countdown-wrap{text-align:center; margin-top: 8px;}
+  .footer {text-align: center;padding-top: 5px;font-size: 0.8rem;opacity: 0.6;}
+  
+  /* Control Panels */
+  .control-panel {background: var(--card-bg);border: 1px solid var(--card-bd);border-radius: 8px;padding: 12px;z-index: 10;}
+  .control-panel h3 {color: var(--gold);margin-bottom: 8px;font-size: 1rem;font-weight: 400;display: flex;align-items: center;gap: 6px;}
+  
+  /* Speaker Controls (Left) */
+  /* D8 FIX v2 (2026-05-23): compromise — keep panel compact at 55vh so it doesn't
+     swallow the whole viewport, but tall enough to show 5 speakers + 2 buttons without
+     scroll. Remaining buttons are reachable via internal scroll. Custom scrollbar makes
+     the scroll-affordance visible (was invisible default scrollbar). */
+  .speaker-controls {
+    position: absolute; top: 10px; left: 10px; width: 250px;
+    max-height: 55vh; overflow-y: auto;
+    scrollbar-width: thin; scrollbar-color: var(--gold) transparent;
+  }
+  .speaker-controls::-webkit-scrollbar { width: 6px; }
+  .speaker-controls::-webkit-scrollbar-thumb { background: var(--gold); border-radius: 3px; }
+  /* D9 FIX v4 (2026-05-23): replaced margin-top hack with proper align-self:end on .panel
+     (mirrors Home v4.5). The grid now places cards at the bottom of the row, clearing the
+     overlay panels naturally. No more margin-top needed. */
+  .speaker-item {display: flex;align-items: center;padding: 5px;margin: 2px 0;background: rgba(0,0,0,0.3);border-radius: 4px;}
+  .speaker-name {flex: 2;font-size: 0.9rem;white-space: nowrap;overflow: hidden;text-overflow: ellipsis;}
+  .speaker-status {width: 10px;height: 10px;border-radius: 50%;margin-right: 5px;}
+  .status-playing {background: #00ff00;box-shadow: 0 0 5px #00ff00;}
+  .status-stopped {background: #666;}
+  .speaker-toggle {margin: 0 5px;}
+  .speaker-volume {width: 60px;}
+  
+  /* Toggle Switch */
+  .switch {position: relative;display: inline-block;width: 36px;height: 20px;margin: 0 5px;}
+  .switch input {opacity: 0;width: 0;height: 0;}
+  .slider {position: absolute;cursor: pointer;top: 0;left: 0;right: 0;bottom: 0;background-color: #666;transition: .2s;border-radius: 20px;}
+  .slider:before {position: absolute;content: "";height: 16px;width: 16px;left: 2px;bottom: 2px;background-color: white;transition: .2s;border-radius: 50%;}
+  input:checked + .slider {background-color: var(--gold);}
+  input:checked + .slider:before {transform: translateX(16px);}
+  
+  /* Action Controls (Right) */
+  .action-controls {position: absolute;top: 10px;right: 10px;width: 200px;}
+  .emergency-btn {background: var(--emergency-red);border-color: #fff;color: white;font-weight: bold;text-transform: uppercase;letter-spacing: 1px;margin-top: 10px;}
+  .emergency-btn:hover {background: var(--emergency-dark);}
+  
+  /* Settings Modal */
+  .modal {display: none;position: fixed;z-index: 1000;left: 0;top: 0;width: 100%;height: 100%;background-color: rgba(0,0,0,0.8);}
+  .modal-content {background: var(--bg);border: 2px solid var(--gold);border-radius: 8px;margin: 5% auto;padding: 20px;width: 80%;max-width: 900px;max-height: 80vh;overflow-y: auto;}
+  .close {color: var(--silver);float: right;font-size: 28px;font-weight: bold;cursor: pointer;}
+  .close:hover {color: var(--gold);}
+  .modal-tabs {display: flex;border-bottom: 1px solid var(--card-bd);margin-bottom: 15px;position:sticky;top:0;z-index:2;background:var(--bg);}
+  .tab-btn {background: none;border: none;color: var(--silver);padding: 8px 16px;cursor: pointer;font-size: 1rem;}
+  .tab-btn.active {color: var(--gold);border-bottom: 2px solid var(--gold);}
+  .tab-pane {display: none;}
+  .tab-pane.active {display: block;}
+  
+  /* Settings Grid */
+  .settings-grid {display: grid;grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));gap: 15px;}
+  .control-group {border: 1px solid var(--card-bd);border-radius: 5px;padding: 10px;margin-bottom: 10px;}
+  .control-group h4 {color: var(--gold);margin-bottom: 8px;font-size: 0.95rem;}
+  .setting-item {display: flex;flex-direction: column;margin-bottom: 8px;}
+  .setting-item label {font-size: 0.8rem;color: var(--silver);margin-bottom: 2px;}
+  .setting-item input, .setting-item select {background: rgba(0,0,0,0.5);border: 1px solid var(--card-bd);color: var(--fg);padding: 4px 8px;border-radius: 4px;font-size:0.9rem;}
+  .setting-item.checkbox {flex-direction: row;align-items: center;gap: 8px;}
+  .radio-group {display: flex;gap: 15px;flex-wrap: wrap;}
+  .slider-value {display: inline-block;min-width: 40px;text-align: center;color: var(--gold);}
+  .range-input {width: 100%;margin: 5px 0;cursor:pointer;}
+  
+  /* Audio Routing Matrix */
+  .routing-matrix {width: 100%;border-collapse: collapse;font-size: 0.8rem;}
+  .routing-matrix th {position: sticky;top: 0;background: var(--card-bg);color: var(--gold);padding: 5px;}
+  .routing-matrix td {text-align: center;padding: 3px;}
+  .routing-matrix input[type="checkbox"] {transform: scale(1.2);}
+  .speaker-row:hover {background: var(--card-hi);}
+  
+  /* Buttons */
+  .control-btn {background: rgba(212,175,55,0.15);border: 1px solid var(--gold);color: var(--fg);border-radius: 4px;padding: 6px 10px;margin: 3px 0;cursor: pointer;width: 100%;text-align: left;transition: all 0.2s ease;display: flex;align-items: center;gap: 6px;font-size:0.9rem;}
+  .control-btn:hover {background: rgba(212,175,55,0.3);}
+  .save-btn {background: rgba(212,175,55,0.3);border: 1px solid var(--gold);color: var(--gold);padding: 6px 12px;border-radius: 4px;cursor: pointer;font-weight:bold;}
+  .save-btn:hover {background: rgba(212,175,55,0.5);}
+  
+  /* Toast */
+  .toast {position: fixed;bottom: 20px;left: 50%;transform: translateX(-50%);background: rgba(20, 20, 20, 0.9);color: var(--fg);border: 1px solid var(--gold);border-radius: 5px;padding: 8px 16px;z-index: 100;opacity: 0;transition: opacity 0.3s ease;}
+  .toast.show {opacity: 1;}
+  
+  /* Misc */
+  .sunrise-marker {position: absolute;width: 8px;height: 8px;background: var(--gold);border-radius: 50%;z-index: 7;transform: translate(-50%, -50%);}
+  /* LAYOUT FIX (2026-05-23): match Home v4.5 — moon is now an inline flex item in .below-clock,
+     no longer absolutely positioned on the clock face. */
+  .moon-phase {font-size: 2em;opacity: 0.8;pointer-events: none;text-shadow: 0 0 12px rgba(255,255,255,.4), 0 0 24px rgba(180,160,80,.3);flex-shrink:0;text-align:center;min-width:60px;}
+  /* below-clock flex row: moon | digital-time | weather (Home v4.5 layout). */
+  .below-clock {display:flex; align-items:center; justify-content:space-between; width:var(--clock,420px); margin-top:1.2vh; gap:.5vw;}
+  .below-clock-center {flex:1; text-align:center; overflow:hidden;}
+  /* LAYOUT FIX (2026-05-23): match Home v4.5 — weather is now an inline flex item in .below-clock,
+     full stacked layout (icon / temp / condition). Same styling as Home. */
+  .weather-widget {font-size: 1em; opacity: 0.85; pointer-events: none;
+    background: rgba(12,10,4,.8); backdrop-filter: blur(8px);
+    border: 1px solid rgba(212,175,55,.3); border-radius: 10px; padding: 8px;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    min-width: 72px; flex-shrink: 0; box-shadow: 0 4px 16px rgba(0,0,0,.5);}
+  .weather-icon {font-size: 1.5em;}
+  .weather-temp {font-size: 1em; color: var(--gold);}
+  .weather-condition {font-size: 0.7em; color: var(--silver); text-align: center; max-width: 80px;}
+  .weather-icon {font-size: 1.5em;}
+  .weather-temp {font-size: 1em;color: var(--gold);}
+  .weather-condition {font-size: 0.7em;color: var(--silver);text-align: center;max-width: 80px;}
+  .clock-container {position: relative;width: var(--clock);height: var(--clock);}
+</style>
+</head>
+<body>
+<div class="container">
+  <!-- Speaker Controls (Left) -->
+  <div class="control-panel speaker-controls">
+    <h3>🔊 Speakers <span id="speaker-count"></span></h3>
+    <div id="speaker-list"></div>
+    <button class="control-btn" onclick="speakerAction('all_on')">✅ Enable All</button>
+    <button class="control-btn" onclick="speakerAction('all_off')">❌ Disable All</button>
+    <button class="control-btn" onclick="speakerAction('rediscover')">🔄 Rediscover</button>
+    <button class="control-btn" onclick="speakerAction('force_discover')">⚡ Force Rediscover</button>
+    <button class="control-btn" onclick="openSettingsModal('speakers')">⚙️ Audio Routing</button>
+  </div>
+
+  <!-- Action Controls (Right) -->
+  <div class="control-panel action-controls">
+    <h3>⚡ Quick Actions</h3>
+    <button class="control-btn" onclick="quickAction('test_adhan')">🔔 Test Adhan</button>
+    <button class="control-btn" onclick="quickAction('dua_of_soul')">🤲 Dua of the Soul</button>
+    <button class="control-btn" onclick="quickAction('stop_all')">⏹️ Stop All</button>
+    <button class="control-btn emergency-btn" onclick="emergencyStop()">🚨 EMERGENCY STOP</button>
+    <button class="control-btn" onclick="quickAction('refresh')">🔄 Refresh Data</button>
+    <button class="control-btn" onclick="openSettingsModal('basic')">⚙️ Settings</button>
+  </div>
+
+  <!-- i18n picker v4 (2026-05-23): top-right floating widget, prominent + always visible.
+       Sits to the LEFT of the Quick Actions panel so they don't overlap. -->
+  <div id="lang-picker-wrapper"
+       style="position:fixed; top:14px; right:220px; z-index:50;
+              display:flex; align-items:center; gap:6px; font-size:0.85em;
+              background:rgba(15,12,8,0.92); border:1px solid var(--gold);
+              border-radius:8px; padding:4px 8px;">
+    <span style="color:var(--silver); opacity:0.7;">🌐</span>
+    <select id="lang-picker"
+            onchange="setLanguage(this.value)"
+            style="background:transparent; color:var(--gold); border:none;
+                   font-size:0.95em; cursor:pointer; outline:none;"
+            title="Change UI language / Wijzig taal / Changer la langue / تغيير اللغة">
+      <option value="en">🇬🇧 English</option>
+      <option value="nl">🇳🇱 Nederlands</option>
+      <option value="fr">🇫🇷 Français</option>
+      <option value="ar">🇸🇦 العربية</option>
+    </select>
+  </div>
+
+  <div class="header">
+    <div class="title">PRAYER TIMES</div>
+    <div class="subtitle" id="location-display">Set your location in Settings</div>
+  </div>
+
+  <div class="main">
+    <div class="panel" id="panel-left"></div>
+
+    <div class="center">
+      <div class="clock-container">
+        <div class="clock" id="clock">
+          <div id="zones" class="zones"></div>
+          <div class="glow" id="glow"></div>
+          <div class="hub"></div>
+          <div class="hand hour" id="hHand"></div>
+          <div class="hand minute" id="mHand"></div>
+          <div class="hand second" id="sHand"></div>
+          <div id="sunriseMarker" class="sunrise-marker"></div>
+        </div>
+      </div>
+      <!-- LAYOUT FIX (2026-05-23): match Home CastAdhan v4.5 layout — moon and weather
+           flank the digital time block in a horizontal flex row below the clock. -->
+      <div class="below-clock">
+        <div id="moon-phase" class="moon-phase">🌙</div>
+        <div class="below-clock-center">
+          <div class="time-big" id="digital">--:--:--</div>
+          <div class="date" id="greg">--</div>
+          <div class="hijri" id="hijri">--</div>
+        </div>
+        <div id="weather-widget" class="weather-widget">
+          <div class="weather-icon">☀️</div>
+          <div class="weather-temp">--°C</div>
+          <div class="weather-condition">Loading...</div>
+        </div>
+      </div>
+    </div>  <!-- closes .center — was missing, made panel-right nest INSIDE .center -->
+
+    <div class="panel" id="panel-right"></div>
+  </div>
+
+  <div class="countdown-wrap"><div class="countdown" id="nextBox">Next: --</div></div>
+
+  <!-- (moved to top-right corner of viewport — see #lang-picker-wrapper below header) -->
+
+  <div class="footer"><p>CastAdhan v3.2 • <span id="current-year"></span></p></div>
+  <div class="toast" id="toast"></div>
+</div>
+
+<!-- Settings Modal -->
+<div id="settingsModal" class="modal">
+  <div class="modal-content">
+    <span class="close" onclick="closeSettings()">&times;</span>
+    <div class="modal-tabs">
+      <!-- S2 FIX (2026-05-23): added IDs so switchTab() can find and highlight active button -->
+      <button id="tab-basic"    class="tab-btn active" onclick="switchTab('basic')">Basic</button>
+      <button id="tab-wakeup"   class="tab-btn"        onclick="switchTab('wakeup')">⏰ Wakeup</button>
+      <button id="tab-advanced" class="tab-btn"        onclick="switchTab('advanced')">Advanced</button>
+      <button id="tab-speakers" class="tab-btn"        onclick="switchTab('speakers')">Speaker Routing</button>
+      <button id="tab-audio"    class="tab-btn"        onclick="switchTab('audio')">Audio Files</button>
+    </div>
+    
+    <div id="basic-tab" class="tab-pane active">
+      <div class="settings-grid">
+        <!-- Location Settings -->
+        <div class="control-group">
+          <h4>📍 Location</h4>
+          <div class="setting-item">
+            <label>City/Country Search</label>
+            <input type="text" id="location-search" placeholder="e.g., London, UK">
+            <button class="control-btn" onclick="searchLocation()" style="margin-top:5px;">🔍 Search & Set</button>
+            <!-- S5 FIX (2026-05-23): demoted auto-detect with explicit warning.
+                 IP geolocation returns the ISP's POP (e.g. TalkTalk → Birkenhead/Chester) not the user's actual city. -->
+            <button class="control-btn" onclick="autoDetectLocation()"
+                    style="margin-top:5px; font-size:0.8em; opacity:0.65; background:transparent; border:1px dashed #888; color:#aaa;"
+                    title="Best-effort. Returns your ISP's data-centre city, which is often wrong (especially TalkTalk, Sky, BT). Use Search above for accurate location.">
+              📡 Auto-Detect from IP <em>(often inaccurate — prefer Search)</em>
+            </button>
+          </div>
+          <div class="setting-item">
+            <input type="checkbox" id="config-autodetect-startup" checked>
+            <label for="config-autodetect-startup">Auto-detect location on every startup</label>
+          </div>
+          <div class="setting-item">
+            <label>Latitude</label>
+            <input type="number" step="0.0001" id="config-latitude" value="51.5074">
+          </div>
+          <div class="setting-item">
+            <label>Longitude</label>
+            <input type="number" step="0.0001" id="config-longitude" value="-0.1278">
+          </div>
+          <div class="setting-item">
+            <label>Timezone</label>
+            <!-- S3 FIX (2026-05-23): expanded from 14 to 50+ timezones with regional optgroups.
+                 Brussels was missing → aunt's Belgium box couldn't pick correct TZ. -->
+            <select id="config-timezone">
+              <optgroup label="Europe">
+                <option value="Europe/Amsterdam">Europe/Amsterdam</option>
+                <option value="Europe/Athens">Europe/Athens</option>
+                <option value="Europe/Berlin">Europe/Berlin</option>
+                <option value="Europe/Brussels">Europe/Brussels</option>
+                <option value="Europe/Bucharest">Europe/Bucharest</option>
+                <option value="Europe/Budapest">Europe/Budapest</option>
+                <option value="Europe/Copenhagen">Europe/Copenhagen</option>
+                <option value="Europe/Dublin">Europe/Dublin</option>
+                <option value="Europe/Helsinki">Europe/Helsinki</option>
+                <option value="Europe/Istanbul">Europe/Istanbul</option>
+                <option value="Europe/Lisbon">Europe/Lisbon</option>
+                <option value="Europe/London">Europe/London</option>
+                <option value="Europe/Madrid">Europe/Madrid</option>
+                <option value="Europe/Moscow">Europe/Moscow</option>
+                <option value="Europe/Oslo">Europe/Oslo</option>
+                <option value="Europe/Paris">Europe/Paris</option>
+                <option value="Europe/Prague">Europe/Prague</option>
+                <option value="Europe/Rome">Europe/Rome</option>
+                <option value="Europe/Stockholm">Europe/Stockholm</option>
+                <option value="Europe/Vienna">Europe/Vienna</option>
+                <option value="Europe/Warsaw">Europe/Warsaw</option>
+                <option value="Europe/Zurich">Europe/Zurich</option>
+              </optgroup>
+              <optgroup label="Americas">
+                <option value="America/New_York">America/New_York</option>
+                <option value="America/Chicago">America/Chicago</option>
+                <option value="America/Denver">America/Denver</option>
+                <option value="America/Los_Angeles">America/Los_Angeles</option>
+                <option value="America/Toronto">America/Toronto</option>
+                <option value="America/Vancouver">America/Vancouver</option>
+                <option value="America/Mexico_City">America/Mexico_City</option>
+                <option value="America/Sao_Paulo">America/Sao_Paulo</option>
+                <option value="America/Buenos_Aires">America/Buenos_Aires</option>
+              </optgroup>
+              <optgroup label="Middle East / North Africa">
+                <option value="Africa/Cairo">Africa/Cairo</option>
+                <option value="Africa/Casablanca">Africa/Casablanca</option>
+                <option value="Asia/Dubai">Asia/Dubai</option>
+                <option value="Asia/Riyadh">Asia/Riyadh</option>
+                <option value="Asia/Tehran">Asia/Tehran</option>
+                <option value="Asia/Jerusalem">Asia/Jerusalem</option>
+                <option value="Asia/Beirut">Asia/Beirut</option>
+                <option value="Asia/Baghdad">Asia/Baghdad</option>
+              </optgroup>
+              <optgroup label="Asia">
+                <option value="Asia/Karachi">Asia/Karachi</option>
+                <option value="Asia/Kabul">Asia/Kabul</option>
+                <option value="Asia/Kolkata">Asia/Kolkata</option>
+                <option value="Asia/Dhaka">Asia/Dhaka</option>
+                <option value="Asia/Bangkok">Asia/Bangkok</option>
+                <option value="Asia/Jakarta">Asia/Jakarta</option>
+                <option value="Asia/Singapore">Asia/Singapore</option>
+                <option value="Asia/Kuala_Lumpur">Asia/Kuala_Lumpur</option>
+                <option value="Asia/Manila">Asia/Manila</option>
+                <option value="Asia/Hong_Kong">Asia/Hong_Kong</option>
+                <option value="Asia/Shanghai">Asia/Shanghai</option>
+                <option value="Asia/Tokyo">Asia/Tokyo</option>
+                <option value="Asia/Seoul">Asia/Seoul</option>
+              </optgroup>
+              <optgroup label="Africa (Sub-Saharan)">
+                <option value="Africa/Lagos">Africa/Lagos</option>
+                <option value="Africa/Nairobi">Africa/Nairobi</option>
+                <option value="Africa/Johannesburg">Africa/Johannesburg</option>
+                <option value="Africa/Addis_Ababa">Africa/Addis_Ababa</option>
+              </optgroup>
+              <optgroup label="Australia / Pacific">
+                <option value="Australia/Perth">Australia/Perth</option>
+                <option value="Australia/Adelaide">Australia/Adelaide</option>
+                <option value="Australia/Sydney">Australia/Sydney</option>
+                <option value="Pacific/Auckland">Pacific/Auckland</option>
+              </optgroup>
+              <optgroup label="UTC">
+                <option value="UTC">UTC</option>
+              </optgroup>
+            </select>
+          </div>
+          <div class="setting-item">
+            <label>Calculation Method</label>
+            <select id="config-method">
+              <option value="ISNA">ISNA</option>
+              <option value="MWL">Muslim World League</option>
+              <option value="UmmAlQura">Umm Al-Qura</option>
+              <option value="Egyptian">Egyptian</option>
+              <option value="Karachi">Karachi</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- Fajr Rules + D11 FIX (2026-05-23): also pulled Evening Content + Suhoor here
+             so the right column isn't an empty void next to a tall Schedule block. -->
+        <div class="control-group">
+          <h4>🌅 Fajr Rules</h4>
+          <div class="setting-item">
+            <label>Workday Cap Time</label>
+            <input type="time" id="config-fajr-cap" value="07:00">
+          </div>
+          <div class="setting-item">
+            <label>Weekend Offset (minutes before sunrise)</label>
+            <input type="number" id="config-weekend-offset" value="-30" step="5">
+          </div>
+        </div>
+
+        <div class="control-group">
+          <h4>🌙 Evening &amp; Ramadan</h4>
+          <div class="setting-item">
+            <label>Evening Content (mins after Maghrib)</label>
+            <input type="number" id="config-evening-delay" value="30" min="0" max="120">
+          </div>
+          <div class="setting-item">
+            <label>Suppress evening dhikr if it would end after</label>
+            <input type="time" id="config-evening-cutoff" value="20:00">
+          </div>
+          <div class="setting-item">
+            <label>Suhoor Lead Minutes</label>
+            <input type="number" id="config-suhoor-lead" value="30" min="0" max="120">
+          </div>
+        </div>
+
+        <!-- Schedule Settings -->
+        <div class="control-group">
+          <h4>⏰ Schedule</h4>
+          <div class="setting-item">
+            <label>Morning Dhikr Time</label>
+            <input type="time" id="config-dhikr-time" value="07:00">
+          </div>
+          <!-- S4 FIX (2026-05-23): added explicit Enable Wakeup master toggle.
+               Previously the only way to disable was emptying the time field — ambiguous.
+               Also added help text clarifying the audio file used. -->
+          <div class="setting-item checkbox">
+            <input type="checkbox" id="config-wakeup-enabled" checked>
+            <label for="config-wakeup-enabled"><strong>Enable Morning Wakeup</strong></label>
+          </div>
+          <div class="setting-item">
+            <label>Wakeup Time</label>
+            <input type="time" id="config-wakeup-time" value="06:30">
+            <small style="display:block;color:#888;margin-top:4px;font-size:.8em;">
+              Plays <code>audio/wakey_wakey.mp3</code> on all enabled speakers.
+              To change the file, replace it in the project's <code>audio/</code> folder.
+              Per-speaker control: see Speaker Routing tab → "wakeup" column.
+            </small>
+          </div>
+          <div class="setting-item checkbox">
+            <input type="checkbox" id="config-wakeup-weekdays" checked>
+            <label for="config-wakeup-weekdays">Weekdays only (Mon–Fri)</label>
+          </div>
+          <!-- D11 FIX (2026-05-23): Evening / Suhoor moved to right-column "Evening & Ramadan" block -->
+        </div>
+      </div>
+    </div>
+    
+    <!-- NEW Wakeup tab (2026-05-23): dedicated controls for morning wakeup —
+         enable, time, weekdays-only, audio file picker, per-speaker selection.
+         User explicitly requested this as a 5th tab. -->
+    <div id="wakeup-tab" class="tab-pane">
+      <div class="settings-grid">
+        <div class="control-group">
+          <h4>⏰ Morning Wakeup</h4>
+          <div class="setting-item checkbox">
+            <input type="checkbox" id="wakeup-tab-enabled" onchange="onWakeupTabChange()">
+            <label for="wakeup-tab-enabled"><strong>Enable Morning Wakeup</strong></label>
+          </div>
+          <div class="setting-item">
+            <label>Wakeup Time</label>
+            <input type="time" id="wakeup-tab-time" value="06:30" onchange="onWakeupTabChange()">
+          </div>
+          <div class="setting-item checkbox">
+            <input type="checkbox" id="wakeup-tab-weekdays" onchange="onWakeupTabChange()">
+            <label for="wakeup-tab-weekdays">Weekdays only (Mon–Fri)</label>
+          </div>
+          <div class="setting-item">
+            <label>Audio file</label>
+            <select id="wakeup-tab-file" onchange="onWakeupFileChange()" style="width:100%;">
+              <!-- Filled by JS -->
+            </select>
+            <small style="display:block; color:#888; margin-top:4px; font-size:.8em;">
+              Showing all <code>.mp3</code> files in the <code>audio/</code> folder.
+              To add new options, drop more <code>.mp3</code> files into that folder.
+            </small>
+          </div>
+          <div class="setting-item">
+            <button class="control-btn" onclick="testWakeupNow()" style="font-size:0.9em;">
+              ▶ Test wakeup on selected speakers
+            </button>
+          </div>
+        </div>
+
+        <div class="control-group">
+          <h4>🔊 Which speakers play wakeup?</h4>
+          <p style="font-size:.85em; color:var(--silver); margin-bottom:8px;">
+            Tick the speakers that should play the wakeup audio. Changes auto-save.
+            Useful: enable only the bedroom speaker so the rest of the house doesn't wake up.
+          </p>
+          <div id="wakeup-speaker-list" style="display:flex; flex-direction:column; gap:6px;">
+            <!-- Filled by JS -->
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div id="advanced-tab" class="tab-pane">
+      <div class="settings-grid">
+        <!-- High Latitude Settings -->
+        <div class="control-group">
+          <h4>🌌 High Latitude (Isha Rule)</h4>
+          <div class="radio-group">
+            <label><input type="radio" name="high-lat-method" value="combine_prayers" checked> Combine with Maghrib</label>
+            <label><input type="radio" name="high-lat-method" value="1_7_rule"> 1/7 Rule</label>
+            <label><input type="radio" name="high-lat-method" value="static_offset"> Static Offset</label>
+          </div>
+          <div class="setting-item" id="static-offset-container">
+            <label>Minutes after Maghrib <span id="static-offset-value" class="slider-value">90</span></label>
+            <input type="range" id="config-static-offset" class="range-input" min="0" max="180" value="90" step="5">
+          </div>
+          <div class="setting-item">
+            <label for="config-isha-max-time">Maximum Isha Time (blank = no cap)</label>
+            <input type="time" id="config-isha-max-time" value="">
+          </div>
+          <div class="setting-item">
+            <input type="checkbox" id="config-fajr-couple" checked>
+            <label for="config-fajr-couple">Fajr at raw start when Isha is capped</label>
+          </div>
+          <div class="setting-item">
+            <label>Twilight Scan Frequency (days)</label>
+            <input type="number" id="config-scan-frequency" value="7" min="1" max="30">
+          </div>
+        </div>
+
+        <!-- Persistent Twilight Skip (dynamic, location-aware) -->
+        <div class="control-group">
+          <h4>🌌 Persistent Twilight Skip</h4>
+          <p style="font-size:.85em;color:#888;margin:0 0 8px 0;">
+            Skips Isha automatically when astronomical twilight never reaches -18°
+            at your location. Re-computed when location changes — works anywhere on Earth.
+          </p>
+          <div class="setting-item">
+            <input type="checkbox" id="config-skip-persistent-twilight" checked>
+            <label for="config-skip-persistent-twilight">Skip Isha during persistent twilight</label>
+          </div>
+        </div>
+
+        <!-- Speaker General Settings -->
+        <div class="control-group">
+          <h4>🔊 Speaker Defaults</h4>
+          <div class="setting-item">
+            <label>Include if name contains</label>
+            <input type="text" id="config-include-name" value="speaker">
+          </div>
+          <div class="setting-item">
+            <label>Exclude if name contains (comma-separated)</label>
+            <input type="text" id="config-exclude-names" value="display, hub, nest hub">
+          </div>
+          <div class="setting-item">
+            <label>General Volume (%)</label>
+            <input type="number" id="config-general-volume" value="70" min="0" max="100">
+          </div>
+        </div>
+
+        <!-- Updates -->
+        <div class="control-group">
+          <h4>🔄 Updates</h4>
+          <p style="font-size:.85em;color:#888;margin:0 0 8px 0;">
+            CastAdhan checks for updates daily at 04:00. You can also trigger a check manually.
+          </p>
+          <div class="setting-item">
+            <label>Current version</label>
+            <div style="font-family:monospace;font-size:1.1em;color:var(--gold)" id="update-version">—</div>
+          </div>
+          <div class="setting-item">
+            <label for="update-channel">Update channel</label>
+            <select id="update-channel">
+              <option value="stable">Stable (recommended)</option>
+              <option value="beta">Beta (pilot Pi only)</option>
+            </select>
+          </div>
+          <div class="setting-item">
+            <input type="checkbox" id="update-enabled" checked>
+            <label for="update-enabled">Allow automatic updates</label>
+          </div>
+          <div class="setting-item">
+            <button class="control-btn" onclick="runUpdateNow()" id="update-now-btn">🔄 Check for updates now</button>
+          </div>
+          <div class="setting-item">
+            <label>Last update log (most recent 10 lines)</label>
+            <pre id="update-log" style="background:#0c0a08;color:#a8a39a;font-size:.8em;padding:8px;border-radius:6px;max-height:160px;overflow:auto;margin:6px 0 0 0;border:1px solid #2b251f;">(no log yet)</pre>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div id="speakers-tab" class="tab-pane">
+      <div class="control-group">
+        <h4>🔊 Audio Routing Matrix</h4>
+        <p style="font-size:0.8rem; color:var(--silver); margin-bottom:10px;">Select which audio types play on which speakers</p>
+        <!-- D4 FIX (2026-05-23): horizontal scroll wrapper so wide tables don't get cut off the right edge -->
+        <div id="routing-matrix-container" style="overflow-x:auto; max-width:100%;">
+          <table class="routing-matrix" id="routing-matrix" style="white-space:nowrap;">
+            <thead>
+              <tr id="routing-header">
+                <th>Speaker</th>
+                <!-- Filled by JavaScript -->
+              </tr>
+            </thead>
+            <tbody id="routing-body">
+              <!-- Filled by JavaScript -->
+            </tbody>
+          </table>
+        </div>
+      </div>
+      
+      <div class="control-group">
+        <h4>🚫 Suhoor Exclusions</h4>
+        <div class="setting-item">
+          <label>Add speaker to exclude from Suhoor</label>
+          <select id="speaker-select"></select>
+          <button class="control-btn" onclick="addExclusion()" style="margin-top:5px;">➕ Add</button>
+        </div>
+        <div id="exclusion-list" style="margin-top:8px;"></div>
+      </div>
+    </div>
+    
+    <div id="audio-tab" class="tab-pane">
+      <div class="control-group">
+        <h4>🎵 Audio Files</h4>
+        <table class="routing-matrix">
+          <thead>
+            <tr><th>Audio Type</th><th>File Path</th><th>Status</th></tr>
+          </thead>
+          <tbody id="audio-file-list">
+            <!-- Filled by JavaScript -->
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="config-actions" style="margin-top:15px; text-align:right;">
+      <button class="save-btn" onclick="loadConfig()">🔄 Load Current</button>
+      <button class="save-btn" onclick="resetSetup()" title="Re-run the first-time setup wizard (useful after moving house)">🧙 Re-run setup</button>
+      <button class="save-btn" onclick="saveConfig()">💾 Save to YAML</button>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ----------------------- helpers ----------------------- */
+const PRAYERS_PANEL_L = ['Fajr','Sunrise','Dhuhr'];
+const PRAYERS_PANEL_R = ['Asr','Maghrib','Isha'];
+const COUNTDOWN_ORDER = ['Fajr','Dhuhr','Asr','Maghrib','Isha'];
+
+const $ = id => document.getElementById(id);
+
+/* ============================================================
+   i18n — multilingual UI (2026-05-23)
+   Supported: English (en), Dutch (nl), French (fr), Arabic (ar, RTL)
+   Persisted via /api/config rules.language.
+   For aunt's Belgium box: Dutch and French are first-class.
+   Translations are intentionally focused — covers all user-visible
+   text on the dashboard and the Settings/Basic tab. Advanced/Speaker
+   labels remain English for v1 — easy to extend later.
+   ============================================================ */
+const T = {
+  en: {
+    name: 'English', _flag: '🇬🇧',
+    header_title: 'PRAYER TIMES',
+    next: 'Next', next_in: 'in',
+    sunrise: 'Sunrise',
+    hijri_prefix: 'Hijri',
+    speakers: 'Speakers',
+    enable_all: 'Enable All', disable_all: 'Disable All',
+    rediscover: 'Rediscover', force_rediscover: 'Force Rediscover',
+    audio_routing_btn: 'Audio Routing',
+    quick_actions: 'Quick Actions',
+    test_adhan: 'Test Adhan', dua_of_soul: 'Dua of the Soul',
+    stop_all: 'Stop All', emergency_stop: 'EMERGENCY STOP',
+    refresh_data: 'Refresh Data', settings: 'Settings',
+    tab_basic: 'Basic', tab_wakeup: '⏰ Wakeup', tab_advanced: 'Advanced',
+    tab_speakers: 'Speaker Routing', tab_audio: 'Audio Files',
+    sec_location: 'Location', sec_fajr_rules: 'Fajr Rules',
+    sec_schedule: 'Schedule', sec_evening: 'Evening & Ramadan',
+    sec_high_latitude: 'High Latitude (Isha Rule)',
+    sec_speaker_defaults: 'Speaker Defaults', sec_updates: 'Updates',
+    lbl_search_loc: 'City/Country Search', lbl_search_btn: '🔍 Search & Set',
+    lbl_autodetect: '📡 Auto-Detect from IP', lbl_autodetect_warn: '(often inaccurate — prefer Search)',
+    lbl_autodetect_startup: 'Auto-detect location on every startup',
+    lbl_lat: 'Latitude', lbl_lon: 'Longitude', lbl_tz: 'Timezone',
+    lbl_method: 'Calculation Method',
+    lbl_workday_cap: 'Workday Cap Time',
+    lbl_weekend_offset: 'Weekend Offset (minutes before sunrise)',
+    lbl_morning_dhikr: 'Morning Dhikr Time',
+    lbl_wakeup_enable: 'Enable Morning Wakeup',
+    lbl_wakeup_time: 'Wakeup Time',
+    lbl_wakeup_weekdays: 'Weekdays only (Mon–Fri)',
+    lbl_evening_delay: 'Evening Content (mins after Maghrib)',
+    lbl_evening_cutoff: 'Suppress evening dhikr if it would end after',
+    lbl_suhoor_lead: 'Suhoor Lead Minutes',
+    btn_load: '🔄 Load Current', btn_rerun: '🧙 Re-run setup',
+    btn_save: '💾 Save changes',
+    lbl_language: 'Language',
+    toast_loaded: 'Configuration loaded',
+    toast_saved: 'Configuration saved successfully',
+  },
+  nl: {
+    name: 'Nederlands', _flag: '🇳🇱',
+    header_title: 'GEBEDSTIJDEN',
+    next: 'Volgende', next_in: 'over',
+    sunrise: 'Zonsopkomst',
+    hijri_prefix: 'Hidjri',
+    speakers: 'Luidsprekers',
+    enable_all: 'Alles aan', disable_all: 'Alles uit',
+    rediscover: 'Opnieuw zoeken', force_rediscover: 'Forceer zoeken',
+    audio_routing_btn: 'Audio-routering',
+    quick_actions: 'Snelle acties',
+    test_adhan: 'Test Adhan', dua_of_soul: 'Dua van de ziel',
+    stop_all: 'Alles stoppen', emergency_stop: 'NOODSTOP',
+    refresh_data: 'Vernieuwen', settings: 'Instellingen',
+    tab_basic: 'Basis', tab_wakeup: '⏰ Wakker worden', tab_advanced: 'Geavanceerd',
+    tab_speakers: 'Luidspreker-routering', tab_audio: 'Audiobestanden',
+    sec_location: 'Locatie', sec_fajr_rules: 'Fajr-regels',
+    sec_schedule: 'Schema', sec_evening: 'Avond & Ramadan',
+    sec_high_latitude: 'Hoge breedtegraad (Isha-regel)',
+    sec_speaker_defaults: 'Luidspreker-standaard', sec_updates: 'Updates',
+    lbl_search_loc: 'Zoek stad/land', lbl_search_btn: '🔍 Zoeken & instellen',
+    lbl_autodetect: '📡 Auto-detectie via IP', lbl_autodetect_warn: '(vaak onnauwkeurig — gebruik zoeken)',
+    lbl_autodetect_startup: 'Locatie automatisch detecteren bij elke start',
+    lbl_lat: 'Breedtegraad', lbl_lon: 'Lengtegraad', lbl_tz: 'Tijdzone',
+    lbl_method: 'Berekeningsmethode',
+    lbl_workday_cap: 'Maximum werkdagtijd',
+    lbl_weekend_offset: 'Weekend-offset (minuten vóór zonsopkomst)',
+    lbl_morning_dhikr: 'Tijd ochtenddhikr',
+    lbl_wakeup_enable: 'Ochtendwekker inschakelen',
+    lbl_wakeup_time: 'Wektijd',
+    lbl_wakeup_weekdays: 'Alleen op werkdagen (ma–vr)',
+    lbl_evening_delay: 'Avondinhoud (min. na Maghrib)',
+    lbl_evening_cutoff: 'Avonddhikr stoppen als die eindigt na',
+    lbl_suhoor_lead: 'Suhoor-voortijd (min.)',
+    btn_load: '🔄 Huidige laden', btn_rerun: '🧙 Wizard opnieuw',
+    btn_save: '💾 Wijzigingen opslaan',
+    lbl_language: 'Taal',
+    toast_loaded: 'Configuratie geladen',
+    toast_saved: 'Configuratie opgeslagen',
+  },
+  fr: {
+    name: 'Français', _flag: '🇫🇷',
+    header_title: 'HORAIRES DE PRIÈRE',
+    next: 'Prochaine', next_in: 'dans',
+    sunrise: 'Lever du soleil',
+    hijri_prefix: 'Hégire',
+    speakers: 'Haut-parleurs',
+    enable_all: 'Tout activer', disable_all: 'Tout désactiver',
+    rediscover: 'Redécouvrir', force_rediscover: 'Forcer la découverte',
+    audio_routing_btn: 'Routage audio',
+    quick_actions: 'Actions rapides',
+    test_adhan: 'Test Adhan', dua_of_soul: "Dua de l'âme",
+    stop_all: 'Tout arrêter', emergency_stop: "ARRÊT D'URGENCE",
+    refresh_data: 'Actualiser', settings: 'Paramètres',
+    tab_basic: 'Général', tab_wakeup: '⏰ Réveil', tab_advanced: 'Avancé',
+    tab_speakers: 'Routage haut-parleurs', tab_audio: 'Fichiers audio',
+    sec_location: 'Emplacement', sec_fajr_rules: 'Règles Fajr',
+    sec_schedule: 'Horaire', sec_evening: 'Soir & Ramadan',
+    sec_high_latitude: 'Haute latitude (règle Isha)',
+    sec_speaker_defaults: 'Paramètres haut-parleurs', sec_updates: 'Mises à jour',
+    lbl_search_loc: 'Recherche ville/pays', lbl_search_btn: '🔍 Rechercher & définir',
+    lbl_autodetect: '📡 Auto-détecter (IP)', lbl_autodetect_warn: '(souvent imprécis — préférez la recherche)',
+    lbl_autodetect_startup: 'Détecter la position au démarrage',
+    lbl_lat: 'Latitude', lbl_lon: 'Longitude', lbl_tz: 'Fuseau horaire',
+    lbl_method: 'Méthode de calcul',
+    lbl_workday_cap: 'Heure max. en semaine',
+    lbl_weekend_offset: 'Décalage week-end (min. avant lever)',
+    lbl_morning_dhikr: 'Heure du Dhikr matinal',
+    lbl_wakeup_enable: 'Activer le réveil du matin',
+    lbl_wakeup_time: 'Heure du réveil',
+    lbl_wakeup_weekdays: 'Jours ouvrés uniquement (lun-ven)',
+    lbl_evening_delay: 'Contenu du soir (min. après Maghrib)',
+    lbl_evening_cutoff: 'Supprimer le Dhikr du soir si fin après',
+    lbl_suhoor_lead: 'Avance Suhoor (min.)',
+    btn_load: '🔄 Charger', btn_rerun: '🧙 Relancer la config.',
+    btn_save: '💾 Enregistrer',
+    lbl_language: 'Langue',
+    toast_loaded: 'Configuration chargée',
+    toast_saved: 'Configuration enregistrée',
+  },
+  ar: {
+    name: 'العربية', _flag: '🇸🇦',
+    header_title: 'مواقيت الصلاة',
+    next: 'التالي', next_in: 'خلال',
+    sunrise: 'الشروق',
+    hijri_prefix: 'هجري',
+    speakers: 'مكبرات الصوت',
+    enable_all: 'تفعيل الكل', disable_all: 'تعطيل الكل',
+    rediscover: 'إعادة الاكتشاف', force_rediscover: 'إجبار الاكتشاف',
+    audio_routing_btn: 'توجيه الصوت',
+    quick_actions: 'إجراءات سريعة',
+    test_adhan: 'تجربة الأذان', dua_of_soul: 'دعاء الروح',
+    stop_all: 'إيقاف الكل', emergency_stop: 'إيقاف طارئ',
+    refresh_data: 'تحديث البيانات', settings: 'الإعدادات',
+    tab_basic: 'أساسي', tab_wakeup: '⏰ تنبيه الصباح', tab_advanced: 'متقدم',
+    tab_speakers: 'توجيه السماعات', tab_audio: 'ملفات الصوت',
+    sec_location: 'الموقع', sec_fajr_rules: 'قواعد الفجر',
+    sec_schedule: 'الجدول', sec_evening: 'المساء ورمضان',
+    sec_high_latitude: 'خطوط العرض العالية (قاعدة العشاء)',
+    sec_speaker_defaults: 'إعدادات السماعات', sec_updates: 'التحديثات',
+    lbl_search_loc: 'بحث المدينة/البلد', lbl_search_btn: '🔍 بحث وتعيين',
+    lbl_autodetect: '📡 الكشف عبر IP', lbl_autodetect_warn: '(غير دقيق غالبًا — يُفضّل البحث)',
+    lbl_autodetect_startup: 'كشف الموقع تلقائيًا عند كل تشغيل',
+    lbl_lat: 'خط العرض', lbl_lon: 'خط الطول', lbl_tz: 'المنطقة الزمنية',
+    lbl_method: 'طريقة الحساب',
+    lbl_workday_cap: 'الحد الأقصى لأيام العمل',
+    lbl_weekend_offset: 'فرق نهاية الأسبوع (دقائق قبل الشروق)',
+    lbl_morning_dhikr: 'وقت ذكر الصباح',
+    lbl_wakeup_enable: 'تفعيل تنبيه الصباح',
+    lbl_wakeup_time: 'وقت التنبيه',
+    lbl_wakeup_weekdays: 'أيام العمل فقط (الإثنين – الجمعة)',
+    lbl_evening_delay: 'المحتوى المسائي (دقائق بعد المغرب)',
+    lbl_evening_cutoff: 'إيقاف ذكر المساء إذا انتهى بعد',
+    lbl_suhoor_lead: 'دقائق السحور قبل الفجر',
+    btn_load: '🔄 تحميل الحالي', btn_rerun: '🧙 إعادة تشغيل الإعداد',
+    btn_save: '💾 حفظ التغييرات',
+    lbl_language: 'اللغة',
+    toast_loaded: 'تم تحميل الإعدادات',
+    toast_saved: 'تم حفظ الإعدادات',
+  },
+};
+
+let currentLang = 'en';
+
+function applyTranslations(lang) {
+  const t = T[lang] || T.en;
+  currentLang = lang;
+  // RTL handling for Arabic
+  document.documentElement.lang = lang;
+  document.documentElement.dir = (lang === 'ar') ? 'rtl' : 'ltr';
+  const setText = (sel, val) => { const el = document.querySelector(sel); if (el && val) el.textContent = val; };
+  const setHTML = (sel, val) => { const el = document.querySelector(sel); if (el && val) el.innerHTML = val; };
+
+  // Header (selector fix 2026-05-23: actual markup is <div class="title">, not <h1>)
+  setText('.header .title', t.header_title);
+
+  // Dashboard panels
+  const speakersH3 = document.querySelector('.speaker-controls h3');
+  if (speakersH3) speakersH3.innerHTML = `🔊 ${t.speakers} <span id="speaker-count">${$('speaker-count')?.textContent || ''}</span>`;
+  const quickH3 = document.querySelector('.action-controls h3');
+  if (quickH3) quickH3.innerHTML = `⚡ ${t.quick_actions}`;
+
+  // Buttons by onclick attribute (works regardless of HTML order)
+  const setBtn = (selector, label) => document.querySelectorAll(selector).forEach(b => b.innerHTML = label);
+  setBtn('[onclick*="all_on"]',          `✅ ${t.enable_all}`);
+  setBtn('[onclick*="all_off"]',         `❌ ${t.disable_all}`);
+  setBtn('[onclick*="\'rediscover\'"]',  `🔄 ${t.rediscover}`);
+  setBtn('[onclick*="force_discover"]',  `⚡ ${t.force_rediscover}`);
+  setBtn('[onclick*="openSettingsModal(\'speakers\')"]', `⚙️ ${t.audio_routing_btn}`);
+  setBtn('[onclick*="test_adhan"]',      `🔔 ${t.test_adhan}`);
+  setBtn('[onclick*="dua_of_soul"]',     `🤲 ${t.dua_of_soul}`);
+  setBtn('[onclick*="stop_all"]',        `⏹️ ${t.stop_all}`);
+  setBtn('[onclick*="emergencyStop"]',   `🚨 ${t.emergency_stop}`);
+  setBtn('[onclick*="quickAction(\'refresh\')"]', `🔄 ${t.refresh_data}`);
+  setBtn('[onclick*="openSettingsModal(\'basic\')"]', `⚙️ ${t.settings}`);
+
+  // Settings tab buttons
+  if ($('tab-basic'))    $('tab-basic').textContent    = t.tab_basic;
+  if ($('tab-wakeup'))   $('tab-wakeup').textContent   = t.tab_wakeup;
+  if ($('tab-advanced')) $('tab-advanced').textContent = t.tab_advanced;
+  if ($('tab-speakers')) $('tab-speakers').textContent = t.tab_speakers;
+  if ($('tab-audio'))    $('tab-audio').textContent    = t.tab_audio;
+
+  // Settings section headers (lookup by exact emoji prefix)
+  document.querySelectorAll('.control-group > h4').forEach(h4 => {
+    const txt = h4.textContent.trim();
+    if      (txt.startsWith('📍')) h4.textContent = `📍 ${t.sec_location}`;
+    else if (txt.startsWith('🌅')) h4.textContent = `🌅 ${t.sec_fajr_rules}`;
+    else if (txt.startsWith('⏰')) h4.textContent = `⏰ ${t.sec_schedule}`;
+    else if (txt.startsWith('🌙')) h4.textContent = `🌙 ${t.sec_evening}`;
+    else if (txt.startsWith('🌌') && txt.toLowerCase().includes('latitude')) h4.textContent = `🌌 ${t.sec_high_latitude}`;
+    else if (txt.startsWith('🔊') && txt.toLowerCase().includes('default'))  h4.textContent = `🔊 ${t.sec_speaker_defaults}`;
+    else if (txt.startsWith('🔄') && txt.toLowerCase().includes('update'))   h4.textContent = `🔄 ${t.sec_updates}`;
+  });
+
+  // Action buttons at bottom of modal
+  document.querySelectorAll('[onclick="loadConfig()"]').forEach(b => b.textContent = t.btn_load);
+  document.querySelectorAll('[onclick="resetSetup()"]').forEach(b => b.textContent = t.btn_rerun);
+  document.querySelectorAll('[onclick="saveConfig()"]').forEach(b => b.textContent = t.btn_save);
+
+  // Update language picker label
+  const picker = $('lang-picker');
+  if (picker) picker.value = lang;
+}
+
+async function setLanguage(lang) {
+  applyTranslations(lang);
+  // Persist via /api/config (rules.language)
+  try {
+    await fetch('/api/config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ rules: { language: lang } })
+    });
+  } catch (e) { /* best-effort persistence */ }
+}
+const clockEl = $('clock');
+function pad2(n){ return String(n).padStart(2,'0'); }
+
+// Global variables
+let sunriseHours = 0;
+let sunriseMinutes = 0;
+let sunriseOffset = 0;
+let currentSpeakers = [];
+let currentAudioTypes = [];
+let currentRouting = {};
+let configCity = '';
+let configCountry = '';
+let configHost = '0.0.0.0';
+let configPort = 8786;
+let configLat = 51.5074;
+let configLon = -0.1278;
+
+// Weather API key.
+// Set a free weatherapi.com key here to enable the weather widget on the
+// dashboard. Leave blank to disable. The widget gracefully no-ops if the
+// key is empty or invalid. (For our own deployments we set this via a
+// post-install patch — kept out of git history because keys leak when repos go public.)
+const WEATHER_API_KEY = '';
+// WEATHER_LOCATION is now derived from configLat/configLon
+
+function parseTime(hhmm){
+  if(!hhmm || hhmm === 'undefined') return null;
+  const [h,m] = hhmm.split(':').map(Number);
+  if(isNaN(h) || isNaN(m)) return null;
+  const d = new Date(); d.setHours(h,m,0,0); return d;
+}
+
+/* S3 helper (2026-05-23): quick lat/lon → IANA timezone guess.
+   Coarse mapping — covers Europe in detail, world only approximately.
+   Use as a default suggestion when user picks a new location;
+   they can always override via the dropdown. Backend should
+   provide a proper /api/tz endpoint long-term. */
+function guessTimezoneFromLatLon(lat, lon) {
+  if (!isFinite(lat) || !isFinite(lon)) return null;
+
+  // Europe (lat 35-72, lon -25 to 45) — fine-grained bands
+  if (lat >= 35 && lat <= 72) {
+    if (lon >= -11 && lon < -5)  return 'Europe/Lisbon';      // Portugal
+    if (lon >= -5  && lon < 1.5) {
+      if (lat > 49) return 'Europe/London';                    // UK / Ireland
+      return 'Europe/Madrid';                                  // Spain
+    }
+    if (lon >= 1.5 && lon < 7.5) {
+      if (lat >= 50.5) return 'Europe/Brussels';               // Belgium / NL — KEY for aunt
+      if (lat >= 47.5) return 'Europe/Paris';                  // France
+      return 'Europe/Paris';
+    }
+    if (lon >= 7.5 && lon < 15) {
+      if (lat >= 53) return 'Europe/Copenhagen';
+      if (lat >= 47) return 'Europe/Berlin';
+      return 'Europe/Rome';
+    }
+    if (lon >= 15 && lon < 22) return 'Europe/Warsaw';
+    if (lon >= 22 && lon < 30) return 'Europe/Bucharest';
+    if (lon >= 30 && lon < 45) return 'Europe/Moscow';
+  }
+
+  // North America (very coarse)
+  if (lat >= 25 && lat <= 70 && lon >= -170 && lon < -50) {
+    if (lon < -115) return 'America/Los_Angeles';
+    if (lon < -100) return 'America/Denver';
+    if (lon <  -85) return 'America/Chicago';
+    return 'America/New_York';
+  }
+
+  // Middle East
+  if (lat >= 15 && lat <= 40 && lon >= 30 && lon < 60) {
+    if (lon < 38) return 'Africa/Cairo';
+    if (lon < 50) return 'Asia/Riyadh';
+    return 'Asia/Dubai';
+  }
+
+  return null; // unknown — let user pick
+}
+
+// Calculate angle for a time, adjusted so sunrise is at top
+function angleFor(date){
+  const standardAngle = ((date.getHours() + date.getMinutes()/60 + date.getSeconds()/3600)/24)*360;
+  return (standardAngle - sunriseOffset + 360) % 360;
+}
+
+// Position an element at a specific angle
+function positionElementAtAngle(element, angleDeg, distanceFactor = 0.5) {
+  if (!element) return;
+  const clockWidth = clockEl.clientWidth;
+  const radius = clockWidth / 2 * distanceFactor;
+  const angleRad = (angleDeg - 90) * Math.PI / 180;
+  const x = radius * Math.cos(angleRad);
+  const y = radius * Math.sin(angleRad);
+  element.style.transform = `translate(calc(-50% + ${x}px), calc(-50% + ${y}px))`;
+}
+
+/* -------------------- numerals -------------------- */
+function drawNumerals(){
+  [...clockEl.querySelectorAll('.num')].forEach(n => n.remove());
+  const r = clockEl.clientWidth/2 - 20;
+  for(let i=1; i<=24; i++){
+    const standardAngle = (i/24)*360;
+    const adjustedAngle = (standardAngle - sunriseOffset + 360) % 360;
+    const rad = (adjustedAngle/180)*Math.PI - Math.PI/2;
+    const x = r*Math.cos(rad) + clockEl.clientWidth/2;
+    const y = r*Math.sin(rad) + clockEl.clientHeight/2;
+    const n = document.createElement('div');
+    n.className = 'num';
+    n.style.left = `${x}px`;
+    n.style.top = `${y}px`;
+    n.textContent = i;
+    clockEl.appendChild(n);
+  }
+  
+  const markerRadius = clockEl.clientWidth/2;
+  const markerX = markerRadius * Math.cos(-Math.PI/2) + clockEl.clientWidth/2;
+  const markerY = markerRadius * Math.sin(-Math.PI/2) + clockEl.clientHeight/2;
+  const sunriseMarker = $('sunriseMarker');
+  sunriseMarker.style.left = `${markerX}px`;
+  sunriseMarker.style.top = `${markerY}px`;
+  
+  // LAYOUT FIX (2026-05-23): neither moon nor weather is positioned on the clock face anymore.
+  // Both live in .below-clock inline flex row (matches Home v4.5 layout).
+  // positionElementAtAngle($('moon-phase'), 135, 0.5);
+  // positionElementAtAngle($('weather-widget'), 45, 0.5);
+}
+
+/* ----------------------- hands ----------------------- */
+function updateHands(){
+  const now = new Date();
+  const hourDeg = angleFor(now);
+  const minDeg = ((now.getMinutes() + now.getSeconds()/60)/60)*360;
+  const secDeg = ((now.getSeconds() + now.getMilliseconds()/1000)/60)*360;
+  
+  $('hHand').style.transform = `translateX(-50%) rotate(${hourDeg}deg)`;
+  $('mHand').style.transform = `translateX(-50%) rotate(${minDeg}deg)`;
+  $('sHand').style.transform = `translateX(-50%) rotate(${secDeg}deg)`;
+
+  $('digital').textContent = now.toLocaleTimeString('en-GB',{hour12:false});
+  $('greg').textContent = now.toLocaleDateString('en-GB',{weekday:'long',year:'numeric',month:'long',day:'numeric'});
+  $('current-year').textContent = now.getFullYear();
+  
+  $('glow').style.transform = `rotate(${hourDeg}deg)`;
+  updateAdaptiveBrightness();
+  updateCelestialVisibility(now);
+}
+
+/* ---------------------- hijri ---------------------- */
+// D1 FIX (2026-05-23): Aladhan API requires DD-MM-YYYY, was sending ISO YYYY-MM-DD → 404.
+function updateHijri(){
+  const today = new Date();
+  const dd   = String(today.getDate()).padStart(2,'0');
+  const mm   = String(today.getMonth()+1).padStart(2,'0');
+  const yyyy = today.getFullYear();
+  const dmy  = `${dd}-${mm}-${yyyy}`;
+  fetch(`https://api.aladhan.com/v1/gToH?date=${dmy}`)
+    .then(r=>r.json())
+    .then(d=>{
+      const h = d?.data?.hijri;
+      if (!h) { $('hijri').textContent = 'Hijri: --'; return; }
+      // Use translated month name when language is set
+      const monthName = h.month.en;  // TODO: also support Arabic month name for ar locale
+      $('hijri').textContent = `Hijri: ${h.day} ${monthName} ${h.year}`;
+    })
+    .catch(()=>{$('hijri').textContent='Hijri: --';});
+}
+
+/* ----------------- zones & markers ----------------- */
+function drawDaylightArc(times){
+  let sunrise = null;
+  if (times.Sunrise && times.Sunrise !== 'undefined') {
+    sunrise = parseTime(times.Sunrise);
+  } else if (times.sunrise && times.sunrise !== 'undefined') {
+    sunrise = parseTime(times.sunrise);
+  } else if (times.sunrise_time && times.sunrise_time !== 'undefined') {
+    sunrise = parseTime(times.sunrise_time);
+  }
+  
+  const maghrib = parseTime(times.Maghrib);
+  
+  if(!sunrise || !maghrib){ 
+    $('zones').style.background='transparent'; 
+    return; 
+  }
+
+  sunriseHours = sunrise.getHours();
+  sunriseMinutes = sunrise.getMinutes();
+  sunriseOffset = ((sunriseHours + sunriseMinutes/60)/24)*360;
+  
+  const sunriseDeg = angleFor(sunrise);
+  const maghribDeg = angleFor(maghrib);
+  
+  const daylightArc = (maghribDeg > sunriseDeg)
+    ? `#3a3a3a ${sunriseDeg}deg ${maghribDeg}deg, #111 ${maghribDeg}deg 360deg, #111 0deg ${sunriseDeg}deg`
+    : `#3a3a3a ${sunriseDeg}deg 360deg, #3a3a3a 0deg ${maghribDeg}deg, #111 ${maghribDeg}deg ${sunriseDeg}deg`;
+
+  $('zones').style.background = `conic-gradient(${daylightArc})`;
+}
+
+function drawPins(times){
+  [...clockEl.querySelectorAll(".pin")].forEach(p => p.remove());
+  [...clockEl.querySelectorAll(".prayer-line")].forEach(l => l.remove());
+
+  const prayers = ["Fajr","Sunrise","Dhuhr","Asr","Maghrib","Isha"];
+
+  prayers.forEach(name => {
+    let timeStr = null;
+    if (name === "Sunrise") {
+      timeStr = times.Sunrise || times.sunrise || times.sunrise_time;
+    } else {
+      timeStr = times[name];
+    }
+
+    if (!timeStr || timeStr === "undefined") return;
+    const t = parseTime(timeStr);
+    if (!t) return;
+
+    const deg = angleFor(t);
+    const pin = document.createElement("div");
+    pin.className = "pin";
+    pin.style.transform = `rotate(${deg}deg)`;
+    pin.innerHTML = "<div class=\"dot\"></div>";
+    clockEl.appendChild(pin);
+
+    const line = document.createElement("div");
+    line.className = "prayer-line";
+    line.style.transform = `rotate(${deg}deg)`;
+    clockEl.appendChild(line);
+  });
+}
+
+function updateAdaptiveBrightness() {
+  const now = new Date();
+  let prayers = window.currentPrayers || {};
+  if (!prayers.Maghrib || !prayers.Fajr) return;
+  
+  const maghrib = parseTime(prayers.Maghrib);
+  const fajr = parseTime(prayers.Fajr);
+  if (!maghrib || !fajr) return;
+  
+  if ((now >= maghrib) || (now < fajr)) {
+    document.body.style.background = "#000";
+  } else {
+    document.body.style.background = "var(--bg)";
+  }
+}
+
+function updateCelestialVisibility(now = new Date()) {
+  // FIX (2026-05-23): user reported moon was missing entirely during day.
+  // Previously moon=0/weather=0.7 during day and inverted at night.
+  // Now ALWAYS show both, just dim the "wrong" one rather than hide it.
+  // Moon visible at night > day; weather always at the same opacity.
+  const moonEl = $('moon-phase');
+  const weatherEl = $('weather-widget');
+  if (!moonEl || !weatherEl) return;
+
+  const DAY_MOON = 0.45;     // moon faint but visible during day
+  const NIGHT_MOON = 0.9;    // moon prominent at night
+  const WEATHER_OPACITY = 0.85;  // weather always at same opacity
+
+  weatherEl.style.opacity = String(WEATHER_OPACITY);
+
+  let prayers = window.currentPrayers || {};
+  let isNight = false;
+  if (prayers.Maghrib && prayers.Fajr) {
+    const maghrib = parseTime(prayers.Maghrib);
+    const fajr = parseTime(prayers.Fajr);
+    if (maghrib && fajr) isNight = (now >= maghrib) || (now < fajr);
+  } else {
+    const h = now.getHours();
+    isNight = (h >= 18 || h < 6);
+  }
+  moonEl.style.opacity = String(isNight ? NIGHT_MOON : DAY_MOON);
+}
+
+/* --------------- next prayer --------------- */
+function getNextPrayerFallback(times, now=new Date()){
+  for(const name of COUNTDOWN_ORDER){
+    const dt = parseTime(times[name]);
+    if(dt && dt > now) return {name, when: dt};
+  }
+  const fajr = parseTime(times.Fajr);
+  if(fajr){ 
+    const tomorrow = new Date(fajr);
+    tomorrow.setDate(tomorrow.getDate()+1);
+    return {name:'Fajr', when:tomorrow}; 
+  }
+  return null;
+}
+
+let countdownTimer;
+function startCountdownFrom(data){
+  if(countdownTimer) clearInterval(countdownTimer);
+
+  const times = data.prayer_times || data.times || {};
+  const apiNext = data.next_prayer && data.next_prayer.name && data.next_prayer.when_iso
+    ? {name:data.next_prayer.name, when:new Date(data.next_prayer.when_iso)}
+    : null;
+
+  const fbNext = getNextPrayerFallback(times);
+  const next = apiNext || fbNext;
+  const box = $('nextBox');
+
+  if(!next){ box.textContent = 'Next: --'; return; }
+
+  function tick(){
+    const diff = +next.when - +new Date();
+    if(diff <= 0){ box.textContent = `Next: ${next.name} now`; return; }
+    const h = Math.floor(diff/3600000);
+    const m = Math.floor((diff%3600000)/60000);
+    box.textContent = `Next: ${next.name} in ${h}h ${pad2(m)}m`;
+  }
+  tick();
+  countdownTimer = setInterval(tick, 1000);
+}
+
+/* ------------------- panels ------------------- */
+function renderPanels(times, nextName){
+  const left = $('panel-left'), right = $('panel-right');
+  left.innerHTML=''; right.innerHTML='';
+
+  PRAYERS_PANEL_L.forEach(n=>{
+    let timeStr = '--:--';
+    if (n === 'Sunrise') {
+      timeStr = times.Sunrise || times.sunrise || times.sunrise_time || '--:--';
+    } else {
+      timeStr = times[n] || '--:--';
+    }
+    const c=document.createElement('div'); 
+    c.className='card'+(nextName===n?' next':'');
+    c.innerHTML = `<div class="name">${n}</div><div class="time">${timeStr}</div>`;
+    left.appendChild(c);
+  });
+  
+  PRAYERS_PANEL_R.forEach(n=>{
+    const c=document.createElement('div'); 
+    c.className='card'+(nextName===n?' next':'');
+    c.innerHTML = `<div class="name">${n}</div><div class="time">${times[n]||'--:--'}</div>`;
+    right.appendChild(c);
+  });
+}
+
+/* ----------------------- speakers ----------------------- */
+async function renderSpeakers(passedData) {
+  try {
+    let data = passedData;
+    if (!data) {
+      const res = await fetch('/api/state');
+      if (!res.ok) return;
+      data = await res.json();
+    }
+    
+    currentSpeakers = data.devices?.speakers || [];
+    currentAudioTypes = data.audio_types || [];
+    currentRouting = data.audio_routing || {};
+    
+    const speakerList = $('speaker-list');
+    speakerList.innerHTML = '';
+    $('speaker-count').textContent = `(${currentSpeakers.length})`;
+    
+    // Get playback status
+    let statusRes = await fetch('/api/speaker/status');
+    let statusData = await statusRes.json();
+    let playbackStatus = statusData.status || {};
+    
+    currentSpeakers.forEach(s => {
+      const div = document.createElement('div');
+      div.className = 'speaker-item';
+      
+      const isPlaying = playbackStatus[s.name] || false;
+      const isEnabled = data.enabled?.speakers?.[s.name] !== false;
+      const volume = data.volumes?.[s.name] || data.volumes?.__default || 70;
+      
+      div.innerHTML = `
+        <span class="speaker-status ${isPlaying ? 'status-playing' : 'status-stopped'}"></span>
+        <span class="speaker-name" title="${s.name}">${s.name}</span>
+        <label class="switch">
+          <input type="checkbox" ${isEnabled ? 'checked' : ''} onchange="toggleSpeaker('${s.name}', this.checked)">
+          <span class="slider"></span>
+        </label>
+        <input type="range" class="speaker-volume" min="0" max="100" value="${volume}" 
+               onchange="setVolume('${s.name}', this.value)">
+      `;
+      speakerList.appendChild(div);
+    });
+    
+    // Update speaker select for exclusions
+    const speakerSelect = $('speaker-select');
+    speakerSelect.innerHTML = '<option value="">Select speaker</option>';
+    currentSpeakers.forEach(s => {
+      const opt = document.createElement('option');
+      opt.value = s.name;
+      opt.textContent = s.name;
+      speakerSelect.appendChild(opt);
+    });
+    
+    // Update routing matrix
+    renderRoutingMatrix();
+    
+  } catch (err) {
+    console.error('Error rendering speakers:', err);
+  }
+}
+
+/* NEW Wakeup tab (2026-05-23): renders enable / time / weekdays / file-picker / per-speaker.
+   Loads the current state from /api/config, hydrates the form, and wires up auto-save handlers. */
+async function renderWakeupTab() {
+  try {
+    const cfg = await (await fetch('/api/config')).json();
+    const rules = cfg?.config?.rules || {};
+    const audio = cfg?.config?.audio || {};
+    const routing = cfg?.config?.speakers?.audio_routing || {};
+
+    // Form state
+    if ($('wakeup-tab-enabled'))  $('wakeup-tab-enabled').checked  = rules.wakeup_enabled !== false;
+    if ($('wakeup-tab-time'))     $('wakeup-tab-time').value       = rules.wakeup_time || '06:30';
+    if ($('wakeup-tab-weekdays')) $('wakeup-tab-weekdays').checked = rules.wakeup_weekdays_only !== false;
+
+    // File picker — list all .mp3 in audio/, sorted, current selection marked
+    const currentFile = audio.wakeup || 'audio/wakey_wakey.mp3';
+    const sel = $('wakeup-tab-file');
+    if (sel) {
+      sel.innerHTML = '';
+      // Pull list from /api/audio/files (if not available, fall back to current value only)
+      let files = [];
+      try {
+        const r = await fetch('/api/audio/files');
+        if (r.ok) {
+          const d = await r.json();
+          files = (d.files || []).filter(f => !f.endsWith('_compatible.mp3')).sort();
+        }
+      } catch (e) {}
+      if (files.length === 0) files = [currentFile];   // fallback
+      files.forEach(f => {
+        const opt = document.createElement('option');
+        opt.value = f;
+        opt.textContent = f.replace(/^audio\//, '');   // strip prefix for display
+        if (f === currentFile) opt.selected = true;
+        sel.appendChild(opt);
+      });
+    }
+
+    // Per-speaker selection — read routing for "wakeup" audio type for each speaker
+    const listEl = $('wakeup-speaker-list');
+    if (listEl && currentSpeakers.length > 0) {
+      listEl.innerHTML = '';
+      currentSpeakers.forEach(sp => {
+        const speakerRouting = routing[sp.name] || {};
+        const enabled = speakerRouting.wakeup !== false;  // default true if not set
+        const row = document.createElement('label');
+        row.style.cssText = 'display:flex; align-items:center; gap:8px; padding:6px 8px; background:rgba(255,255,255,0.03); border-radius:6px; cursor:pointer;';
+        row.innerHTML = `<input type="checkbox" data-speaker="${sp.name.replace(/"/g, '&quot;')}" ${enabled ? 'checked' : ''} style="width:18px;height:18px;"> <span>${sp.name}</span>`;
+        row.querySelector('input').addEventListener('change', async function() {
+          await fetch('/api/speaker/routing', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name: sp.name, routing: { wakeup: this.checked } })
+          });
+          showToast(`${sp.name}: wakeup ${this.checked ? 'on' : 'off'}`);
+        });
+        listEl.appendChild(row);
+      });
+    } else if (listEl) {
+      listEl.innerHTML = '<p style="color:#888; font-size:.9em;">No speakers found yet. Click <strong>Force Rediscover</strong> in the Speakers panel.</p>';
+    }
+  } catch (e) {
+    console.error('renderWakeupTab failed:', e);
+  }
+}
+
+async function onWakeupTabChange() {
+  // Auto-save enable/time/weekdays changes
+  try {
+    const payload = {
+      rules: {
+        wakeup_enabled: $('wakeup-tab-enabled').checked,
+        wakeup_time: $('wakeup-tab-time').value,
+        wakeup_weekdays_only: $('wakeup-tab-weekdays').checked,
+      }
+    };
+    const r = await fetch('/api/config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    if (r.ok) {
+      showToast('Wakeup settings saved');
+      // Mirror to the Basic-tab controls so they stay in sync if user toggles back
+      if ($('config-wakeup-enabled'))  $('config-wakeup-enabled').checked  = payload.rules.wakeup_enabled;
+      if ($('config-wakeup-time'))     $('config-wakeup-time').value       = payload.rules.wakeup_time;
+      if ($('config-wakeup-weekdays')) $('config-wakeup-weekdays').checked = payload.rules.wakeup_weekdays_only;
+    }
+  } catch (e) { showToast('Save failed: ' + e.message); }
+}
+
+async function onWakeupFileChange() {
+  // Auto-save audio file selection
+  try {
+    const file = $('wakeup-tab-file').value;
+    const r = await fetch('/api/config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ audio: { wakeup: file } })
+    });
+    if (r.ok) showToast(`Wakeup file: ${file.replace(/^audio\//,'')}`);
+  } catch (e) { showToast('Save failed: ' + e.message); }
+}
+
+async function testWakeupNow() {
+  if (!confirm('Play the configured wakeup audio NOW on enabled speakers?')) return;
+  try {
+    showToast('Playing wakeup test…');
+    const r = await fetch('/api/test/play', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ type: 'wakeup' })
+    });
+    if (!r.ok) showToast('Failed (HTTP ' + r.status + ')');
+  } catch (e) { showToast('Error: ' + e.message); }
+}
+
+/* D7 FIX (2026-05-23): Audio Files tab was completely empty — no function ever populated it.
+   Implementing now. Reads /api/config, walks the audio dict, lists each audio type with file path
+   and a probe of file existence (via HEAD on /media/audio/<file>). Also offers a Test ▶ button. */
+async function renderAudioFiles() {
+  const body = $('audio-file-list');
+  if (!body) return;
+  body.innerHTML = '<tr><td colspan="4" style="color:#888; padding:8px;"><span class="spinner"></span>Loading audio files…</td></tr>';
+  try {
+    const cfgRes = await fetch('/api/config');
+    const cfgData = await cfgRes.json();
+    const audio = cfgData?.config?.audio || {};
+    const keys = Object.keys(audio)
+      .filter(k => !k.endsWith('_compatible'))   // hide pre-converted siblings (D3 same fix)
+      .sort();
+    if (keys.length === 0) {
+      body.innerHTML = '<tr><td colspan="4" style="color:#888; padding:8px;">No audio files configured.</td></tr>';
+      return;
+    }
+    body.innerHTML = '';
+    for (const key of keys) {
+      const path = audio[key];
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td style="padding:6px;"><strong>${key}</strong></td>
+        <td style="padding:6px; font-family:monospace; font-size:.85em; color:#aaa;">${path}</td>
+        <td id="audio-status-${key}" style="padding:6px; color:#888;">checking…</td>
+        <td style="padding:6px;">
+          <button class="control-btn" style="font-size:.8em; padding:4px 10px;"
+                  onclick="testAudio('${key}')">▶ Test</button>
+        </td>`;
+      body.appendChild(tr);
+      // Probe file existence without downloading
+      fetch('/media/' + path, { method: 'HEAD' })
+        .then(r => {
+          const cell = $(`audio-status-${key}`);
+          if (!cell) return;
+          if (r.ok) {
+            const size = r.headers.get('content-length');
+            const kb = size ? Math.round(size/1024) : '?';
+            cell.innerHTML = `<span style="color:#4caf50;">✓ ${kb} KB</span>`;
+          } else {
+            cell.innerHTML = `<span style="color:#f44336;">✗ HTTP ${r.status}</span>`;
+          }
+        })
+        .catch(() => {
+          const cell = $(`audio-status-${key}`);
+          if (cell) cell.innerHTML = '<span style="color:#f44336;">✗ unreachable</span>';
+        });
+    }
+  } catch (e) {
+    body.innerHTML = `<tr><td colspan="4" style="color:#f44336; padding:8px;">Failed to load audio files: ${e.message}</td></tr>`;
+  }
+}
+
+async function testAudio(audioKey) {
+  if (!confirm(`Play test "${audioKey}" on ALL enabled speakers right now?`)) return;
+  try {
+    showToast(`Playing ${audioKey}…`);
+    const r = await fetch('/api/test/play', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ type: audioKey })
+    });
+    if (!r.ok) showToast(`Failed (HTTP ${r.status})`);
+  } catch (e) { showToast('Error: ' + e.message); }
+}
+
+function renderRoutingMatrix() {
+  const header = $('routing-header');
+  const body = $('routing-body');
+
+  if (!header || !body) return;
+
+  // Clear existing
+  header.innerHTML = '<th>Speaker</th>';
+  body.innerHTML = '';
+
+  // D3 FIX (2026-05-23): filter out the *_compatible siblings — they're the same audio,
+  // pre-converted on Mac before flashing. They never need separate routing.
+  const visibleTypes = currentAudioTypes.filter(t => !t.endsWith('_compatible'));
+
+  // Add audio type headers
+  visibleTypes.forEach(type => {
+    const th = document.createElement('th');
+    th.textContent = type;
+    header.appendChild(th);
+  });
+  
+  // Add rows for each speaker
+  currentSpeakers.forEach(speaker => {
+    const row = document.createElement('tr');
+    row.className = 'speaker-row';
+    
+    // Speaker name cell
+    const nameCell = document.createElement('td');
+    nameCell.textContent = speaker.name;
+    row.appendChild(nameCell);
+    
+    // Checkbox for each audio type (D3 FIX: use filtered visibleTypes, not raw currentAudioTypes)
+    visibleTypes.forEach(type => {
+      const cell = document.createElement('td');
+      const routing = currentRouting[speaker.name] || {};
+      const checked = routing[type] !== false; // Default to true
+      
+      const checkbox = document.createElement('input');
+      checkbox.type = 'checkbox';
+      checkbox.checked = checked;
+      checkbox.setAttribute('data-speaker', speaker.name);
+      checkbox.setAttribute('data-audio', type);
+      checkbox.onchange = function() {
+        updateRouting(speaker.name, type, this.checked);
+      };
+      
+      cell.appendChild(checkbox);
+      row.appendChild(cell);
+    });
+    
+    body.appendChild(row);
+  });
+}
+
+async function updateRouting(speakerName, audioType, enabled) {
+  try {
+    // Update local routing object
+    if (!currentRouting[speakerName]) {
+      currentRouting[speakerName] = {};
+    }
+    currentRouting[speakerName][audioType] = enabled;
+    
+    // Send to server
+    const res = await fetch('/api/speaker/routing', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: speakerName,
+        routing: { [audioType]: enabled }
+      })
+    });
+    
+    if (res.ok) {
+      showToast(`Routing updated for ${speakerName} - ${audioType}: ${enabled ? 'ON' : 'OFF'}`);
+    } else {
+      showToast('Failed to update routing');
+    }
+  } catch (err) {
+    showToast('Error updating routing');
+  }
+}
+
+async function toggleSpeaker(name, enabled) {
+  try {
+    const res = await fetch('/api/speaker/toggle', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, enabled })
+    });
+    if (res.ok) {
+      showToast(`${name} ${enabled ? 'enabled' : 'disabled'}`);
+    }
+  } catch (err) {
+    showToast('Error toggling speaker');
+  }
+}
+
+async function setVolume(name, volume) {
+  try {
+    const res = await fetch('/api/speaker/volume', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, volume: parseInt(volume) })
+    });
+  } catch (err) {
+    showToast('Error setting volume');
+  }
+}
+
+/* ----------------------- moon phase ----------------------- */
+/* D2 FIX (2026-05-23): replace flaky external farmsense.net call (CORS-blocked, returned
+   "Failed to fetch") with local astronomical calculation. Moon phase is deterministic math.
+   Uses Conway's simple lunar age algorithm — accurate to ~1 day, plenty for an emoji. */
+function updateMoonPhase(){
+  try {
+    const moonEl = $('moon-phase');
+    if (!moonEl) return;
+    const now = new Date();
+    const y = now.getUTCFullYear();
+    const m = now.getUTCMonth() + 1;
+    const d = now.getUTCDate();
+    // Conway's lunar age (days since last new moon, 0..29.53)
+    let r = y % 100;
+    r %= 19;
+    if (r > 9) r -= 19;
+    r = (r * 11) % 30 + m + d;
+    if (m < 3) r += 2;
+    r -= (y < 2000) ? 4 : 8.3;
+    let age = r % 30;
+    if (age < 0) age += 30;
+    // Map age (days) to phase emoji
+    let emoji;
+    if      (age < 1.84) emoji = '🌑';   // new moon
+    else if (age < 5.53) emoji = '🌒';   // waxing crescent
+    else if (age < 9.22) emoji = '🌓';   // first quarter
+    else if (age < 12.91) emoji = '🌔';  // waxing gibbous
+    else if (age < 16.61) emoji = '🌕';  // full moon
+    else if (age < 20.30) emoji = '🌖';  // waning gibbous
+    else if (age < 23.99) emoji = '🌗';  // last quarter
+    else if (age < 27.68) emoji = '🌘';  // waning crescent
+    else                  emoji = '🌑';  // new moon (cycle wraps)
+    moonEl.textContent = emoji;
+    moonEl.title = `Lunar age: ${age.toFixed(1)} days`;
+  } catch (err){}
+}
+
+/* ----------------------- weather ----------------------- */
+async function updateWeather() {
+  const weatherEl = $('weather-widget');
+  if (!weatherEl) return;
+  
+  try {
+    if (!WEATHER_API_KEY) {
+      updateWeatherUI(getMockWeather());
+      return;
+    }
+    const url = `https://api.weatherapi.com/v1/current.json?key=${WEATHER_API_KEY}&q=${configLat},${configLon}&aqi=no`;
+    const res = await fetch(url);
+    const data = await res.json();
+    if (data && data.current) {
+      updateWeatherUI({
+        temp: Math.round(data.current.temp_c),
+        icon: getWeatherIconFromCode(data.current.condition.code),
+        description: data.current.condition.text
+      });
+    } else {
+      updateWeatherUI(getMockWeather());
+    }
+  } catch (err) {
+    updateWeatherUI(getMockWeather());
+  }
+}
+
+function updateWeatherUI(weather) {
+  const weatherEl = $('weather-widget');
+  if (!weatherEl) return;
+  const iconEl = weatherEl.querySelector('.weather-icon');
+  const tempEl = weatherEl.querySelector('.weather-temp');
+  const conditionEl = weatherEl.querySelector('.weather-condition');
+  if (iconEl) iconEl.textContent = weather.icon;
+  if (tempEl) tempEl.textContent = `${weather.temp}°C`;
+  if (conditionEl) conditionEl.textContent = weather.description || '';
+}
+
+function getWeatherIconFromCode(code) {
+  if ([1087,1273,1276,1279,1282].includes(code)) return '⛈️';
+  if ([1063,1069,1072,1150,1153,1168,1171,1180,1183,1186,1189,1192,1195,1198,1201,1240,1243,1246].includes(code)) return '🌧️';
+  if ([1066,1114,1117,1210,1213,1216,1219,1222,1225,1255,1258,1261,1264].includes(code)) return '❄️';
+  if ([1030,1135,1147].includes(code)) return '🌫️';
+  if ([1000].includes(code)) {
+    const hour = new Date().getHours();
+    return (hour >= 18 || hour < 6) ? '🌙' : '☀️';
+  }
+  if ([1003,1006,1009].includes(code)) return '☁️';
+  return '🌤️';
+}
+
+function getMockWeather() {
+  const hour = new Date().getHours();
+  if (hour >= 6 && hour < 12) return {temp:12, icon:'🌤️', description:'Partly cloudy'};
+  if (hour >= 12 && hour < 18) return {temp:18, icon:'☀️', description:'Sunny'};
+  return {temp:7, icon:'🌙', description:'Clear night'};
+}
+
+/* ----------------------- config management ----------------------- */
+async function loadConfig() {
+  try {
+    const res = await fetch('/api/config');
+    if (!res.ok) {
+      showToast('Failed to load config (API not available)');
+      return;
+    }
+    const data = await res.json();
+    
+    if (!data.ok) {
+      showToast('Error loading config');
+      return;
+    }
+    
+    const cfg = data.config;
+    
+    // Update location display
+    if (cfg.app?.location) {
+      configCity    = cfg.app.location.city    || '';
+      configCountry = cfg.app.location.country || '';
+      configLat     = cfg.app.location.latitude  || 51.5074;
+      configLon     = cfg.app.location.longitude || -0.1278;
+      $('location-display').textContent = configCity ? `${configCity}, ${configCountry}` : 'Set your location in Settings';
+      $('config-latitude').value  = configLat;
+      $('config-longitude').value = configLon;
+    }
+    
+    // Timezone
+    if (cfg.app?.timezone) {
+      $('config-timezone').value = cfg.app.timezone;
+    }
+    
+    // Calculation method
+    if (cfg.app?.calculation_method) {
+      $('config-method').value = cfg.app.calculation_method;
+    }
+    
+    // Fajr rules
+    if (cfg.rules) {
+      $('config-fajr-cap').value = cfg.rules.fajr_workday_cap || '07:00';
+      $('config-weekend-offset').value = cfg.rules.fajr_weekend_offset_minutes || -30;
+      $('config-suhoor-lead').value = cfg.rules.suhoor_lead_minutes || 30;
+      
+      // High latitude method
+      const method = cfg.rules.high_latitude_method || 'combine_prayers';
+      document.querySelectorAll('input[name="high-lat-method"]').forEach(r => {
+        r.checked = r.value === method;
+      });
+      
+      $('config-static-offset').value = cfg.rules.isha_static_offset_minutes || 90;
+      $('static-offset-value').textContent = cfg.rules.isha_static_offset_minutes || 90;
+      $('config-isha-max-time').value = cfg.rules.isha_max_time || '';
+      $('config-fajr-couple').checked = cfg.rules.fajr_at_start_when_isha_capped !== false;
+      $('config-scan-frequency').value = cfg.rules.twilight_scan_frequency_days || 7;
+      
+      // Schedule
+      $('config-dhikr-time').value = cfg.rules.morning_dhikr_time || '07:00';
+      $('config-wakeup-time').value = cfg.rules.wakeup_time || '06:30';
+      $('config-wakeup-weekdays').checked = cfg.rules.wakeup_weekdays_only !== false;
+      // S4 FIX (2026-05-23): explicit enable toggle, defaults to true to preserve existing behaviour
+      $('config-wakeup-enabled').checked = cfg.rules.wakeup_enabled !== false;
+
+      // i18n: sync language picker with saved value (also applies translations)
+      if (cfg.rules.language && T[cfg.rules.language]) {
+        if ($('lang-picker')) $('lang-picker').value = cfg.rules.language;
+        applyTranslations(cfg.rules.language);
+      }
+      $('config-evening-delay').value = cfg.rules.evening_after_maghrib_minutes || 30;
+      $('config-evening-cutoff').value = cfg.rules.evening_dhikr_cutoff_time || '20:00';
+      $('config-autodetect-startup').checked = cfg.rules.auto_detect_location_on_startup !== false;
+      
+      // Summer skip
+      $('config-skip-persistent-twilight').checked = cfg.rules.skip_isha_during_persistent_twilight !== false;
+    }
+    
+    // Speaker settings
+    if (cfg.speakers) {
+      $('config-include-name').value = cfg.speakers.include_if_name_contains || 'speaker';
+      $('config-exclude-names').value = (cfg.speakers.exclude_if_name_contains_any || []).join(', ');
+      $('config-general-volume').value = Math.round((cfg.speakers.general_volume || 0.7) * 100);
+      
+      // Load exclusions
+      const exclusionList = $('exclusion-list');
+      exclusionList.innerHTML = '';
+      if (cfg.speakers.suhoor_exclude_names) {
+        cfg.speakers.suhoor_exclude_names.forEach(name => {
+          addExclusionTag(name);
+        });
+      }
+    }
+    
+    // Load audio routing
+    if (cfg.speakers?.audio_routing) {
+      currentRouting = cfg.speakers.audio_routing;
+    }
+    
+    showToast('Configuration loaded');
+  } catch (err) {
+    console.error('Error loading config:', err);
+    showToast('Failed to load config');
+  }
+}
+
+async function saveConfig() {
+  try {
+    // Collect all settings
+    const config = {
+      app: {
+        location: {
+          latitude: parseFloat($('config-latitude').value),
+          longitude: parseFloat($('config-longitude').value),
+          city: configCity,
+          country: configCountry
+        },
+        timezone: $('config-timezone').value,
+        calculation_method: $('config-method').value
+      },
+      rules: {
+        fajr_workday_cap: $('config-fajr-cap').value,
+        fajr_weekend_offset_minutes: parseInt($('config-weekend-offset').value),
+        high_latitude_method: document.querySelector('input[name="high-lat-method"]:checked').value,
+        isha_static_offset_minutes: parseInt($('config-static-offset').value),
+        isha_max_time: ($('config-isha-max-time').value || '').trim(),
+        fajr_at_start_when_isha_capped: $('config-fajr-couple').checked,
+        twilight_scan_frequency_days: parseInt($('config-scan-frequency').value),
+        morning_dhikr_time: $('config-dhikr-time').value,
+        wakeup_time: $('config-wakeup-time').value,
+        wakeup_weekdays_only: $('config-wakeup-weekdays').checked,
+        // S4 FIX (2026-05-23): persist explicit enable flag
+        wakeup_enabled: $('config-wakeup-enabled').checked,
+        // i18n: persist UI language choice
+        language: currentLang,
+        evening_after_maghrib_minutes: parseInt($('config-evening-delay').value),
+        evening_dhikr_cutoff_time: ($('config-evening-cutoff').value || '20:00').trim(),
+        auto_detect_location_on_startup: $('config-autodetect-startup').checked,
+        suhoor_lead_minutes: parseInt($('config-suhoor-lead').value),
+        skip_isha_during_persistent_twilight: $('config-skip-persistent-twilight').checked
+      },
+      speakers: {
+        include_if_name_contains: $('config-include-name').value,
+        exclude_if_name_contains_any: $('config-exclude-names').value.split(',').map(s => s.trim()).filter(s => s),
+        general_volume: parseInt($('config-general-volume').value) / 100,
+        suhoor_exclude_names: getExclusions(),
+        audio_routing: currentRouting
+      }
+    };
+    
+    const res = await fetch('/api/config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(config)
+    });
+    
+    const data = await res.json();
+    
+    if (res.ok && data.ok) {
+      // Also persist auto-update channel/enabled if those controls exist
+      if ($('update-channel')) saveUpdateConfig();
+      showToast('Configuration saved successfully');
+      setTimeout(() => quickAction('refresh'), 1000);
+    } else {
+      showToast('Failed to save configuration: ' + (data.error || 'Unknown error'));
+    }
+  } catch (err) {
+    showToast('Error saving config: ' + err.message);
+  }
+}
+
+async function autoDetectLocation() {
+  try {
+    showToast('Detecting location from IP...');
+    const res = await fetch('/api/location/auto-detect?save=true', { method: 'POST' });
+    const data = await res.json();
+    if (!res.ok || !data.ok) {
+      showToast('Auto-detect failed: ' + (data && data.error ? data.error : 'unknown'));
+      return;
+    }
+    const loc = data.location;
+    $('config-latitude').value = parseFloat(loc.lat);
+    $('config-longitude').value = parseFloat(loc.lon);
+    const ld = document.getElementById('location-display');
+    if (ld) ld.textContent = `${loc.city || ''}, ${loc.country || ''}`;
+    if (loc.timezone) {
+      const tzSel = $('config-timezone');
+      if (tzSel) {
+        if (!Array.from(tzSel.options).some(o => o.value === loc.timezone)) {
+          const opt = document.createElement('option');
+          opt.value = loc.timezone; opt.textContent = loc.timezone;
+          tzSel.appendChild(opt);
+        }
+        tzSel.value = loc.timezone;
+      }
+    }
+    showToast(`Detected: ${loc.city}, ${loc.country} (${parseFloat(loc.lat).toFixed(2)}, ${parseFloat(loc.lon).toFixed(2)})`);
+  } catch (err) {
+    showToast('Auto-detect error: ' + err.message);
+  }
+}
+
+async function loadUpdateStatus() {
+  try {
+    const res = await fetch('/api/update/status');
+    const d = await res.json();
+    if (!d.ok) return;
+    if ($('update-version'))   $('update-version').textContent = 'v' + (d.version || 'unknown');
+    if ($('update-channel'))   $('update-channel').value = d.channel || 'stable';
+    if ($('update-enabled'))   $('update-enabled').checked = d.auto_update_enabled !== false;
+    if ($('update-log')) {
+      const lines = (d.last_log || []).slice(-10);
+      $('update-log').textContent = lines.length ? lines.join('\n') : '(no log yet — runs daily at 04:00)';
+    }
+  } catch (e) { /* silent */ }
+}
+
+async function runUpdateNow() {
+  const btn = $('update-now-btn');
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Checking…'; }
+  try {
+    const res = await fetch('/api/update/run', { method: 'POST' });
+    const d = await res.json();
+    if (d.ok) {
+      showToast('Update check started — refreshing log in 15s…');
+      setTimeout(() => { loadUpdateStatus(); if (btn) { btn.disabled = false; btn.textContent = '🔄 Check for updates now'; } }, 15000);
+    } else {
+      showToast('Could not start: ' + (d.error || 'unknown'));
+      if (btn) { btn.disabled = false; btn.textContent = '🔄 Check for updates now'; }
+    }
+  } catch (e) {
+    showToast('Network error');
+    if (btn) { btn.disabled = false; btn.textContent = '🔄 Check for updates now'; }
+  }
+}
+
+async function saveUpdateConfig() {
+  try {
+    await fetch('/api/update/config', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        channel: $('update-channel').value,
+        enabled: $('update-enabled').checked,
+      }),
+    });
+  } catch (e) { /* silent — saveConfig will surface real errors */ }
+}
+
+async function resetSetup() {
+  if (!confirm('Re-run the first-time setup wizard?\n\nYour current settings will be kept — but the welcome wizard will appear when you next visit the dashboard. Useful if you\'ve moved house or want to walk a family member through it.')) return;
+  try {
+    const res = await fetch('/api/setup/reset', { method: 'POST' });
+    const data = await res.json();
+    if (data.ok) {
+      showToast('Setup reset — redirecting to wizard…');
+      setTimeout(() => { window.location.href = '/setup'; }, 700);
+    } else {
+      showToast('Reset failed: ' + (data.error || 'unknown'));
+    }
+  } catch (e) { showToast('Network error'); }
+}
+
+async function searchLocation() {
+  const query = $('location-search').value;
+  if (!query) return;
+  
+  try {
+    showToast('Searching...');
+    const res = await fetch(`/api/location/search?q=${encodeURIComponent(query)}`);
+    if (!res.ok) {
+      showToast('Search failed');
+      return;
+    }
+    
+    const data = await res.json();
+    if (data && data.length > 0) {
+      const place = data[0];
+      $('config-latitude').value = parseFloat(place.lat);
+      $('config-longitude').value = parseFloat(place.lon);
+
+      // S1 FIX (2026-05-23): persist city/country to globals so saveConfig() writes them.
+      // Previously these were only displayed; saveConfig pulled stale globals → location never updated.
+      // Prefer search result; fall back to reverse geocode.
+      // D10 FIX (2026-05-23): Nominatim returns trilingual country names for multilingual states
+      // (e.g. "België / Belgique / Belgien"). Take just the first form for cleaner display.
+      const normalizeCountry = s => (s || '').split('/')[0].trim();
+      configCity    = (place.city    || '').trim();
+      configCountry = normalizeCountry(place.country);
+
+      // Reverse geocode for nicer city/country display when search result is sparse
+      try {
+        const revRes = await fetch(`/api/location/reverse?lat=${place.lat}&lon=${place.lon}`);
+        if (revRes.ok) {
+          const revData = await revRes.json();
+          if (revData.city)    configCity    = revData.city;
+          if (revData.country) configCountry = normalizeCountry(revData.country);
+        }
+      } catch (e) { /* reverse geocode optional */ }
+
+      $('location-display').textContent = configCity
+        ? `${configCity}, ${configCountry}`
+        : place.name;
+
+      // S3 FIX: auto-select the most likely timezone for this lat/lon
+      // (best-effort — Europe-only mapping here; backend should provide a real /api/tz endpoint later)
+      try {
+        const tz = guessTimezoneFromLatLon(parseFloat(place.lat), parseFloat(place.lon));
+        if (tz && $('config-timezone').querySelector(`option[value="${tz}"]`)) {
+          $('config-timezone').value = tz;
+        }
+      } catch (e) { /* tz guess optional */ }
+
+      showToast(`Found: ${place.name.substring(0, 50)}...`);
+    } else {
+      showToast('Location not found');
+    }
+  } catch (err) {
+    console.error('Search error:', err);
+    showToast('Search failed');
+  }
+}
+
+function getExclusions() {
+  const tags = document.querySelectorAll('#exclusion-list .exclusion-tag');
+  const names = [];
+  tags.forEach(tag => {
+    const text = tag.textContent.replace('✕', '').trim();
+    if (text) names.push(text);
+  });
+  return names;
+}
+
+function addExclusionTag(name) {
+  const list = $('exclusion-list');
+  const tag = document.createElement('span');
+  tag.className = 'exclusion-tag';
+  tag.style.cssText = 'display:inline-block; background:rgba(212,175,55,0.2); border:1px solid var(--gold); border-radius:12px; padding:2px 8px; margin:2px; font-size:0.8rem;';
+  tag.innerHTML = `${name} <button onclick="this.parentElement.remove()" style="background:none; border:none; color:var(--gold); margin-left:5px; cursor:pointer;">✕</button>`;
+  list.appendChild(tag);
+}
+
+function addExclusion() {
+  const select = $('speaker-select');
+  const name = select.value;
+  if (!name) return;
+  
+  // Check if already added
+  const existing = Array.from(document.querySelectorAll('#exclusion-list .exclusion-tag')).some(
+    tag => tag.textContent.includes(name)
+  );
+  
+  if (!existing) {
+    addExclusionTag(name);
+  }
+}
+
+/* ----------------------- modal functions ----------------------- */
+function openSettingsModal(tab = 'basic') {
+  $('settingsModal').style.display = 'block';
+  switchTab(tab);
+  loadConfig();
+  loadUpdateStatus();
+  renderRoutingMatrix();
+  renderAudioFiles();   // D7 FIX (2026-05-23): populate Audio Files tab on every open
+  renderWakeupTab();    // NEW Wakeup tab (2026-05-23): populate on open too
+}
+
+function closeSettings() {
+  $('settingsModal').style.display = 'none';
+}
+
+function switchTab(tabName) {
+  document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+  const tabMap = {'basic':'tab-basic','advanced':'tab-advanced','speakers':'tab-speakers','audio':'tab-audio'};
+  const tabId = tabMap[tabName];
+  if (tabId) $(tabId).classList.add('active');
+  document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
+  $(`${tabName}-tab`).classList.add('active');
+}
+
+/* ----------------------- actions ----------------------- */
+function showToast(message, duration = 3000) {
+  const toast = $('toast');
+  toast.textContent = message;
+  toast.classList.add('show');
+  setTimeout(() => toast.classList.remove('show'), duration);
+}
+
+async function speakerAction(action) {
+  try {
+    switch(action) {
+      case 'all_on':
+        await fetch('/api/speakers/toggle_all', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ enabled: true }) });
+        showToast('All speakers enabled');
+        refresh();
+        break;
+      case 'all_off':
+        await fetch('/api/speakers/toggle_all', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ enabled: false }) });
+        showToast('All speakers disabled');
+        refresh();
+        break;
+      case 'rediscover':
+        showToast('Rediscovering speakers...');
+        await fetch('/api/rediscover', { method: 'POST' });
+        showToast('Speakers rediscovered');
+        refresh();
+        break;
+      case 'force_discover':
+        showToast('Force rediscovering...');
+        const res = await fetch('/api/speakers/force_discover', { method: 'POST' });
+        const data = await res.json();
+        showToast(`Found ${data.count} speakers`);
+        refresh();
+        break;
+    }
+  } catch (error) {
+    showToast('Error: ' + error.message);
+  }
+}
+
+async function quickAction(action) {
+  try {
+    switch(action) {
+      case 'test_adhan':
+        showToast('Playing test adhan...');
+        await fetch('/api/test/play', { method: 'POST', headers: { 'Content-Type': 'application/json' } });
+        break;
+      case 'dua_of_soul':
+        showToast('Playing Dua of the Soul...');
+        await fetch('/api/test/play', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({type: 'friday_prayer'}) });
+        showToast('Dua of the Soul playing on all speakers');
+        break;
+      case 'stop_all':
+        await fetch('/api/test/stop', { method: 'POST', headers: { 'Content-Type': 'application/json' } });
+        showToast('All audio stopped');
+        break;
+      case 'refresh':
+        showToast('Refreshing data...');
+        await refresh();
+        showToast('Data refreshed');
+        break;
+    }
+  } catch (error) {
+    showToast('Error: ' + error.message);
+  }
+}
+
+async function emergencyStop() {
+  if (confirm('🚨 EMERGENCY STOP - This will stop all audio on all speakers. Continue?')) {
+    try {
+      showToast('EMERGENCY STOP ACTIVATED');
+      const res = await fetch('/api/emergency/stop', { method: 'POST', headers: { 'Content-Type': 'application/json' } });
+      const data = await res.json();
+      showToast(`Emergency stop complete - stopped ${data.stopped_devices} devices`);
+    } catch (error) {
+      showToast('Error: ' + error.message);
+    }
+  }
+}
+
+/* ----------------------- data refresh ----------------------- */
+async function refresh(){
+  try {
+    const res = await fetch('/api/state');
+    if(!res) return false;
+    const data = await res.json();
+
+    if (data.location) {
+      $('location-display').textContent = `${data.location.city}, ${data.location.country}`;
+    }
+
+    const times = { ...data.prayer_times || {} };
+    
+    if (data.prayer_times?.Sunrise) times.Sunrise = data.prayer_times.Sunrise;
+    else if (data.sunrise_time) times.Sunrise = data.sunrise_time;
+    else if (data.sunrise) times.Sunrise = data.sunrise;
+    
+    window.currentPrayers = times;
+
+    drawDaylightArc(times);
+    drawNumerals();
+    drawPins(times);
+    startCountdownFrom(data);
+
+    const nextName = (data.next_prayer && data.next_prayer.name) || getNextPrayerFallback(times)?.name || null;
+    renderPanels(times, nextName);
+    
+    updateAdaptiveBrightness();
+    updateCelestialVisibility(new Date());
+    updateMoonPhase();
+    updateWeather();
+    
+    // Update speaker status
+    renderSpeakers(data);
+    
+    return true;
+  } catch (error) {
+    console.error('Refresh error:', error);
+    return false;
+  }
+}
+
+/* ----------------------- boot ----------------------- */
+window.addEventListener('load', () => {
+  setTimeout(() => {
+    refresh().then(() => {
+      updateHands();
+      updateHijri();
+      updateMoonPhase();
+      updateWeather();
+
+      fetch('/api/config').then(r=>r.json()).then(d=>{
+        if(d.ok && d.config?.app?.location){
+          configCity    = d.config.app.location.city    || '';
+          configCountry = d.config.app.location.country || '';
+          configLat     = d.config.app.location.latitude  || 51.5074;
+          configLon     = d.config.app.location.longitude || -0.1278;
+        }
+        if(d.ok && d.config?.audio) currentAudioTypes = Object.keys(d.config.audio).sort();
+        if(d.ok && d.config?.speakers?.audio_routing) currentRouting = d.config.speakers.audio_routing;
+
+        // i18n FIX (2026-05-23): apply saved language (default 'en') on page load
+        const savedLang = d.config?.rules?.language || 'en';
+        if (T[savedLang]) {
+          applyTranslations(savedLang);
+          if ($('lang-picker')) $('lang-picker').value = savedLang;
+        }
+      }).catch(()=>{});
+
+      setInterval(updateHands, 100);
+      setInterval(updateHijri, 86400000);
+      setInterval(refresh, 30000); // Refresh every 30 seconds to update speaker status
+      setInterval(updateMoonPhase, 3600000);
+      setInterval(updateWeather, 900000);
+      setInterval(() => updateCelestialVisibility(new Date()), 60000);
+    });
+  }, 500);
+  
+  // Static offset slider update
+  $('config-static-offset').addEventListener('input', function() {
+    $('static-offset-value').textContent = this.value;
+  });
+  
+  // Close modal when clicking outside
+  window.onclick = function(event) {
+    const modal = $('settingsModal');
+    if (event.target == modal) {
+      modal.style.display = 'none';
+    }
+  };
+});
+</script>
+</body>
+</html>

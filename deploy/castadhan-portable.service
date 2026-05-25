@@ -1,0 +1,61 @@
+[Unit]
+Description=CastAdhan Portable — Islamic Prayer Time Broadcasting
+Documentation=file:///opt/castadhan-portable/README_SETUP.txt
+After=network-online.target avahi-daemon.service
+Wants=network-online.target
+# Burst control belongs in [Unit] on modern systemd (>= 230). Putting it in
+# [Service] generates the "Unknown key" warning we saw on the Pi.
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=castadhan
+Group=castadhan
+
+# Where the app lives (golden-image install path).
+WorkingDirectory=/opt/castadhan-portable
+
+# Use the bundled venv so we never depend on system Python being right.
+ExecStart=/opt/castadhan-portable/venv/bin/python3 /opt/castadhan-portable/app.py
+
+# Restart on any failure with a short backoff. Don't restart on clean exit (e.g. config error).
+Restart=on-failure
+RestartSec=10
+
+# Log to journald (queryable via `journalctl -u castadhan-portable`).
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=castadhan
+
+# Modest hardening — service writes only to its own directory and /tmp.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+ReadWritePaths=/opt/castadhan-portable
+# Allow binding port 8786 as non-root user (Linux >= 4.3).
+AmbientCapabilities=
+CapabilityBoundingSet=
+
+# Graceful shutdown — give the scheduler time to stop in-flight jobs.
+TimeoutStopSec=20
+KillMode=mixed
+
+# Memory accounting + ceiling. Tuned conservatively (Sat 23 May 2026) so the
+# same unit file works safely on both Pi 3 A+ (416 MB usable) and Pi 4 (2 GB).
+# 280 MB cap leaves ~130 MB for the OS on a Pi 3 A+, and is well below Pi 4's
+# headroom. Together with CASTADHAN_LITE=1 (skip pydub) this prevents the
+# Friday 22 May OOM cascade.
+MemoryAccounting=true
+MemoryHigh=200M
+MemoryMax=280M
+
+# LITE_MODE: with audio pre-converted on the Mac before SD-card flash, the
+# Pi never needs to load files into RAM via pydub. This flag belt-and-braces
+# guarantees that even if a stray file is missing its _compatible.mp3, the
+# Pi won't try (and fail) to convert it.
+Environment=CASTADHAN_LITE=1
+
+[Install]
+WantedBy=multi-user.target

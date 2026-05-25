@@ -1,0 +1,44 @@
+# macOS
+.DS_Store
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+venv/
+.venv/
+*.egg-info/
+
+# Runtime state (per-Pi, must NOT be in repo)
+ui_state.json
+ui_state.json.lock
+castadhan.log
+*.log
+known_speakers.json
+
+# Backups created by hot-patch sessions
+*.bak
+*.bak-*
+backups/
+
+# Pi-side log captures (per-session, for debugging)
+pi*_logs_*/
+
+# Editor
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Incident reports and per-deployment notes contain real names, locations,
+# IP addresses, and credentials (Tailscale auth keys, login passwords,
+# WiFi SSIDs, client family names). Keep them locally only — never publish.
+INCIDENT_REPORT*.md
+DEPLOY_NOTES*.md
+*.private.md
+
+# Local environment / secrets
+.env
+.env.*
+secrets.yaml
+*.secret
