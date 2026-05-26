@@ -215,6 +215,15 @@ DEFAULT_CONFIG = {
         # Isha = Maghrib + 90 min — closer to most published mosque timetables.
         # Users can change via wizard step 2 (lat>=45°) or Settings → Advanced.
         'high_latitude_method': 'static_offset',  # options: 'combine_prayers', '1_7_rule', 'static_offset'
+        # C-2 (v1.5.0): Madhab/fiqh selector for Asr shadow factor.
+        # 'shafii' → shadow factor 1 (default — Aladhan's own default, used by
+        # most North African / Arab / Indonesian / Malay Muslims). 'hanafi' →
+        # shadow factor 2 (later Asr by 30-60 min, used by most South Asian /
+        # Turkish / Balkan / Central Asian Muslims, and ~1.3 billion globally).
+        # Maliki and Hanbali use Shafi'i shadow factor — set to 'shafii'.
+        # Before v1.5.0 this parameter was never sent to Aladhan, so every
+        # Hanafi user globally got Shafi'i Asr daily.
+        'madhab': 'shafii',  # options: 'shafii', 'hanafi', 'maliki', 'hanbali'
         'isha_static_offset_minutes': 90,  # Used if method = 'static_offset'
         'isha_max_time': '',  # Optional HH:MM cap (e.g. "22:00"); empty disables (recommended for travel)
         'fajr_at_start_when_isha_capped': True,  # When Isha cap fires today, play Fajr at raw API time
@@ -279,6 +288,30 @@ def migrate_old_config(cfg: dict) -> dict:
     
     return cfg, changes
 
+# C-1 + C-2 (v1.5.0): Aladhan parameter maps. Must be defined BEFORE
+# validate_config() because validate_config is called at module-load time
+# (line ~400) and uses these constants for input validation. Previous
+# location near fetch_prayer_times() caused a NameError on startup.
+ALADHAN_METHOD_MAP = {
+    "ISNA":        2,   # Islamic Society of North America — Fajr 15°, Isha 15°
+    "MWL":         3,   # Muslim World League — Fajr 18°, Isha 17°
+    "EGYPTIAN":    5,   # Egyptian General Authority — Fajr 19.5°, Isha 17.5°
+    "KARACHI":     1,   # University of Islamic Sciences, Karachi — Fajr 18°, Isha 18°
+    "UMM AL-QURA": 4,   # Umm al-Qura, Makkah — Fajr 18.5°, Isha = Maghrib + 90 min
+    # Aliases / variants likely to occur in user-written config.yaml
+    "UMM_AL_QURA": 4,
+    "UMMALQURA":   4,
+    "ISLAMIC SOCIETY OF NORTH AMERICA": 2,
+    "MUSLIM WORLD LEAGUE": 3,
+}
+ALADHAN_SCHOOL_MAP = {
+    "SHAFII":  0,   # default — shadow factor 1
+    "SHAFI'I": 0,
+    "MALIKI":  0,   # Maliki/Hanbali use Shafi'i shadow factor too
+    "HANBALI": 0,
+    "HANAFI":  1,   # shadow factor 2 — Asr ~30-60 min later than Shafi'i
+}
+
 def validate_config(cfg: dict) -> Tuple[bool, str]:
     """Validate critical config values to prevent silent failures"""
     try:
@@ -307,6 +340,16 @@ def validate_config(cfg: dict) -> Tuple[bool, str]:
         method = cfg.get('rules', {}).get('high_latitude_method', 'combine_prayers')
         if method not in ['combine_prayers', '1_7_rule', 'static_offset']:
             return False, f"high_latitude_method must be one of: 'combine_prayers', '1_7_rule', 'static_offset'"
+
+        # C-2 (v1.5.0): madhab validation
+        madhab = cfg.get('rules', {}).get('madhab', 'shafii')
+        if str(madhab).lower() not in ['shafii', 'hanafi', 'maliki', 'hanbali']:
+            return False, f"madhab must be one of: 'shafii', 'hanafi', 'maliki', 'hanbali'; got {madhab!r}"
+
+        # C-1 (v1.5.0): calculation_method validation
+        calc_method = cfg.get('app', {}).get('calculation_method', 'ISNA')
+        if calc_method.upper() not in ALADHAN_METHOD_MAP:
+            return False, f"calculation_method must be one of: {sorted(set(ALADHAN_METHOD_MAP.keys()) - {'ISLAMIC SOCIETY OF NORTH AMERICA', 'MUSLIM WORLD LEAGUE', 'UMM_AL_QURA', 'UMMALQURA'})}; got {calc_method!r}"
 
         # fajr_at_start_when_isha_capped validation (must be bool if present)
         fajr_couple = cfg.get('rules', {}).get('fajr_at_start_when_isha_capped')
@@ -1265,9 +1308,91 @@ def _cast_by_name(name: str):
     return None
 
 def emergency_stop_all():
-    """Emergency stop all audio on all speakers - called from UI"""
-    log.warning("🚨 EMERGENCY STOP ACTIVATED - Stopping all audio on all speakers")
-    return stop_all_audio()
+    """Emergency stop all audio on all speakers - called from UI.
+
+    C-4 (v1.5.0, Tue 26 May 2026): pre-v1.5.0, this just delegated to
+    stop_all_audio() — making it functionally identical to the "Stop All"
+    button next to it. The UI presented two visually-distinct buttons (one
+    red, one big-red) with no meaningful behavioural difference. For the
+    "6am snoozer" persona who's frantically trying to silence a misfiring
+    system, that's user-hostile.
+
+    Post-v1.5.0:
+      - "Stop All" (api/test/stop) just stops current playback.
+      - "Emergency Stop" stops playback PLUS pauses the scheduler for 60
+        minutes — so a misfiring scheduled job that you just silenced won't
+        immediately re-fire 30 seconds later. The user can re-enable via the
+        same button or via /api/scheduler/resume.
+
+    The pause is persisted to disk so a service restart doesn't lose it.
+    """
+    log.warning("🚨 EMERGENCY STOP ACTIVATED - Stopping all audio + scheduler hold 60 min")
+    stopped = stop_all_audio()
+    try:
+        _set_scheduler_hold(minutes=60, reason="emergency_stop")
+    except Exception as e:
+        log.error(f"Could not enact scheduler hold during emergency stop: {e}")
+    return stopped
+
+_SCHEDULER_HOLD_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "scheduler_hold.json")
+_scheduler_hold = {"until": None, "reason": None}
+
+def _set_scheduler_hold(minutes: int, reason: str):
+    """Pause the scheduler for `minutes` minutes. Persists to disk so a
+    service restart preserves the hold (otherwise an emergency stop would be
+    undone by any subsequent restart, defeating its purpose)."""
+    global _scheduler_hold
+    until = (datetime.now(timezone.utc) + timedelta(minutes=minutes)).isoformat()
+    _scheduler_hold = {"until": until, "reason": reason, "set_at_local": now_local().isoformat()}
+    try:
+        with open(_SCHEDULER_HOLD_FILE, "w") as f:
+            json.dump(_scheduler_hold, f)
+    except Exception as e:
+        log.error(f"Could not persist scheduler hold: {e}")
+    log.warning(f"⏸️  Scheduler held until {until} (reason: {reason})")
+
+def _clear_scheduler_hold():
+    """Lift any active scheduler hold."""
+    global _scheduler_hold
+    _scheduler_hold = {"until": None, "reason": None}
+    try:
+        if os.path.exists(_SCHEDULER_HOLD_FILE):
+            os.remove(_SCHEDULER_HOLD_FILE)
+    except Exception as e:
+        log.error(f"Could not remove scheduler hold file: {e}")
+    log.info("▶  Scheduler hold cleared")
+
+def _load_scheduler_hold():
+    """Read any persisted hold from disk on startup."""
+    global _scheduler_hold
+    try:
+        if os.path.exists(_SCHEDULER_HOLD_FILE):
+            with open(_SCHEDULER_HOLD_FILE) as f:
+                _scheduler_hold = json.load(f)
+            if _scheduler_hold.get("until"):
+                until = datetime.fromisoformat(_scheduler_hold["until"].replace("Z", "+00:00"))
+                if until <= datetime.now(timezone.utc):
+                    _clear_scheduler_hold()
+                else:
+                    log.warning(f"📋 Restored scheduler hold from disk; in effect until {_scheduler_hold['until']}")
+    except Exception as e:
+        log.error(f"Could not load scheduler hold from disk: {e}")
+        _scheduler_hold = {"until": None, "reason": None}
+
+def _scheduler_held() -> bool:
+    """Return True if a scheduler hold is currently active (i.e. all jobs
+    should silently skip until the hold expires)."""
+    u = _scheduler_hold.get("until")
+    if not u:
+        return False
+    try:
+        until = datetime.fromisoformat(u.replace("Z", "+00:00"))
+        if until <= datetime.now(timezone.utc):
+            _clear_scheduler_hold()
+            return False
+        return True
+    except Exception:
+        return False
 
 def stop_all_audio():
     """Stop playback on all known speakers.
@@ -1733,18 +1858,31 @@ def apply_high_latitude_overrides(raw_times: dict, target_date: date) -> dict:
 
     return times
 
+# Note: ALADHAN_METHOD_MAP and ALADHAN_SCHOOL_MAP are defined near the top of
+# the file (right before validate_config) because they're referenced during
+# module-load validation. C-1 + C-2 (v1.5.0) — religious-correctness fix:
+# before v1.5.0 every user got ISNA times regardless of the dropdown choice,
+# and every Hanafi user got Shafi'i Asr (wrong by 30-60 min daily). Now wired
+# via these maps with sane defaults if config has an unrecognised value.
+
 def fetch_prayer_times(target_date: date) -> dict:
     """Fetch prayer times using coordinates with circuit breaker fallback"""
     global _last_successful_times
-    
+
     try:
         # Use coordinate-based API for better accuracy
         timestamp = int(target_date.strftime("%s")) if hasattr(target_date, 'strftime') else int(time.mktime(target_date.timetuple()))
         url = f"https://api.aladhan.com/v1/timings/{timestamp}"
+
+        method_id = ALADHAN_METHOD_MAP.get(METHOD.upper(), 2)
+        madhab_name = (RULES.get('madhab') or 'shafii').upper()
+        school_id = ALADHAN_SCHOOL_MAP.get(madhab_name, 0)
+
         params = {
             'latitude': LATITUDE,
             'longitude': LONGITUDE,
-            'method': 2 if METHOD.upper() == "ISNA" else 2,  # ISNA method
+            'method': method_id,
+            'school': school_id,
             'timezone': TZ
         }
 
@@ -2667,8 +2805,14 @@ def play_adhan_all(target: Optional[str] = None, prayer_name: Optional[str] = No
     (PASS / FAIL / NO_SPEAKERS) to play_history.jsonl + a 50-entry ring
     visible via /api/play_history. This makes the silent-Maghrib failure
     of 25 May 2026 detectable from the dashboard instead of buried in journal.
+
+    C-4 (v1.5.0): respects scheduler hold from emergency stop.
     """
     if shutdown_event.is_set():
+        return
+    if _scheduler_held():
+        log.warning(f"⏸️  Adhan for {prayer_name} skipped: scheduler is on hold (Emergency Stop active until {_scheduler_hold.get('until')})")
+        _log_play("adhan", prayer_name, "SKIPPED_HOLD", speakers_count=0)
         return
 
     log.info(f"Playing Adhan for {prayer_name} on all enabled speakers")
@@ -3014,7 +3158,13 @@ def api_state():
             },
             "audio_types": sorted(AUDIO.keys()),
             "audio_routing": CFG.get("speakers", {}).get("audio_routing", {}),
-            "scheduler_running": _scheduler_started
+            "scheduler_running": _scheduler_started,
+            # C-4 (v1.5.0): expose hold state so dashboard banner stays in sync
+            "scheduler_hold": {
+                "held": _scheduler_held(),
+                "until": _scheduler_hold.get("until") if _scheduler_held() else None,
+                "reason": _scheduler_hold.get("reason") if _scheduler_held() else None,
+            },
         })
     except Exception as e:
         log.error(f"Error getting state: {e}")
@@ -3264,17 +3414,47 @@ def api_test_stop():
 
 @app.route("/api/emergency/stop", methods=["POST"])
 def api_emergency_stop():
-    """Emergency stop all audio - big red button endpoint"""
+    """Emergency stop all audio + scheduler hold 60 min.
+
+    C-4 (v1.5.0): now meaningfully different from /api/test/stop. Stops
+    playback AND puts the scheduler on a 60-min hold so a misfiring job
+    that you just silenced won't immediately re-fire. The hold is
+    persisted to disk, so a service restart preserves it."""
     try:
         log.warning("🚨 EMERGENCY STOP triggered via API")
         stopped_count = emergency_stop_all()
         return jsonify({
-            "ok": True, 
+            "ok": True,
             "stopped_devices": stopped_count,
-            "message": "EMERGENCY STOP ACTIVATED - All audio stopped"
+            "scheduler_hold_until": _scheduler_hold.get("until"),
+            "message": "EMERGENCY STOP — audio stopped, scheduler held for 60 minutes"
         })
     except Exception as e:
         log.error(f"Error in emergency stop: {e}")
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+@app.route("/api/scheduler/hold", methods=["GET"])
+def api_scheduler_hold_status():
+    """C-4 (v1.5.0): inspect any active scheduler hold."""
+    held = _scheduler_held()
+    return jsonify({
+        "ok": True,
+        "held": held,
+        "until": _scheduler_hold.get("until") if held else None,
+        "reason": _scheduler_hold.get("reason") if held else None,
+    })
+
+@app.route("/api/scheduler/resume", methods=["POST"])
+def api_scheduler_resume():
+    """C-4 (v1.5.0): lift any active scheduler hold immediately, so prayers
+    resume firing on schedule. Use this when you've silenced a misfiring
+    Emergency Stop and want to bring the system back to normal earlier than
+    the 60-min auto-release."""
+    try:
+        _clear_scheduler_hold()
+        return jsonify({"ok": True, "message": "Scheduler resumed — prayer schedule will fire normally from next prayer."})
+    except Exception as e:
+        log.error(f"Error resuming scheduler: {e}")
         return jsonify({"ok": False, "error": str(e)}), 500
 
 @app.route("/api/rediscover", methods=["POST"])
@@ -3850,6 +4030,13 @@ def ensure_initialized():
     # Log feature summary
     log_feature_summary()
     
+    # C-4 (v1.5.0): restore any active scheduler hold from disk so a restart
+    # doesn't undo an emergency-stop that the user issued before restart.
+    try:
+        _load_scheduler_hold()
+    except Exception as e:
+        log.error(f"Could not load scheduler hold: {e}")
+
     # Set up scheduler (only once)
     if not _scheduler_started:
         sched.add_listener(job_listener, EVENT_JOB_EXECUTED | EVENT_JOB_ERROR)

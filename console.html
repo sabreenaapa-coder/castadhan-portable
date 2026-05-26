@@ -190,7 +190,8 @@
     <button class="control-btn" onclick="quickAction('test_adhan')">🔔 Test Adhan</button>
     <button class="control-btn" onclick="quickAction('dua_of_soul')">🤲 Dua of the Soul</button>
     <button class="control-btn" onclick="quickAction('stop_all')">⏹️ Stop All</button>
-    <button class="control-btn emergency-btn" onclick="emergencyStop()">🚨 EMERGENCY STOP</button>
+    <button class="control-btn emergency-btn" onclick="emergencyStop()" title="C-4: Stops playback AND pauses scheduled prayers for 60 min so a misfiring job won't immediately re-fire. Use Resume Schedule to lift the hold sooner.">🚨 EMERGENCY STOP</button>
+    <button class="control-btn" id="resume-schedule-btn" onclick="resumeSchedule()" style="display:none;background:#0e4d4a;color:var(--cream)">▶ Resume Schedule</button>
     <button class="control-btn" onclick="quickAction('refresh')">🔄 Refresh Data</button>
     <button class="control-btn" onclick="openSettingsModal('basic')">⚙️ Settings</button>
   </div>
@@ -259,7 +260,7 @@
 
   <!-- (moved to top-right corner of viewport — see #lang-picker-wrapper below header) -->
 
-  <div class="footer"><p>CastAdhan v3.2 • <span id="current-year"></span></p></div>
+  <div class="footer"><p>CastAdhan <span id="footer-version">…</span> • <span id="current-year"></span></p></div>
   <div class="toast" id="toast"></div>
 </div>
 
@@ -1049,6 +1050,21 @@ function updateHands(){
   $('digital').textContent = now.toLocaleTimeString('en-GB',{hour12:false});
   $('greg').textContent = now.toLocaleDateString('en-GB',{weekday:'long',year:'numeric',month:'long',day:'numeric'});
   $('current-year').textContent = now.getFullYear();
+
+  /* C-3 (v1.5.0): footer version was hardcoded "v3.2" — wrong since v1.0.0.
+     Now populated from /api/version (endpoint exists in app.py). Fetched once
+     per page load; cached in window._footerVersionFetched to avoid hammering. */
+  if (!window._footerVersionFetched) {
+    window._footerVersionFetched = true;
+    fetch('/api/version').then(r => r.json()).then(d => {
+      const v = (d && (d.version || d.ok && d.version)) || '?';
+      const el = document.getElementById('footer-version');
+      if (el) el.textContent = 'v' + v;
+    }).catch(() => {
+      const el = document.getElementById('footer-version');
+      if (el) el.textContent = '(version unknown)';
+    });
+  }
   
   $('glow').style.transform = `rotate(${hourDeg}deg)`;
   updateAdaptiveBrightness();
@@ -2212,15 +2228,60 @@ async function quickAction(action) {
 }
 
 async function emergencyStop() {
-  if (confirm('🚨 EMERGENCY STOP - This will stop all audio on all speakers. Continue?')) {
+  /* C-4 (v1.5.0): Emergency Stop is now genuinely different from Stop All.
+     Stops playback AND puts the scheduler on a 60-min hold so a misfiring
+     prayer that you just silenced won't immediately re-fire. The hold is
+     persisted to disk so a service restart doesn't undo it. */
+  if (confirm('🚨 EMERGENCY STOP\n\nThis will:\n  • Stop all currently playing audio\n  • Pause ALL scheduled prayers for 60 minutes\n\nUse this if a prayer is misfiring or for a 60-minute "quiet period". Resume earlier by clicking Resume Schedule.\n\nContinue?')) {
     try {
-      showToast('EMERGENCY STOP ACTIVATED');
       const res = await fetch('/api/emergency/stop', { method: 'POST', headers: { 'Content-Type': 'application/json' } });
       const data = await res.json();
-      showToast(`Emergency stop complete - stopped ${data.stopped_devices} devices`);
+      if (data.ok) {
+        showToast(`Stopped ${data.stopped_devices} speaker(s). Schedule on hold for 60 minutes.`);
+        if (typeof updateSchedulerHoldBanner === 'function') updateSchedulerHoldBanner({ held: true, until: data.scheduler_hold_until });
+      } else {
+        showToast('Emergency stop failed: ' + (data.error || 'unknown'));
+      }
     } catch (error) {
       showToast('Error: ' + error.message);
     }
+  }
+}
+
+async function resumeSchedule() {
+  /* C-4 (v1.5.0): lift any active scheduler hold so prayer schedule resumes. */
+  try {
+    const res = await fetch('/api/scheduler/resume', { method: 'POST' });
+    const data = await res.json();
+    if (data.ok) {
+      showToast('Schedule resumed. Next prayer will fire normally.');
+      updateSchedulerHoldBanner({ held: false });
+    } else {
+      showToast('Resume failed: ' + (data.error || 'unknown'));
+    }
+  } catch (e) {
+    showToast('Error: ' + e.message);
+  }
+}
+
+function updateSchedulerHoldBanner(state) {
+  /* C-4 (v1.5.0): show/hide a banner + Resume button based on hold state.
+     Polled by refresh() every cycle so it stays in sync if hold expires. */
+  const resumeBtn = document.getElementById('resume-schedule-btn');
+  let banner = document.getElementById('scheduler-hold-banner');
+  if (state && state.held) {
+    if (!banner) {
+      banner = document.createElement('div');
+      banner.id = 'scheduler-hold-banner';
+      banner.style.cssText = 'position:fixed;top:0;left:0;right:0;background:#7a1e1e;color:#fff;padding:8px 16px;text-align:center;z-index:9999;font-size:0.9rem;font-weight:600';
+      document.body.appendChild(banner);
+    }
+    const untilTxt = state.until ? new Date(state.until).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }) : '';
+    banner.textContent = `⏸️ Scheduled prayers paused${untilTxt ? ' until ' + untilTxt : ''}. Click Resume Schedule when ready.`;
+    if (resumeBtn) resumeBtn.style.display = '';
+  } else {
+    if (banner) banner.remove();
+    if (resumeBtn) resumeBtn.style.display = 'none';
   }
 }
 
@@ -2250,6 +2311,11 @@ async function refresh(){
 
     const nextName = (data.next_prayer && data.next_prayer.name) || getNextPrayerFallback(times)?.name || null;
     renderPanels(times, nextName);
+
+    /* C-4 (v1.5.0): keep the scheduler-hold banner in sync with backend state.
+       Hold can expire (60-min auto-release) or be cleared via Resume button on
+       another tab — refresh ticks pick up the change. */
+    if (data.scheduler_hold) updateSchedulerHoldBanner(data.scheduler_hold);
     
     updateAdaptiveBrightness();
     updateCelestialVisibility(new Date());
