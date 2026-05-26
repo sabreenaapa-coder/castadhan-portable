@@ -63,6 +63,17 @@ The Pi checks GitHub nightly at 04:00 for a new release tag. If the latest tag i
 
 **To force an update now**: `sudo systemctl start castadhan-update.service`
 
+## Two users on the Pi (don't confuse them)
+
+After install the Pi has two separate user accounts:
+
+| User | Purpose | Has shell? | Has SSH? | Password |
+|---|---|---|---|---|
+| The **login user** you set in Pi Imager (e.g. `farley`, `pi`, `admin`) | What you SSH in as. Owns `/home/<user>/`. Member of `sudo`. | yes | yes | what you set |
+| **`castadhan`** (system user) | Runs the `castadhan-portable.service` daemon. Owns `/opt/castadhan-portable/`. | no | no | none (`*` in `/etc/shadow`) |
+
+This split exists because the service shouldn't run as a human user (security) and your human user shouldn't own `/opt/castadhan-portable/` (avoids file-permission confusion after updates). Remember: `ssh <login-user>@<pi>` to log in; the service file `User=castadhan` is correct as-is.
+
 ## Remote support (optional but recommended for unattended deployments)
 
 Install [Tailscale](https://tailscale.com) on the Pi during setup. Once the Pi is on your tailnet, you can SSH from any other tailnet device (your laptop anywhere in the world):

@@ -9,3 +9,9 @@ castadhan ALL=(root) NOPASSWD: /usr/bin/systemctl start castadhan-update.service
 castadhan ALL=(root) NOPASSWD: /usr/bin/systemctl restart castadhan-portable.service
 castadhan ALL=(root) NOPASSWD: /usr/bin/systemctl status castadhan-portable.service
 castadhan ALL=(root) NOPASSWD: /usr/bin/cp /tmp/.castadhan-update.defaults.new /etc/default/castadhan-update
+# O29 (v1.2.0): allow the app to keep the Linux system timezone in sync with the
+# app's configured timezone when the user changes location in the wizard. Without
+# this, system clock display, cron timers, log timestamps, and any naive-datetime
+# code would drift away from the app's prayer-calculation timezone — exactly the
+# bug that bit aunt's Pi on 25 May 2026 (system=Europe/London, app=Europe/Brussels).
+castadhan ALL=(root) NOPASSWD: /usr/bin/timedatectl set-timezone *

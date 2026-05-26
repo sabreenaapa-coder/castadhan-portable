@@ -47,11 +47,13 @@ rules:
   fajr_weekend_offset_minutes: -30
   fajr_workday_cap: 07:00
   friday_prayer_gap_seconds: 5
-  # combine_prayers is correct for high latitudes (Belgium, Netherlands, UK
-  # north of London): Isha cannot be reliably calculated in summer and is
-  # combined with Maghrib; Fajr defers to sunrise-30 when raw Fajr lands in
-  # persistent twilight.
-  high_latitude_method: combine_prayers
+  # Default: static_offset (most aligned with mainstream UK/EU mosque practice).
+  # Other options:
+  #   combine_prayers — Isha skipped + Fajr shifted to sunrise-30 (conservative)
+  #   1_7_rule        — fractions of the night
+  # Only matters for users above 45° latitude in summer; wizard surfaces a
+  # picker on first install when latitude qualifies.
+  high_latitude_method: static_offset
   isha_max_time: ''
   isha_static_offset_minutes: 90
   morning_dhikr_time: 07:00

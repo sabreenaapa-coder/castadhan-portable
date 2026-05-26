@@ -171,7 +171,17 @@ DEFAULT_CONFIG = {
     },
     'speakers': {
         'general_volume': 0.7,
-        'include_if_name_contains': 'speaker',
+        # O24 (v1.2.0, Tue 26 May 2026) — ROOT CAUSE of config drift:
+        # Previously this default was 'speaker' (English-only assumption).
+        # During Belgium deployment on 25 May we found this kept silently
+        # overwriting the user's empty-string override after restarts, because
+        # config-load merges schema defaults INTO the loaded YAML for any
+        # missing fields, and an empty string in YAML can be misread as
+        # "missing" by some merge implementations. Forcing to "" here means
+        # the schema and the shipped config.yaml agree; even if a merge does
+        # happen, the result is correct. Filter for excluding displays/hubs
+        # is sufficient on its own — see B-Belgium-1 (Dutch "Huiskamer").
+        'include_if_name_contains': '',
         'exclude_if_name_contains_any': ['display', 'hub', 'nest hub'],
         'suhoor_exclude_names': [],
         'audio_routing': {}  # Per-speaker audio routing: {"speaker_name": {"adhan": true, "morning_dhikr": false, ...}}
@@ -182,7 +192,12 @@ DEFAULT_CONFIG = {
         'wakeup_weekdays_only': True,
         'evening_after_maghrib_minutes': 30,
         'evening_dhikr_cutoff_time': '20:00',  # Suppress dhikr if it would end after this time
-        'auto_detect_location_on_startup': True,  # Portable default: auto-locate on each launch
+        # O3 (v1.2.0): default flipped True → False. Auto-detect via ip-api.com
+        # returns the ISP's POP, not the customer's actual city — TalkTalk users
+        # in the UK get "Birkenhead" or "Chester" instead of their real town,
+        # which then breaks prayer times. Manual Search & Set is the reliable
+        # path; auto-detect remains available as an explicit button.
+        'auto_detect_location_on_startup': False,
         'skip_isha_during_persistent_twilight': True,  # Skip Isha when astronomy says no real night
         'setup_complete': False,  # First-run wizard sets this True when finished
         # Note: legacy `skip_isha_between` is no longer in defaults.
@@ -193,7 +208,13 @@ DEFAULT_CONFIG = {
         'fajr_weekend_offset_minutes': -30,
         'enable_eid_takbeeraat': True,
         # High-latitude settings
-        'high_latitude_method': 'combine_prayers',  # DEFAULT: 'combine_prayers', '1_7_rule', 'static_offset'
+        # O37 / Lesson 31 (v1.2.0): default flipped combine_prayers → static_offset.
+        # combine_prayers SKIPS Isha and SHIFTS Fajr to sunrise-30 — a conservative
+        # interpretation that's not what most UK/EU/NL/BE/DE mosques actually use
+        # in practice. static_offset keeps Fajr at the calculated time and sets
+        # Isha = Maghrib + 90 min — closer to most published mosque timetables.
+        # Users can change via wizard step 2 (lat>=45°) or Settings → Advanced.
+        'high_latitude_method': 'static_offset',  # options: 'combine_prayers', '1_7_rule', 'static_offset'
         'isha_static_offset_minutes': 90,  # Used if method = 'static_offset'
         'isha_max_time': '',  # Optional HH:MM cap (e.g. "22:00"); empty disables (recommended for travel)
         'fajr_at_start_when_isha_capped': True,  # When Isha cap fires today, play Fajr at raw API time
@@ -2509,6 +2530,76 @@ def _play_to_targets(media_relpath: str, target: Optional[str] = None, audio_typ
     except Exception as e:
         log.error(f"Error playing media {media_relpath}: {e}")
 
+# ─────────────────────────────────────────────────────────────────────────────
+# O21 + O25 FIX (v1.2.0, Tue 26 May 2026 — post-Belgium silent-Maghrib lesson):
+#
+# Before this fix, any play_* function called when _all_casts() returned [] would
+# silently log an error (or worse, not even that — most just did `for c in []`),
+# return cleanly, and APScheduler would mark the job "executed successfully".
+# Aunt's silent Maghrib failure on 25 May had no operator-visible trace except a
+# single ERROR line buried in journalctl. That's the worst-case product failure.
+#
+# This block adds:
+#   1. _log_play(...): records every play attempt to an in-memory 50-entry ring
+#      AND appends to a persistent /opt/castadhan-portable/play_history.jsonl
+#      so the dashboard (and future-us SSHing in) can see "did Fajr fire?".
+#   2. _ensure_speakers(...): wraps _all_casts() with one automatic rediscovery
+#      attempt if the list is empty. Discovery is the most fragile layer
+#      (B-Belgium-2/8/16) — auto-recovery here turns most "missing speaker"
+#      cases into successful plays.
+#   3. /api/play_history endpoint (defined further down with the other routes).
+# ─────────────────────────────────────────────────────────────────────────────
+import collections
+_play_history = collections.deque(maxlen=50)
+_play_history_lock = threading.Lock()
+_PLAY_HISTORY_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "play_history.jsonl")
+
+def _log_play(audio_type: str, prayer_name: Optional[str], status: str, speakers_count: int = 0, error: Optional[Exception] = None):
+    """Record a play attempt for visibility.
+    status is one of: PASS, FAIL, NO_SPEAKERS, DISCOVERY_RECOVERED."""
+    try:
+        entry = {
+            "ts_utc": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            "ts_local": now_local().isoformat(timespec="seconds"),
+            "audio_type": audio_type,
+            "prayer_name": prayer_name,
+            "status": status,
+            "speakers_count": speakers_count,
+            "error": (type(error).__name__ + ": " + str(error)) if error else None,
+        }
+        with _play_history_lock:
+            _play_history.append(entry)
+            try:
+                with open(_PLAY_HISTORY_FILE, "a") as f:
+                    f.write(json.dumps(entry) + "\n")
+            except Exception as e:
+                log.error(f"play_history write failed: {e}")
+    except Exception as e:
+        # Logging must never break playback. Swallow.
+        log.error(f"_log_play internal error: {e}")
+
+def _ensure_speakers(audio_type: str, prayer_name: Optional[str] = None):
+    """Return list of casts; if empty, auto-retry discovery ONCE; if still empty,
+    log CRITICAL + record NO_SPEAKERS in play history + return []."""
+    casts = _all_casts()
+    if casts:
+        return casts
+    log.warning(f"⚠️  Zero speakers for {audio_type} {prayer_name or ''} — forcing rediscovery before giving up")
+    try:
+        discover_casts()
+    except Exception as e:
+        log.error(f"Rediscovery attempt failed: {e}")
+    casts = _all_casts()
+    if not casts:
+        # CRITICAL log — visible in `systemctl status` and any log alerting.
+        # Persisted to play history so the dashboard can show a banner.
+        log.critical(f"❌ NO SPEAKERS AVAILABLE for {audio_type} {prayer_name or ''} — discovery returned 0 after one retry. Recorded to play_history.jsonl.")
+        _log_play(audio_type, prayer_name, "NO_SPEAKERS")
+        return []
+    log.info(f"✅ Rediscovery recovered {len(casts)} speaker(s) for {audio_type}")
+    _log_play(audio_type, prayer_name, "DISCOVERY_RECOVERED", speakers_count=len(casts))
+    return casts
+
 def play_takbeeraat_all(target: Optional[str] = None):
     """Play Takbeeraat on enabled speakers (respects enable flags)."""
     if shutdown_event.is_set():
@@ -2530,18 +2621,24 @@ def play_twilight(target: Optional[str] = None):
     _play_to_targets(AUDIO["twilight"], target=target, audio_type="twilight")
 
 def play_adhan_all(target: Optional[str] = None, prayer_name: Optional[str] = None):
-    """Play Adhan on all enabled speakers, then chain appropriate follow-up audio."""
+    """Play Adhan on all enabled speakers, then chain appropriate follow-up audio.
+
+    O21 + O25 (Tue 26 May 2026): uses _ensure_speakers() which auto-retries
+    discovery once before declaring 0 speakers, and records every attempt
+    (PASS / FAIL / NO_SPEAKERS) to play_history.jsonl + a 50-entry ring
+    visible via /api/play_history. This makes the silent-Maghrib failure
+    of 25 May 2026 detectable from the dashboard instead of buried in journal.
+    """
     if shutdown_event.is_set():
         return
 
     log.info(f"Playing Adhan for {prayer_name} on all enabled speakers")
-    
-    # Speaker presence alert
-    casts = _all_casts()
+
+    # O21: auto-retry discovery once; if still 0, log CRITICAL + record NO_SPEAKERS.
+    casts = _ensure_speakers("adhan", prayer_name)
     if not casts:
-        log.error("❌ NO SPEAKERS AVAILABLE FOR ADHAN - Check network connectivity")
-        return
-    
+        return  # _ensure_speakers already logged + recorded
+
     try:
         _play_to_targets(AUDIO["adhan"], target=target, audio_type="adhan")
 
@@ -2590,8 +2687,12 @@ def play_adhan_all(target: Optional[str] = None, prayer_name: Optional[str] = No
         except Exception as e:
             log.error(f"Follow-up audio chaining error: {e}")
 
+        # O25: record successful play attempt for the dashboard widget.
+        _log_play("adhan", prayer_name, "PASS", speakers_count=len(casts))
+
     except Exception as e:
         log.error(f"Error playing Adhan: {e}")
+        _log_play("adhan", prayer_name, "FAIL", speakers_count=len(casts), error=e)
 
 def play_sunrise_warning():
     """Play fajr warning audio 5 minutes before sunrise — end-of-Fajr reminder"""
@@ -2777,6 +2878,44 @@ def play_suhoor_alarm():
     except Exception as e:
         log.error(f"Error playing suhoor alarm: {e}")
 
+def _next_prayer_with_effective(nxt):
+    """O32 (v1.2.0, Tue 26 May 2026): enrich next_prayer with the EFFECTIVE
+    scheduled time (i.e. what will actually play), distinct from the raw
+    aladhan-calculated time. They differ when high_latitude_method shifts
+    Fajr or Isha (e.g. combine_prayers in Belgium summer: raw Fajr 03:42 but
+    actual adhan plays at 05:11). Before this fix the dashboard showed only
+    the raw time, leading aunt to wait at 03:42 for adhan that wouldn't fire
+    for another 89 minutes. UI must show both when they differ."""
+    out = {
+        "name": nxt.get("name"),
+        "when_iso": nxt.get("when"),
+        "time_pretty": nxt.get("time_pretty"),
+        "effective_when_iso": nxt.get("when"),
+        "effective_time_pretty": nxt.get("time_pretty"),
+        "shifted": False,
+        "shift_reason": None,
+    }
+    try:
+        # Find the actual scheduled adhan job for this prayer (if any)
+        target_id = f"adhan_{nxt.get('name')}"
+        for job in sched.get_jobs():
+            if job.id == target_id:
+                run_dt = getattr(getattr(job, 'trigger', None), 'run_date', None) or getattr(job, 'next_run_time', None)
+                if run_dt:
+                    out["effective_when_iso"] = run_dt.isoformat()
+                    out["effective_time_pretty"] = run_dt.strftime("%H:%M")
+                    if out["effective_time_pretty"] != out["time_pretty"]:
+                        out["shifted"] = True
+                        method = _twilight_cache.get("high_latitude_method", "")
+                        if _twilight_cache.get("persistent_twilight_active"):
+                            out["shift_reason"] = f"High-latitude rule ({method}) shifted from raw {out['time_pretty']} to {out['effective_time_pretty']} — persistent twilight active for your location"
+                        else:
+                            out["shift_reason"] = f"Calculated time shifted from raw {out['time_pretty']} to {out['effective_time_pretty']} by {method} rule"
+                break
+    except Exception as e:
+        log.error(f"_next_prayer_with_effective error: {e}")
+    return out
+
 # ---------------- API Routes ----------------
 @app.route("/api/state")
 def api_state():
@@ -2823,11 +2962,7 @@ def api_state():
             "volumes": volumes,
             "prayer_times": times,  # Include all times including Sunrise
             "current_prayer": current,
-            "next_prayer": {
-                "name": nxt["name"],
-                "when_iso": nxt["when"],
-                "time_pretty": nxt["time_pretty"]
-            },
+            "next_prayer": _next_prayer_with_effective(nxt),
             "scheduled_jobs": jobs_info,
             "ramadan": is_ramadan_today(),
             "hijri_now_sunset_aware": h_now,
@@ -2989,6 +3124,55 @@ def api_speaker_status():
         log.error(f"Error getting speaker status: {e}")
         return jsonify({"ok": False, "error": str(e)}), 500
 
+@app.route("/api/play_history")
+def api_play_history():
+    """O25: Return last 50 play attempts (in-memory ring + tail of persistent
+    play_history.jsonl). Used by the dashboard to show 'did Fajr fire today?'.
+
+    Query params:
+      ?status=NO_SPEAKERS,FAIL   filter to alarming statuses only
+      ?limit=N                   max entries to return (default 50, max 500)
+    """
+    try:
+        status_filter = (request.args.get("status") or "").split(",") if request.args.get("status") else None
+        try:
+            limit = min(int(request.args.get("limit", 50)), 500)
+        except ValueError:
+            limit = 50
+
+        # Start with in-memory ring (most recent up to 50)
+        with _play_history_lock:
+            entries = list(_play_history)
+
+        # If asking for more than the ring holds, pull from disk
+        if limit > len(entries) and os.path.exists(_PLAY_HISTORY_FILE):
+            try:
+                with open(_PLAY_HISTORY_FILE) as f:
+                    disk = [json.loads(line) for line in f if line.strip()]
+                # Dedupe: prefer in-memory entries (more recent), append older from disk
+                seen = {(e.get("ts_utc"), e.get("audio_type"), e.get("prayer_name")) for e in entries}
+                for e in reversed(disk):
+                    key = (e.get("ts_utc"), e.get("audio_type"), e.get("prayer_name"))
+                    if key not in seen:
+                        entries.insert(0, e)
+                        seen.add(key)
+                    if len(entries) >= limit:
+                        break
+            except Exception as e:
+                log.warning(f"play_history disk read failed: {e}")
+
+        if status_filter:
+            entries = [e for e in entries if e.get("status") in status_filter]
+
+        return jsonify({
+            "ok": True,
+            "count": len(entries),
+            "entries": entries[-limit:],
+        })
+    except Exception as e:
+        log.error(f"play_history endpoint error: {e}")
+        return jsonify({"ok": False, "error": str(e)}), 500
+
 @app.route("/api/test/play", methods=["POST"])
 def api_test_play():
     """Test play audio. Body: { "device": <name|null>, "type": <audio_key|"adhan"> }"""
@@ -3080,6 +3264,75 @@ def api_force_discover():
         })
     except Exception as e:
         log.error(f"Error during force rediscovery: {e}")
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+@app.route("/api/speakers/add_by_ip", methods=["POST"])
+def api_add_speaker_by_ip():
+    """O36 (v1.2.0, Tue 26 May 2026): manually register a Cast speaker by IP.
+
+    Backend equivalent of the dashboard's "Add Speaker by IP" button. Steps:
+      1. Validate the IPv4 string.
+      2. Probe the IP on port 8009 (Cast control port) to confirm it's likely a
+         Cast device.
+      3. Call pychromecast.get_chromecast_from_host(...) to instantiate the
+         Chromecast (this works even when zeroconf is silent — same fallback
+         path that discover_casts() uses for known_hosts).
+      4. Read the device's friendly name from its Cast status.
+      5. Persist {name: ip} to known_speakers.json so it survives restarts.
+      6. Trigger discover_casts() to fold the new speaker into _general_casts.
+
+    Solves the "I added a speaker yesterday and the dashboard doesn't see it"
+    failure that aunt hit with the 'Slaap' Nest Mini (B-Belgium-16).
+    """
+    try:
+        body = request.get_json(force=True, silent=True) or {}
+        ip = (body.get("ip") or "").strip()
+        if not ip:
+            return jsonify({"ok": False, "error": "ip required"}), 400
+        import re as _re, socket as _socket
+        if not _re.match(r"^(\d{1,3}\.){3}\d{1,3}$", ip):
+            return jsonify({"ok": False, "error": f"not a valid IPv4 address: {ip}"}), 400
+        # Probe Cast control port
+        try:
+            with _socket.create_connection((ip, 8009), timeout=3):
+                pass
+        except Exception as e:
+            return jsonify({"ok": False, "error": f"{ip}:8009 unreachable ({e}). Is the speaker on, on the same WiFi, and Google Cast (not Alexa)?"}), 400
+
+        # Try to instantiate via direct-IP path
+        try:
+            import pychromecast as _pc
+            host_tuple = (ip, 8009, ip, "Google Cast", ip)  # name placeholder; replaced after status
+            cast = _pc.get_chromecast_from_host(host_tuple)
+            cast.wait(timeout=10)
+            friendly = getattr(cast, "name", None) or getattr(getattr(cast, "cast_info", None), "friendly_name", None) or ip
+        except Exception as e:
+            return jsonify({"ok": False, "error": f"Cast handshake failed: {e}"}), 400
+
+        # Persist to known_speakers.json
+        ROOT = os.path.dirname(os.path.abspath(__file__))
+        KH = os.path.join(ROOT, "known_speakers.json")
+        try:
+            known = {}
+            if os.path.exists(KH):
+                with open(KH) as f:
+                    known = json.load(f) or {}
+            known[friendly] = ip
+            with open(KH, "w") as f:
+                json.dump(known, f, indent=2)
+            log.info(f"O36: known_speakers.json updated with {friendly} -> {ip}")
+        except Exception as e:
+            log.warning(f"O36: persist to known_speakers.json failed: {e} — speaker still added live")
+
+        # Refresh discovery so the new speaker is in _general_casts
+        try:
+            discover_casts()
+        except Exception as e:
+            log.warning(f"O36: post-add discovery failed: {e} — speaker exists but not yet in casts list")
+
+        return jsonify({"ok": True, "name": friendly, "ip": ip})
+    except Exception as e:
+        log.error(f"add_by_ip endpoint error: {e}")
         return jsonify({"ok": False, "error": str(e)}), 500
 
 @app.route("/api/schedule/refresh", methods=["POST"])
@@ -3205,9 +3458,21 @@ def api_set_config():
         if not valid:
             return jsonify({"ok": False, "error": f"Invalid config: {msg}"}), 400
         
+        # O29 (v1.2.0, Tue 26 May 2026): if the timezone is being changed, also
+        # sync the underlying Linux system timezone via `timedatectl set-timezone`.
+        # Before this, app config tz and system tz could drift apart silently —
+        # exactly what we found on aunt's Pi on 25 May (system Europe/London,
+        # app Europe/Brussels). app code uses pytz/zoneinfo so prayer times
+        # are unaffected, but logs, cron, systemd timers, and any naive datetime
+        # operations would be wrong. Best-effort: ignore failures (e.g. running
+        # in a container without setcap, on a non-systemd OS, or without sudo).
+        new_tz = ((data.get("app") or {}).get("timezone")) or ""
+        old_tz = (CFG.get("app") or {}).get("timezone")
+        sync_system_tz = bool(new_tz) and new_tz != old_tz
+
         # Apply updates to live config
         deep_update(CFG, data)
-        
+
         # Save to file with atomic write
         tmp_path = CFG_PATH + ".tmp"
         try:
@@ -3218,16 +3483,36 @@ def api_set_config():
         except Exception as e:
             log.error(f"Failed to save config file: {e}")
             return jsonify({"ok": False, "error": f"Failed to save: {e}"}), 500
-        
+
+        # O29: sync system tz AFTER config save so a failure here doesn't lose user input
+        if sync_system_tz:
+            try:
+                import subprocess
+                # Two strategies: timedatectl (systemd) first, then symlink fallback for non-systemd.
+                result = subprocess.run(
+                    ["sudo", "-n", "timedatectl", "set-timezone", new_tz],
+                    capture_output=True, text=True, timeout=10
+                )
+                if result.returncode == 0:
+                    log.info(f"✅ System timezone synced to {new_tz}")
+                else:
+                    log.warning(
+                        f"timedatectl set-timezone {new_tz} failed (rc={result.returncode}): "
+                        f"{result.stderr.strip()}. Prayer times are unaffected (app uses config tz directly), "
+                        f"but logs and cron will use the old system tz."
+                    )
+            except Exception as e:
+                log.warning(f"System tz sync failed for {new_tz}: {e}. Non-fatal — app config tz still applied.")
+
         # Refresh caches and schedule
         _prayer_cache["date"] = None
         _ramadan_cache["date"] = None
         _hijri_cache.clear()
-        
+
         # Update twilight method in cache
         with _twilight_lock:
             _twilight_cache["high_latitude_method"] = CFG['rules']['high_latitude_method']
-        
+
         # Reschedule prayers
         schedule_today()
         
@@ -3535,9 +3820,43 @@ def ensure_initialized():
         sched.start()
         _scheduler_started = True
         log.info("Scheduler started successfully")
-        
+
         for job in sched.get_jobs():
             log.info(f"Job: {job.id} - Next run: {job.next_run_time}")
+
+        # O35 (v1.2.0): post-startup self-test. The periodic-maintenance jobs
+        # (cast_rediscovery / dst_protection_refresh / health_check / twilight_scan)
+        # are added at the very END of schedule_today(). If any are missing,
+        # schedule_today() crashed mid-function and silently truncated the
+        # schedule. This is exactly the silent-failure mode that the
+        # Job.next_run_time AttributeError caused between 23 May and 26 May 2026.
+        try:
+            job_ids = {j.id for j in sched.get_jobs()}
+            adhan_count = sum(1 for jid in job_ids if jid.startswith("adhan_"))
+            warning_count = sum(1 for jid in job_ids if jid.endswith("_warning"))
+            REQUIRED_PERIODIC = {"cast_rediscovery", "dst_protection_refresh", "health_check", "twilight_scan", "refresh_daily"}
+            missing_periodic = REQUIRED_PERIODIC - job_ids
+            if missing_periodic:
+                log.critical(
+                    f"❌ STARTUP SELF-TEST FAILED: periodic-maintenance jobs missing: "
+                    f"{sorted(missing_periodic)}. This means schedule_today() crashed "
+                    f"mid-function — search journal for the last [ERROR] line before "
+                    f"'Scheduler started successfully'. Adhans: {adhan_count}, "
+                    f"warnings: {warning_count}, total jobs: {len(job_ids)}."
+                )
+                _log_play("startup_selftest", None,
+                          "SCHEDULER_INCOMPLETE",
+                          speakers_count=0,
+                          error=Exception(f"Missing periodic jobs: {sorted(missing_periodic)}"))
+            else:
+                log.info(
+                    f"✅ STARTUP SELF-TEST PASSED: {len(job_ids)} jobs scheduled "
+                    f"({adhan_count} adhans, {warning_count} warnings, "
+                    f"{len(REQUIRED_PERIODIC)} periodic, "
+                    f"{len(job_ids) - adhan_count - warning_count - len(REQUIRED_PERIODIC)} other)"
+                )
+        except Exception as e:
+            log.error(f"Startup self-test internal error (non-fatal): {e}")
 
 # ---------------- Gunicorn Bootstrap (SAFE LOCATION - after all definitions) ----------------
 # This runs at import time for gunicorn, after all functions and variables are defined

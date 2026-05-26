@@ -35,6 +35,8 @@ pi*_logs_*/
 # WiFi SSIDs, client family names). Keep them locally only — never publish.
 INCIDENT_REPORT*.md
 DEPLOY_NOTES*.md
+TOMORROW*.md
+HANDOVER*.md
 *.private.md
 
 # Local environment / secrets

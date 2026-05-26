@@ -1,11 +1,18 @@
-flask>=3.0.0
-apscheduler>=3.10.0
+flask>=3.0.0,<4.0
+# APScheduler 3.x has a particular Job.next_run_time API that we depend on
+# (and worked around in app.py for "pending" job state). APScheduler 4.x is
+# a major rewrite — don't drift into it without re-testing schedule_today().
+apscheduler>=3.10.0,<4.0
 requests>=2.31.0
-pychromecast>=14.0.0
+# pychromecast pinned to the 14.x line. 13.x and earlier exposed the
+# get_chromecasts() API that B-Belgium-2 found broken; 15.x will REMOVE that
+# API entirely (already deprecated). Stay on 14.x where both legacy and
+# CastBrowser paths work. Re-test discover_casts() before bumping above 14.
+pychromecast>=14.0.0,<15.0
 pydub>=0.25.1
 # audioop-lts is required on Python 3.13+ (the audioop stdlib module was
 # removed in 3.13 but pydub still imports it). Harmless on older Pythons.
 audioop-lts>=0.2.1; python_version >= "3.13"
 PyYAML>=6.0
 pytz>=2024.1
-gunicorn>=21.0.0
+gunicorn>=21.0.0,<23.0

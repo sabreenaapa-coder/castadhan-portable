@@ -180,6 +180,7 @@
     <button class="control-btn" onclick="speakerAction('all_off')">❌ Disable All</button>
     <button class="control-btn" onclick="speakerAction('rediscover')">🔄 Rediscover</button>
     <button class="control-btn" onclick="speakerAction('force_discover')">⚡ Force Rediscover</button>
+    <button class="control-btn" onclick="openAddSpeakerByIP()" title="O36: manually add a Cast speaker by IP when mDNS discovery doesn't pick it up">➕ Add Speaker by IP</button>
     <button class="control-btn" onclick="openSettingsModal('speakers')">⚙️ Audio Routing</button>
   </div>
 
@@ -1202,8 +1203,22 @@ function startCountdownFrom(data){
   if(countdownTimer) clearInterval(countdownTimer);
 
   const times = data.prayer_times || data.times || {};
-  const apiNext = data.next_prayer && data.next_prayer.name && data.next_prayer.when_iso
-    ? {name:data.next_prayer.name, when:new Date(data.next_prayer.when_iso)}
+  // O32 (v1.2.0): the next_prayer payload now includes both `when_iso` (raw
+  // aladhan time) and `effective_when_iso` (what the scheduler will actually
+  // fire at). They differ when high-latitude rules shift Fajr/Isha. The
+  // COUNTDOWN must use the effective time — otherwise it ticks down to a
+  // moment when no adhan plays, then sits at "Fajr now" for the user to
+  // discover nothing happens. Big UX failure that confused aunt yesterday.
+  const np = data.next_prayer;
+  const apiNext = np && np.name && (np.effective_when_iso || np.when_iso)
+    ? {
+        name: np.name,
+        when: new Date(np.effective_when_iso || np.when_iso),
+        rawTime: np.time_pretty,
+        effectiveTime: np.effective_time_pretty,
+        shifted: !!np.shifted,
+        shiftReason: np.shift_reason,
+      }
     : null;
 
   const fbNext = getNextPrayerFallback(times);
@@ -1211,6 +1226,21 @@ function startCountdownFrom(data){
   const box = $('nextBox');
 
   if(!next){ box.textContent = 'Next: --'; return; }
+
+  // Persistent shift indicator (small note line under the countdown) — only when shifted
+  let shiftNote = $('nextShiftNote');
+  if (next.shifted && next.shiftReason) {
+    if (!shiftNote) {
+      shiftNote = document.createElement('div');
+      shiftNote.id = 'nextShiftNote';
+      shiftNote.style.cssText = 'font-size:0.75rem;opacity:0.7;margin-top:4px;color:#d4af37;cursor:help';
+      box.parentElement && box.parentElement.appendChild(shiftNote);
+    }
+    shiftNote.textContent = `↳ ${next.name} adhan plays at ${next.effectiveTime} (raw ${next.rawTime} — high-latitude rule)`;
+    shiftNote.title = next.shiftReason;
+  } else if (shiftNote) {
+    shiftNote.remove();
+  }
 
   function tick(){
     const diff = +next.when - +new Date();
@@ -2115,6 +2145,42 @@ async function speakerAction(action) {
     }
   } catch (error) {
     showToast('Error: ' + error.message);
+  }
+}
+
+/* O36 (v1.2.0): Add-speaker-by-IP flow. Sometimes mDNS discovery misses a
+   new speaker (Flask threading conflict with zeroconf — B-Belgium-8/16).
+   This lets the operator type the speaker's IP directly. Backend writes it
+   to known_speakers.json and forces a discovery that uses the direct-IP
+   fallback path which works regardless of mDNS state.
+   Aunt's "Slaap" speaker hit exactly this on 26 May. */
+async function openAddSpeakerByIP() {
+  const ip = prompt(
+    'Enter the speaker\'s IP address (e.g. 192.168.1.42).\n\n' +
+    'To find a Google Nest Mini\'s IP: in the Google Home app, tap the device → settings (gear icon) → Device information → IP address.'
+  );
+  if (!ip) return;
+  // Basic IPv4 sanity check
+  if (!/^(\d{1,3}\.){3}\d{1,3}$/.test(ip.trim())) {
+    showToast('That doesn\'t look like an IPv4 address. Expected e.g. 192.168.1.42');
+    return;
+  }
+  showToast('Probing ' + ip + ' for a Cast device...');
+  try {
+    const res = await fetch('/api/speakers/add_by_ip', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ip: ip.trim() })
+    });
+    const data = await res.json();
+    if (data.ok) {
+      showToast('Added "' + data.name + '" at ' + ip + ' — will appear in the list shortly');
+      setTimeout(refresh, 1500);
+    } else {
+      showToast('Could not add ' + ip + ': ' + (data.error || 'unknown error'));
+    }
+  } catch (e) {
+    showToast('Network error: ' + e.message);
   }
 }
 

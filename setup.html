@@ -232,6 +232,24 @@
         <option value="Karachi">Karachi University (Fajr 18°, Isha 18°)</option>
         <option value="Umm al-Qura">Umm al-Qura, Makkah</option>
       </select>
+
+      <!-- O37 (v1.2.0, Tue 26 May 2026): high-latitude rule picker, shown only
+           when the configured location is above 45° latitude. Hidden for
+           equatorial / mid-latitude users where this rule is irrelevant.
+           Aunt's Pi in Ghent (51°N) defaulted to combine_prayers which gave
+           Fajr at 05:11 instead of the religious 03:42 — surprised user
+           because the local mosque doesn't shift Fajr that late. -->
+      <div id="hi-lat-block" style="display:none; margin-top: 24px; padding: 14px; background: rgba(212,175,55,0.05); border: 1px solid rgba(212,175,55,0.2); border-radius: 8px;">
+        <h3 style="margin: 0 0 8px 0; color: var(--gold); font-size: 1.05rem;">🌅 Summer Fajr / Isha rule</h3>
+        <p class="muted" style="margin-top: 0;">Your latitude is far enough north that in summer the sun doesn't drop low enough below the horizon for normal Fajr and Isha calculations. Pick how you want the system to handle this — your local mosque's printed timetable is the best reference:</p>
+        <select class="input" id="hilat-select">
+          <option value="static_offset">Static offset (most common in UK/EU): Fajr at calculated time; Isha = Maghrib + 90 min</option>
+          <option value="1_7_rule">1/7th rule: Fajr at sunset + 6/7 of the night; Isha proportionally</option>
+          <option value="combine_prayers">Combine prayers (conservative): Skip Isha; Fajr at sunrise − 30 min</option>
+        </select>
+        <p class="muted" style="font-size: 0.8rem; margin-bottom: 0;">You can change this any time in Settings → Advanced.</p>
+      </div>
+
       <div class="btn-row">
         <button class="btn secondary" onclick="goto(1)">← Back</button>
         <button class="btn" onclick="goto(3)">Next →</button>
@@ -298,8 +316,23 @@
       else if (i === step) d.classList.add('active');
     });
     currentStep = step;
+    if (step === 2) maybeShowHiLatPicker();   // O37
     if (step === 3) discoverSpeakers();
     if (step === 4) buildSummary();
+  }
+
+  /* O37 (v1.2.0): show the high-latitude rule picker only when the chosen
+     location is above 45° latitude. Below 45° the rule never fires (sun
+     drops far enough below horizon all year), so the option is irrelevant
+     and just adds confusion. */
+  function maybeShowHiLatPicker() {
+    const block = document.getElementById('hi-lat-block');
+    if (!block) return;
+    if (chosenLat !== null && Math.abs(chosenLat) >= 45) {
+      block.style.display = 'block';
+    } else {
+      block.style.display = 'none';
+    }
   }
 
   async function autoDetect() {
@@ -410,12 +443,20 @@
     $('sum-method').textContent = $('method-select').value;
     const enabledCount = Object.values(speakerSelections).filter(v => v).length;
     $('sum-speakers').textContent = `${enabledCount} of ${speakers.length}`;
-    // Save method
+    // Save method (+ O37 high-latitude rule if applicable)
     try {
+      const payload = { app: { calculation_method: $('method-select').value } };
+      // O37: only send high_latitude_method when the picker was visible
+      // (i.e. lat>=45°). Below 45° leave the default in place.
+      const hiLatBlock = document.getElementById('hi-lat-block');
+      if (hiLatBlock && hiLatBlock.style.display !== 'none') {
+        const hiLatVal = document.getElementById('hilat-select').value;
+        if (hiLatVal) payload.rules = { high_latitude_method: hiLatVal };
+      }
       await fetch('/api/config', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({ app: { calculation_method: $('method-select').value } })
+        body: JSON.stringify(payload)
       });
     } catch (e) {}
     // Pull next prayer
