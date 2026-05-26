@@ -2000,30 +2000,43 @@ function updateMoonPhase(){
   } catch (err){}
 }
 
-/* ----------------------- weather ----------------------- */
+/* ----------------------- weather (v1.6.4) -----------------------
+   User flagged on 26 May 2026: weather widget shows "--°C ☀️" (fake/empty).
+   Root cause: I stripped the weatherapi.com API key when first pushing to
+   GitHub (security — keys in public repos leak), and there's no UI to add
+   it back. The widget has been silently broken since v1.1.0.
+
+   Fix: migrate to Open-Meteo (https://open-meteo.com) — genuinely free,
+   no API key, no signup, accurate worldwide for any lat/lon. Returns
+   standardised WMO weather codes (https://open-meteo.com/en/docs).
+   Uses configLat/configLon so it auto-localises to the user's setup. */
 async function updateWeather() {
   const weatherEl = $('weather-widget');
   if (!weatherEl) return;
-  
+  if (!configLat || !configLon) {
+    // Location not set yet — show a friendly placeholder
+    updateWeatherUI({ temp: '--', icon: '🌤️', description: '' });
+    return;
+  }
   try {
-    if (!WEATHER_API_KEY) {
-      updateWeatherUI(getMockWeather());
-      return;
-    }
-    const url = `https://api.weatherapi.com/v1/current.json?key=${WEATHER_API_KEY}&q=${configLat},${configLon}&aqi=no`;
+    const url = `https://api.open-meteo.com/v1/forecast?latitude=${configLat}&longitude=${configLon}&current=temperature_2m,weather_code,is_day&timezone=auto`;
     const res = await fetch(url);
     const data = await res.json();
-    if (data && data.current) {
+    const cur = data && data.current;
+    if (cur && typeof cur.temperature_2m === 'number') {
+      const isDay = cur.is_day === 1 || cur.is_day === true;
+      const wmo = cur.weather_code;
       updateWeatherUI({
-        temp: Math.round(data.current.temp_c),
-        icon: getWeatherIconFromCode(data.current.condition.code),
-        description: data.current.condition.text
+        temp: Math.round(cur.temperature_2m),
+        icon: wmoIcon(wmo, isDay),
+        description: wmoDescription(wmo, isDay),
       });
     } else {
       updateWeatherUI(getMockWeather());
     }
   } catch (err) {
-    updateWeatherUI(getMockWeather());
+    /* Network or CORS error — fall back to a neutral placeholder. */
+    updateWeatherUI({ temp: '--', icon: '🌤️', description: '' });
   }
 }
 
@@ -2038,17 +2051,35 @@ function updateWeatherUI(weather) {
   if (conditionEl) conditionEl.textContent = weather.description || '';
 }
 
-function getWeatherIconFromCode(code) {
-  if ([1087,1273,1276,1279,1282].includes(code)) return '⛈️';
-  if ([1063,1069,1072,1150,1153,1168,1171,1180,1183,1186,1189,1192,1195,1198,1201,1240,1243,1246].includes(code)) return '🌧️';
-  if ([1066,1114,1117,1210,1213,1216,1219,1222,1225,1255,1258,1261,1264].includes(code)) return '❄️';
-  if ([1030,1135,1147].includes(code)) return '🌫️';
-  if ([1000].includes(code)) {
-    const hour = new Date().getHours();
-    return (hour >= 18 || hour < 6) ? '🌙' : '☀️';
-  }
-  if ([1003,1006,1009].includes(code)) return '☁️';
+/* WMO weather code → emoji icon.
+   https://open-meteo.com/en/docs lists all codes. Day/night variant for
+   clear-sky (sun vs moon).
+   Locale-aware description string. */
+function wmoIcon(code, isDay) {
+  if (code === 0)                       return isDay ? '☀️' : '🌙';   // Clear sky
+  if (code === 1 || code === 2)         return isDay ? '🌤️' : '☁️';   // Mainly clear / partly cloudy
+  if (code === 3)                       return '☁️';                  // Overcast
+  if (code === 45 || code === 48)       return '🌫️';                  // Fog
+  if (code >= 51 && code <= 57)         return '🌦️';                  // Drizzle
+  if (code >= 61 && code <= 67)         return '🌧️';                  // Rain
+  if (code >= 71 && code <= 77)         return '❄️';                  // Snow
+  if (code >= 80 && code <= 82)         return '🌧️';                  // Rain showers
+  if (code === 85 || code === 86)       return '🌨️';                  // Snow showers
+  if (code >= 95)                       return '⛈️';                  // Thunderstorm
   return '🌤️';
+}
+
+const WMO_DESC = {
+  en: { 0:'Clear', 1:'Mainly clear', 2:'Partly cloudy', 3:'Overcast', 45:'Fog', 48:'Fog', 51:'Light drizzle', 53:'Drizzle', 55:'Heavy drizzle', 56:'Freezing drizzle', 57:'Freezing drizzle', 61:'Light rain', 63:'Rain', 65:'Heavy rain', 66:'Freezing rain', 67:'Freezing rain', 71:'Light snow', 73:'Snow', 75:'Heavy snow', 77:'Snow grains', 80:'Light showers', 81:'Showers', 82:'Heavy showers', 85:'Snow showers', 86:'Heavy snow showers', 95:'Thunderstorm', 96:'Thunderstorm', 99:'Thunderstorm' },
+  nl: { 0:'Helder', 1:'Vrijwel helder', 2:'Half bewolkt', 3:'Bewolkt', 45:'Mist', 48:'Mist', 51:'Lichte motregen', 53:'Motregen', 55:'Zware motregen', 61:'Lichte regen', 63:'Regen', 65:'Zware regen', 71:'Lichte sneeuw', 73:'Sneeuw', 75:'Zware sneeuw', 80:'Lichte buien', 81:'Buien', 82:'Zware buien', 95:'Onweer', 96:'Onweer', 99:'Onweer' },
+  fr: { 0:'Ciel clair', 1:'Peu nuageux', 2:'Partiellement nuageux', 3:'Couvert', 45:'Brouillard', 48:'Brouillard', 51:'Bruine légère', 53:'Bruine', 55:'Bruine forte', 61:'Pluie légère', 63:'Pluie', 65:'Pluie forte', 71:'Neige légère', 73:'Neige', 75:'Neige forte', 80:'Averses légères', 81:'Averses', 82:'Averses fortes', 95:'Orage', 96:'Orage', 99:'Orage' },
+  ar: { 0:'صافٍ', 1:'صافٍ أغلبه', 2:'غائم جزئيًا', 3:'غائم', 45:'ضباب', 48:'ضباب', 51:'رذاذ خفيف', 53:'رذاذ', 55:'رذاذ كثيف', 61:'مطر خفيف', 63:'مطر', 65:'مطر غزير', 71:'ثلوج خفيفة', 73:'ثلوج', 75:'ثلوج كثيفة', 80:'زخات خفيفة', 81:'زخات مطر', 82:'زخات غزيرة', 95:'عاصفة رعدية', 96:'عاصفة رعدية', 99:'عاصفة رعدية' },
+};
+function wmoDescription(code, isDay) {
+  const lang = (typeof currentLang === 'string' && WMO_DESC[currentLang]) ? currentLang : 'en';
+  let s = WMO_DESC[lang][code];
+  if (!s) s = WMO_DESC.en[code] || '';
+  return s;
 }
 
 function getMockWeather() {
