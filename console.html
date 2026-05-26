@@ -517,11 +517,28 @@
           <div class="setting-item">
             <label>Calculation Method</label>
             <select id="config-method">
-              <option value="ISNA">ISNA</option>
-              <option value="MWL">Muslim World League</option>
-              <option value="UmmAlQura">Umm Al-Qura</option>
-              <option value="Egyptian">Egyptian</option>
-              <option value="Karachi">Karachi</option>
+              <option value="ISNA">ISNA — Islamic Society of North America (Fajr 15°, Isha 15°)</option>
+              <option value="MWL">MWL — Muslim World League (Fajr 18°, Isha 17°)</option>
+              <option value="Egyptian">Egyptian General Authority (Fajr 19.5°, Isha 17.5°)</option>
+              <option value="Karachi">Karachi (Fajr 18°, Isha 18°)</option>
+              <option value="UmmAlQura">Umm Al-Qura, Makkah</option>
+            </select>
+          </div>
+
+          <!-- C-2 / U-2 (v1.6.3, Wed 27 May 2026): UI selector for the
+               Asr-shadow-factor madhab. v1.5.0 added the backend (config field
+               + Aladhan school= parameter) but never wired this dropdown —
+               so the only way to change it was via API. Surfacing here next
+               to Calculation Method per the audit's U-2 recommendation.
+               Aunt is Shafi'i (confirmed). User can switch via this dropdown
+               without touching JSON or making API calls. -->
+          <div class="setting-item">
+            <label>Madhab (for Asr time)</label>
+            <select id="config-madhab" title="Hanafi schools calculate Asr when an object's shadow is twice its length (later by 30-60 min). Most other schools use shadow factor 1.">
+              <option value="shafii">Shafi'i — shadow factor 1 (default)</option>
+              <option value="hanafi">Hanafi — shadow factor 2 (later Asr by 30-60 min)</option>
+              <option value="maliki">Maliki — same as Shafi'i (shadow factor 1)</option>
+              <option value="hanbali">Hanbali — same as Shafi'i (shadow factor 1)</option>
             </select>
           </div>
         </div>
@@ -2123,7 +2140,13 @@ async function loadConfig(options) {
     if (cfg.app?.calculation_method) {
       $('config-method').value = cfg.app.calculation_method;
     }
-    
+
+    /* C-2 / U-2 (v1.6.3): load madhab into the new dropdown. Default to
+       shafii to match the schema default + Aladhan's own default. */
+    if ($('config-madhab')) {
+      $('config-madhab').value = (cfg.rules?.madhab || 'shafii').toLowerCase();
+    }
+
     // Fajr rules
     if (cfg.rules) {
       $('config-fajr-cap').value = cfg.rules.fajr_workday_cap || '07:00';
@@ -2207,6 +2230,8 @@ async function saveConfig() {
         calculation_method: $('config-method').value
       },
       rules: {
+        /* C-2 / U-2 (v1.6.3): persist madhab from the new dropdown. */
+        madhab: ($('config-madhab') ? $('config-madhab').value : 'shafii'),
         fajr_workday_cap: $('config-fajr-cap').value,
         fajr_weekend_offset_minutes: parseInt($('config-weekend-offset').value),
         high_latitude_method: document.querySelector('input[name="high-lat-method"]:checked').value,

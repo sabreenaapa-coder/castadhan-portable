@@ -233,6 +233,19 @@
         <option value="Umm al-Qura">Umm al-Qura, Makkah</option>
       </select>
 
+      <!-- C-2 / U-2 (v1.6.3): madhab selector for Asr shadow factor. Hanafi
+           Asr is ~30-60 min later than Shafi'i. Critical for ~1.3B Hanafi
+           Muslims globally to get right; the wizard asking up-front means
+           new gift Pis arrive with the correct setting baked in. -->
+      <h3 style="margin: 20px 0 8px 0; color: var(--gold); font-size: 1.05rem;">📿 Madhab (for Asr time)</h3>
+      <p class="muted" style="margin-top:0; font-size: 0.9rem;">Different schools calculate Asr differently. Hanafi (most South Asian / Turkish / Balkan Muslims) waits until an object's shadow is 2× its length — about 30-60 minutes later than Shafi'i. If you're unsure, ask your local imam or check your mosque's printed timetable.</p>
+      <select class="input" id="madhab-select">
+        <option value="shafii">Shafi'i — shadow factor 1 (default)</option>
+        <option value="hanafi">Hanafi — shadow factor 2 (later Asr)</option>
+        <option value="maliki">Maliki — same as Shafi'i</option>
+        <option value="hanbali">Hanbali — same as Shafi'i</option>
+      </select>
+
       <!-- O37 (v1.2.0, Tue 26 May 2026): high-latitude rule picker, shown only
            when the configured location is above 45° latitude. Hidden for
            equatorial / mid-latitude users where this rule is irrelevant.
@@ -445,13 +458,16 @@
     $('sum-speakers').textContent = `${enabledCount} of ${speakers.length}`;
     // Save method (+ O37 high-latitude rule if applicable)
     try {
-      const payload = { app: { calculation_method: $('method-select').value } };
+      const payload = { app: { calculation_method: $('method-select').value }, rules: {} };
+      // C-2 / U-2 (v1.6.3): always persist the wizard's madhab pick.
+      const madhabPick = document.getElementById('madhab-select');
+      if (madhabPick && madhabPick.value) payload.rules.madhab = madhabPick.value;
       // O37: only send high_latitude_method when the picker was visible
       // (i.e. lat>=45°). Below 45° leave the default in place.
       const hiLatBlock = document.getElementById('hi-lat-block');
       if (hiLatBlock && hiLatBlock.style.display !== 'none') {
         const hiLatVal = document.getElementById('hilat-select').value;
-        if (hiLatVal) payload.rules = { high_latitude_method: hiLatVal };
+        if (hiLatVal) payload.rules.high_latitude_method = hiLatVal;
       }
       await fetch('/api/config', {
         method: 'POST',
