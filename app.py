@@ -962,6 +962,37 @@ _general_casts = []  # All speakers in portable mode (no special loft)
 _cast_browser = None
 _speaker_playback_status = {}  # Track which speakers are currently playing
 
+def _is_cast_port_alive(host: str, port: int = 8009, timeout: float = 1.5) -> bool:
+    """O39 (v1.4.0, Tue 26 May 2026): quick TCP-probe a (host, port=8009) to
+    determine whether a known speaker is currently reachable BEFORE handing
+    it to pychromecast.get_chromecast_from_host().
+
+    Why this exists:
+        pychromecast.get_chromecast_from_host() succeeds immediately even when
+        the speaker is offline, because it spawns a background socket_client
+        that retries the connection every 5s on its own thread. Those retries
+        accumulate, hold a `_cast_lock`, and end up blocking unrelated calls
+        (most visibly /api/state which times out — that's exactly what
+        happened with aunt's `Slaap` Nest Mini this morning when it was
+        powered off).
+
+    With this probe we treat a known-host IP that doesn't ACK on :8009 within
+    a short timeout as "speaker offline for now, skip silently". The speaker
+    will be picked up again on the next discovery cycle once it's back on
+    the network — no manual `known_speakers.json` editing required.
+
+    Returns True if the port answers within `timeout`, False otherwise.
+    Never raises — designed to be safe to call from inside discovery loops.
+    """
+    import socket as _socket
+    try:
+        with _socket.create_connection((host, port), timeout=timeout):
+            return True
+    except (OSError, _socket.timeout, _socket.gaierror):
+        return False
+    except Exception:
+        return False
+
 def _resolve_host(cast):
     """Resolve cast device host with timeout"""
     try:
@@ -1109,6 +1140,14 @@ def discover_casts():
             if include_token and include_token not in lname:
                 continue
             if any(x in lname for x in excludes):
+                continue
+            # O39 (v1.4.0): probe TCP :8009 with a short timeout BEFORE
+            # handing the host to pychromecast. If unreachable, skip silently;
+            # otherwise pychromecast's socket_client spins up a forever-retrying
+            # background thread that blocks downstream /api/state calls (see
+            # aunt's `Slaap` Nest Mini incident, Tue 26 May 2026).
+            if not _is_cast_port_alive(host):
+                log.info(f"⊝ Skipping known speaker '{name}' @ {host} — TCP :8009 unreachable (speaker likely offline). Will retry on next discovery cycle.")
                 continue
             try:
                 # Use the lower-level get_chromecast_from_host with HostServiceInfo
@@ -3289,15 +3328,15 @@ def api_add_speaker_by_ip():
         ip = (body.get("ip") or "").strip()
         if not ip:
             return jsonify({"ok": False, "error": "ip required"}), 400
-        import re as _re, socket as _socket
+        import re as _re
         if not _re.match(r"^(\d{1,3}\.){3}\d{1,3}$", ip):
             return jsonify({"ok": False, "error": f"not a valid IPv4 address: {ip}"}), 400
-        # Probe Cast control port
-        try:
-            with _socket.create_connection((ip, 8009), timeout=3):
-                pass
-        except Exception as e:
-            return jsonify({"ok": False, "error": f"{ip}:8009 unreachable ({e}). Is the speaker on, on the same WiFi, and Google Cast (not Alexa)?"}), 400
+        # Probe Cast control port via shared helper (v1.4.0 / O39).
+        # Slightly longer timeout here (3s) than the discovery-loop default (1.5s)
+        # because this is an interactive user action — they expect a definitive
+        # "yes/no it's a Cast device" answer, even on a slow wireless network.
+        if not _is_cast_port_alive(ip, timeout=3.0):
+            return jsonify({"ok": False, "error": f"{ip}:8009 unreachable. Is the speaker on, on the same WiFi, and Google Cast (not Alexa)?"}), 400
 
         # Try to instantiate via direct-IP path
         try:
