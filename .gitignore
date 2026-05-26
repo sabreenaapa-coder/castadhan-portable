@@ -44,3 +44,11 @@ HANDOVER*.md
 .env.*
 secrets.yaml
 *.secret
+
+# Tailscale auth-key files. Only the .template variant is committed.
+# Real values contain a tskey-auth-... secret that grants tailnet enrolment
+# capability — never commit. See deploy/castadhan-tailscale.defaults.template.
+deploy/castadhan-tailscale.defaults
+deploy/castadhan-tailscale.env
+castadhan-tailscale.defaults
+castadhan-tailscale.env

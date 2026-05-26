@@ -1,0 +1,53 @@
+# CastAdhan Portable — Tailscale auto-enrolment configuration
+# ============================================================
+# Copy this file to one of the locations `setup-pi.sh` checks
+# (in priority order) BEFORE running the installer:
+#
+#   /etc/default/castadhan-tailscale        — on the Pi, mode 0600, root-owned
+#   /boot/castadhan-tailscale.env           — on the SD card boot partition
+#                                              (Pi OS Bookworm: /boot/firmware/)
+#
+# Either path works. The /boot/ option is the easiest for "flash a gift Pi
+# and forget" workflows because you can drop the file onto the SD card from
+# your Mac/Windows machine BEFORE first boot — the Pi picks it up the first
+# time setup-pi.sh runs, enrols on your tailnet, then SHREDS the file so the
+# key can't be recovered from the SD card later.
+#
+# Then either:
+#   - Use a one-shot, pre-approved Tailscale auth key (safest — single use,
+#     auto-revokes after enrolment). Generate at:
+#       https://login.tailscale.com/admin/settings/keys
+#     One-shot key flow: tick "Reusable: OFF", "Ephemeral: OFF",
+#     "Pre-approved: ON", expiration 7-30 days.
+#
+#   - Or a reusable key if you're flashing many Pis from one batch (less
+#     secure — if the SD card leaks, the key can enrol arbitrary devices to
+#     your tailnet until revoked).
+#
+# DO NOT commit this file with a real auth key into git. The .gitignore
+# explicitly excludes the live filename `castadhan-tailscale.defaults` and
+# the boot variant `castadhan-tailscale.env`. Only the .template file
+# (this one) belongs in version control.
+
+# ---- the auth key (REQUIRED) -----------------------------------------------
+# Format: tskey-auth-XXXXXXXXX-YYYYYYYYY (45-60 chars)
+# Generate at https://login.tailscale.com/admin/settings/keys
+TS_AUTHKEY=""
+
+# ---- the hostname the Pi will register as on your tailnet (REQUIRED) -------
+# Recommend something descriptive: "aunt-pi-ghent", "son-pi-haverfordwest",
+# "neighbour-pi-london". Appears in your Tailscale Machines page.
+# Default is the Pi's own hostname (typically "castadhan"), but for gift Pis
+# you want something distinctive so you can tell them apart.
+TS_HOSTNAME=""
+
+# ---- extra tailscale up flags (OPTIONAL) -----------------------------------
+# Defaults to "--ssh" which enables Tailscale's built-in SSH server. Other
+# useful flags:
+#   --accept-routes        : receive routes advertised by other tailnet nodes
+#   --advertise-tags=tag:gift-pi   : tag this Pi for ACL grouping (requires
+#                                    that you've defined the tag in your ACL)
+#   --shields-up           : block incoming connections except SSH (recommended
+#                            for gift Pis — operator still SSH-reachable,
+#                            household can't accidentally expose it)
+# TS_EXTRA_ARGS="--ssh --shields-up"

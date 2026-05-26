@@ -74,14 +74,33 @@ After install the Pi has two separate user accounts:
 
 This split exists because the service shouldn't run as a human user (security) and your human user shouldn't own `/opt/castadhan-portable/` (avoids file-permission confusion after updates). Remember: `ssh <login-user>@<pi>` to log in; the service file `User=castadhan` is correct as-is.
 
-## Remote support (optional but recommended for unattended deployments)
+## Remote support (built in from v1.3.0)
 
-Install [Tailscale](https://tailscale.com) on the Pi during setup. Once the Pi is on your tailnet, you can SSH from any other tailnet device (your laptop anywhere in the world):
+Every fresh CastAdhan Portable install can self-enrol on your Tailscale tailnet during `setup-pi.sh`, so you can SSH in from anywhere on the internet without setting up VPNs, port-forwards, or NAT-traversal yourself.
+
+**To bake Tailscale into a fresh gift Pi:**
+
+1. Sign up at https://tailscale.com (free for personal use, up to 100 devices).
+2. Generate a one-shot auth key: https://login.tailscale.com/admin/settings/keys → Generate auth key → Reusable: OFF, Ephemeral: OFF, Pre-approved: ON, expiration: 30 days.
+3. Copy `deploy/castadhan-tailscale.defaults.template` → `deploy/castadhan-tailscale.defaults` and fill in `TS_AUTHKEY` + `TS_HOSTNAME` (give each gift Pi a distinctive hostname like `aunt-pi-ghent` or `son-pi-haverfordwest`).
+4. Run `sudo bash setup-pi.sh` on the Pi. The script picks up the key, installs Tailscale, enrols the Pi, and **shreds the key file** so it can't be recovered from the SD card later. The Pi appears in your Tailscale console within seconds.
+5. After enrolment: disable key expiry on the Tailscale console (Machines page → ⋯ → Disable key expiry) so the Pi stays connected indefinitely without re-authentication.
+
+**Alternative — pass the key inline:**
+```
+sudo TS_AUTHKEY=tskey-auth-... TS_HOSTNAME=aunt-pi-ghent bash setup-pi.sh
+```
+
+**Alternative — SD-card pre-bake (zero-touch flash workflow):**
+
+Drop the filled-in `castadhan-tailscale.env` onto the boot partition of the SD card (mount the SD on your Mac/Windows, copy the file to `/boot/` or `/boot/firmware/` on the FAT partition). The Pi's first-boot `setup-pi.sh` will find it, enrol, then shred. Perfect for "flash and post the SD card" gift workflows.
+
+Once enrolled, SSH from any other tailnet device:
 ```
 ssh <login-user>@<tailscale-100-ip>
 ```
 
-This removes the need to visit the Pi physically when bugs surface. See `INCIDENT_REPORT_2026-05-22.md` for the field-tested rationale.
+This is the operational difference between "gift product that needs maintenance visits" and "gift product that maintains itself remotely". See [`deploy/castadhan-tailscale.defaults.template`](deploy/castadhan-tailscale.defaults.template) for full options.
 
 ## Project history
 

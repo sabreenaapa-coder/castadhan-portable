@@ -129,6 +129,85 @@ systemctl enable castadhan-update.timer >/dev/null
 systemctl start castadhan-update.timer
 ok "auto-update timer enabled (daily 04:00 + 10 min after boot)"
 
+# ---- 6c. Tailscale auto-enrolment (v1.3.0, O17v3) -------------------------
+# Goal: every fresh-flashed CastAdhan Pi joins the maintainer's tailnet on
+# first boot so future bug fixes can be applied remotely. Without this, every
+# gift Pi at a remote household enters the "we can't reach it" state from day
+# one (see Lesson 34, son's Pi in Haverfordwest).
+#
+# Auth-key delivery (in priority order):
+#   1. Env var TS_AUTHKEY=tskey-auth-...   (passed inline to setup-pi.sh)
+#   2. File /etc/default/castadhan-tailscale   (line: TS_AUTHKEY="tskey-...")
+#   3. File /boot/castadhan-tailscale.env   (placed on SD card before flash —
+#      survives Pi Imager's first-boot setup, easy to bake per-gift)
+#
+# If no key found anywhere, the step is skipped gracefully (log line only).
+# The Pi still installs fine, just without a remote-support path. The
+# maintainer can enrol later via one-shot SSH (same recovery flow as
+# son's Pi).
+say "Tailscale auto-enrolment"
+TS_AUTHKEY="${TS_AUTHKEY:-}"
+TS_HOSTNAME="${TS_HOSTNAME:-$(hostname)}"
+TS_EXTRA_ARGS="${TS_EXTRA_ARGS:---ssh}"
+
+# Source candidate files (if env var not already set)
+if [ -z "$TS_AUTHKEY" ] && [ -f /etc/default/castadhan-tailscale ]; then
+  # shellcheck disable=SC1091
+  . /etc/default/castadhan-tailscale
+fi
+if [ -z "$TS_AUTHKEY" ] && [ -f /boot/castadhan-tailscale.env ]; then
+  # shellcheck disable=SC1091
+  . /boot/castadhan-tailscale.env
+fi
+if [ -z "$TS_AUTHKEY" ] && [ -f /boot/firmware/castadhan-tailscale.env ]; then
+  # Pi OS Bookworm moved /boot to /boot/firmware
+  # shellcheck disable=SC1091
+  . /boot/firmware/castadhan-tailscale.env
+fi
+
+if [ -z "$TS_AUTHKEY" ]; then
+  warn "No Tailscale auth key found (env TS_AUTHKEY / /etc/default/castadhan-tailscale / /boot[/firmware]/castadhan-tailscale.env)"
+  warn "Pi will install fine, but you'll need to enrol it via SSH later for remote support."
+  warn "See deploy/castadhan-tailscale.defaults.template for the expected format."
+else
+  if ! command -v tailscale >/dev/null 2>&1; then
+    say "Installing Tailscale (this can take 30-90 seconds on a Pi)"
+    if curl -fsSL https://tailscale.com/install.sh | sh >/dev/null 2>&1; then
+      ok "Tailscale installed"
+    else
+      warn "Tailscale install failed — continuing without remote-support path"
+      TS_AUTHKEY=""
+    fi
+  else
+    ok "Tailscale already installed"
+  fi
+
+  if [ -n "$TS_AUTHKEY" ]; then
+    # Idempotent: skip enrolment if already on the tailnet
+    if tailscale status --json 2>/dev/null | grep -q '"Self"'; then
+      EXISTING_TAILNET=$(tailscale status --json 2>/dev/null | python3 -c 'import sys,json; print(json.load(sys.stdin).get("CurrentTailnet",{}).get("Name","unknown"))' 2>/dev/null || echo "unknown")
+      ok "Tailscale already enrolled (tailnet: $EXISTING_TAILNET) — skipping"
+    else
+      say "Enrolling on tailnet as hostname '$TS_HOSTNAME'"
+      # shellcheck disable=SC2086
+      if tailscale up --auth-key="$TS_AUTHKEY" --hostname="$TS_HOSTNAME" $TS_EXTRA_ARGS 2>&1 | tail -5; then
+        TS_IP=$(tailscale ip -4 2>/dev/null | head -1 || echo "(pending)")
+        ok "Tailscale enrolled — reachable from your tailnet at $TS_IP"
+        # If the auth key came from /boot[/firmware]/, remove it now that
+        # it's been consumed (one-shot keys leak risk on the SD card)
+        for f in /boot/castadhan-tailscale.env /boot/firmware/castadhan-tailscale.env; do
+          if [ -f "$f" ]; then
+            shred -u "$f" 2>/dev/null || rm -f "$f"
+            ok "Removed consumed auth-key file: $f"
+          fi
+        done
+      else
+        warn "Tailscale enrolment failed — Pi still installs, but no remote support"
+      fi
+    fi
+  fi
+fi
+
 # ---- 7. start service ------------------------------------------------------
 say "Starting CastAdhan"
 systemctl restart castadhan-portable.service
