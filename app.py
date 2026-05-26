@@ -207,6 +207,10 @@ DEFAULT_CONFIG = {
         'fajr_workday_cap': '07:00',
         'fajr_weekend_offset_minutes': -30,
         'enable_eid_takbeeraat': True,
+        # v1.6.2: 'inclusive' (default) = Fajr 9 → Asr 13 Dhū al-Hijjah
+        # 'strict' = 10-12 only (the pre-v1.6.2 behaviour, narrower scholarly view).
+        # Doesn't affect Eid al-Fitr — that's always 1 Shawwal except Maghrib.
+        'takbeeraat_window': 'inclusive',
         # High-latitude settings
         # O37 / Lesson 31 (v1.2.0): default flipped combine_prayers → static_offset.
         # combine_prayers SKIPS Isha and SHIFTS Fajr to sunrise-30 — a conservative
@@ -1044,6 +1048,60 @@ _general_casts = []  # All speakers in portable mode (no special loft)
 _cast_browser = None
 _speaker_playback_status = {}  # Track which speakers are currently playing
 
+def _avahi_browse_cast_devices(timeout_s: float = 4.0):
+    """v1.6.2 (Tue 26 May 2026): system-level mDNS discovery via `avahi-browse`.
+    Returns list of {name, ip} dicts for every Google Cast device the system's
+    avahi-daemon currently knows about.
+
+    Why this exists: pychromecast's CastBrowser inside a long-running Flask
+    process intermittently MISSES Cast devices that the system's mDNS layer
+    sees just fine (B-Belgium-8 + the Slaap re-discovery problem on 26 May).
+    Threading conflict between Werkzeug's request handlers and zeroconf's
+    multicast listener — diagnosed in v1.2.0 incident report.
+
+    This helper bypasses pychromecast's mDNS entirely and just shells out to
+    avahi-browse, which we know works reliably. discover_casts() then folds
+    the results into known_speakers.json + the direct-IP fallback path.
+
+    Returns [] on any failure (avahi-browse missing, parse error, timeout).
+    Never raises.
+    """
+    try:
+        import subprocess as _subp
+        result = _subp.run(
+            ["avahi-browse", "-atrp", "-l", "--resolve"],
+            capture_output=True, text=True, timeout=timeout_s,
+        )
+        if result.returncode != 0:
+            return []
+        out = []
+        for line in result.stdout.splitlines():
+            # Resolved-record lines start with '='. Format (semicolon-separated):
+            # =;<iface>;<proto>;<name>;_googlecast._tcp;local;<host>;<ip>;<port>;<txt>
+            if not line.startswith("=;"):
+                continue
+            if "_googlecast._tcp" not in line:
+                continue
+            parts = line.split(";")
+            if len(parts) < 9:
+                continue
+            proto = parts[2]
+            if proto != "IPv4":
+                continue  # only need one record per device; IPv4 is sufficient
+            ip = parts[7]
+            # Parse "fn=<friendly_name>" out of the TXT record (the last field)
+            txt = parts[-1] if len(parts) >= 10 else ""
+            import re as _re
+            m = _re.search(r'"fn=([^"]+)"', txt)
+            friendly = m.group(1) if m else parts[3]
+            if not ip or not friendly:
+                continue
+            out.append({"name": friendly, "ip": ip})
+        return out
+    except Exception as e:
+        log.debug(f"avahi-browse helper failed (non-fatal): {e}")
+        return []
+
 def _is_cast_port_alive(host: str, port: int = 8009, timeout: float = 1.5) -> bool:
     """O39 (v1.4.0, Tue 26 May 2026): quick TCP-probe a (host, port=8009) to
     determine whether a known speaker is currently reachable BEFORE handing
@@ -1209,13 +1267,40 @@ def discover_casts():
             except Exception as e:
                 log.warning(f"Failed to construct cast for {name}: {e}")
 
+        # v1.6.2 (Tue 26 May 2026 — surfaced by user: "Slaap isn't being picked
+        # up" after it came back online despite being visible to system mDNS):
+        # Before deciding "missing from known_speakers means skip", query
+        # `avahi-browse` (system-level mDNS) for any Cast device the OS knows
+        # about. Any device the system sees but our CastBrowser missed gets
+        # merged into known_map so the direct-IP fallback below can pick it
+        # up — AND gets persisted to known_speakers.json so next discovery
+        # is faster. Closes the "Slaap re-appears, we don't notice" failure.
+        try:
+            avahi_seen = _avahi_browse_cast_devices()
+            for entry in avahi_seen:
+                aname, aip = entry["name"], entry["ip"]
+                if aname not in new_known_map:
+                    log.info(f"📡 avahi-browse found Cast device not in known_speakers: '{aname}' @ {aip} — adding")
+                    # Add ONLY to new_known_map (the working copy that will be
+                    # persisted to disk). Leave the original known_map alone so
+                    # the diff-check `new_known_map != known_map` below correctly
+                    # detects this as a change and saves the file.
+                    new_known_map[aname] = aip
+        except Exception as e:
+            log.debug(f"avahi-browse augmentation skipped: {e}")
+
         # FALLBACK (B-Belgium-2 v2 — 2026-05-25): CastBrowser inside Flask sometimes returns 0
         # even when manual standalone tests find the speaker. Diagnosed as threading conflict
         # with Werkzeug dev server's request handlers vs zeroconf. As a belt-and-braces:
         # for any known_speakers entry NOT picked up by CastBrowser, construct the Chromecast
         # directly from the cached IP using get_chromecast_from_host(). Bypasses zeroconf entirely.
+        # v1.6.2: iterate new_known_map (not known_map) so any speakers freshly
+        # added by the avahi-browse augmentation above are also tried via the
+        # direct-IP fallback path. Without this, Slaap would be in known_map AND
+        # known_speakers.json after the next discovery but wouldn't actually be
+        # connected to during THIS discovery cycle.
         from pychromecast.discovery import HostServiceInfo
-        for name, host in known_map.items():
+        for name, host in new_known_map.items():
             if name in found_names:
                 continue   # already discovered via browser
             lname = name.lower()
@@ -2259,11 +2344,23 @@ def _audio_duration_seconds(relpath: str) -> float:
 
 def should_play_takbeerat_after_adhan(prayer_name: Optional[str], when: Optional[datetime] = None) -> bool:
     """
+    Eid takbeeraat scheduling.
+
+    v1.6.2 (Tue 26 May 2026 — surfaced by user: 'takbeeraat didn't come on
+    after Maghrib' the evening of 9 Dhū al-Ḥijjah, eve of Eid al-Adha):
+    pre-v1.6.2 only fired on Eid al-Adha days 10-12. But the mainstream
+    scholarly position across Hanafi/Shafi'i/Maliki/Hanbali schools is that
+    "takbeeraat al-muqayyad" (the takbeer after each prayer) runs from
+    Fajr on 9 Dhū al-Ḥijjah (Day of Arafah) through Asr on 13 Dhū al-Ḥijjah.
+    Updated to that more inclusive window. Configurable via
+    rules.takbeeraat_window if a user wants the stricter 10-12 view.
+
     Rules:
-      - Takbeeraat plays after every Adhan during Eid windows for BOTH Eids.
       - Eid al-Fitr (1 Shawwal): after every Adhan EXCEPT Maghrib.
-      - Eid al-Adha (10–12 Dhul Hijjah): after every Adhan; Maghrib only on 10 & 11.
-      - Sunset-aware Hijri day boundaries respected.
+      - Eid al-Adha:
+          - inclusive (default): Fajr 9 Dhul Hijjah through Asr 13 Dhul Hijjah
+          - strict:               10-12 Dhul Hijjah only
+      - Sunset-aware Hijri day boundaries respected throughout.
     """
     if not RULES.get('enable_eid_takbeeraat', True):
         return False
@@ -2275,7 +2372,6 @@ def should_play_takbeerat_after_adhan(prayer_name: Optional[str], when: Optional
         when = now_local()
 
     # Maghrib prayer belongs to the pre-sunset day for rule decisions.
-    # Use "just before Maghrib" timestamp for Maghrib-specific logic.
     if prayer_name == "Maghrib":
         when_for_day = when - timedelta(minutes=1)
     else:
@@ -2294,12 +2390,23 @@ def should_play_takbeerat_after_adhan(prayer_name: Optional[str], when: Optional
             return False  # explicitly not on Eid al-Fitr Maghrib
         return True
 
-    # Eid al-Adha: 10–12 Dhul Hijjah (month 12, day 10-12)
-    if h_month == 12 and h_day in (10, 11, 12):
-        if prayer_name == "Maghrib":
-            # Only Maghrib on 10 and 11 (NOT on 12)
-            return h_day in (10, 11)
-        return True
+    # Eid al-Adha takbeeraat window. Default: mainstream-inclusive view.
+    window = (RULES.get('takbeeraat_window') or 'inclusive').lower()
+    if h_month == 12:
+        if window == 'strict' and h_day in (10, 11, 12):
+            # Strict: 10-12; Maghrib only on 10 & 11
+            if prayer_name == "Maghrib":
+                return h_day in (10, 11)
+            return True
+        if window != 'strict' and h_day in (9, 10, 11, 12, 13):
+            # Inclusive: 9 Fajr through 13 Asr.
+            # On day 9: only AFTER Fajr (i.e. all prayers from Fajr onwards).
+            # On day 13: only THROUGH Asr — so Asr yes, Maghrib + Isha no.
+            if h_day == 13 and prayer_name in ("Maghrib", "Isha"):
+                return False
+            # Day 9 Maghrib: yes (eve of Eid — most communities recite tonight).
+            # Days 10/11 Maghrib: yes. Day 12 Maghrib: yes (consistent inclusive).
+            return True
 
     return False
 
@@ -2864,48 +2971,67 @@ def play_adhan_all(target: Optional[str] = None, prayer_name: Optional[str] = No
     try:
         _play_to_targets(AUDIO["adhan"], target=target, audio_type="adhan")
 
-        # Chain follow-up audio based on context
+        # Chain follow-up audio based on context.
+        #
+        # v1.6.2 ARCHITECTURAL FIX (Tue 26 May 2026 — surfaced by user:
+        # "Twilight notification didn't come on after Maghrib"):
+        # Before v1.6.2 the chained audio was scheduled via daemon threads with
+        # time.sleep(). Daemon threads DIE on service restart. The auto-update
+        # mechanism (or any other restart) between the trigger adhan and the
+        # chained audio meant the chained audio was permanently lost.
+        # This happened on aunt's Pi at 21:44 Maghrib on 26 May when I
+        # restarted at 21:45 for the v1.6.1 hotfix — the twilight thread died.
+        #
+        # Now both chained jobs are added as APScheduler one-shot jobs with
+        # DateTrigger(run_date=...). APScheduler stores them and they fire even
+        # if the service restarts in between. Same audio, same delay — just
+        # restart-resilient.
         try:
-            follow_up_threads = []
-            
-            # 1. Eid Takbeeraat chaining
-            if should_play_takbeerat_after_adhan(prayer_name=prayer_name, when=now_local()):
+            now = now_local()
+            # 1. Eid Takbeeraat chaining.
+            # v1.6.2: enforce minimum 180s delay (typical adhan length). If
+            # _audio_duration_seconds() can't read the mp3 (missing ffprobe /
+            # corrupt metadata), the default 0 would overlap the adhan with
+            # the takbeeraat — embarrassing on Eid morning. Floor protects us.
+            if should_play_takbeerat_after_adhan(prayer_name=prayer_name, when=now):
                 adhan_len = _audio_duration_seconds(AUDIO["adhan"])
-                delay = max(0.0, adhan_len + 0.5)
+                if not adhan_len or adhan_len < 60:
+                    adhan_len = 180  # safe default ≈ 3 min
+                fire_at = now + timedelta(seconds=adhan_len + 0.5)
+                try:
+                    sched.add_job(
+                        play_takbeeraat_all,
+                        DateTrigger(run_date=fire_at),
+                        kwargs={"target": target},
+                        id=f"takbeeraat_after_{prayer_name}_{now.strftime('%Y%m%d%H%M%S')}",
+                        replace_existing=True,
+                    )
+                    log.info(f"🕌 Eid takbeeraat scheduled @ {fire_at.strftime('%H:%M:%S')} ({adhan_len:.0f}s after {prayer_name} adhan) — survives restart")
+                except Exception as e:
+                    log.error(f"Failed to schedule takbeeraat job: {e}")
 
-                def _delayed_takbeerat():
-                    try:
-                        time.sleep(delay)
-                        play_takbeeraat_all(target=target)
-                    except Exception as e:
-                        log.error(f"Delayed Takbeeraat thread error: {e}")
-
-                t = threading.Thread(target=_delayed_takbeerat, daemon=True)
-                t.start()
-                follow_up_threads.append(t)
-                log.info(f"🕌 Eid mode: Takbeeraat scheduled after Adhan (delay={delay:.1f}s, prayer={prayer_name})")
-            
             # 2. Twilight reminder for Maghrib during combined prayer period
             if prayer_name == "Maghrib" and not should_play_isha(date.today()):
                 with _twilight_lock:
                     method = _twilight_cache["high_latitude_method"]
-                
+
                 if method == 'combine_prayers':
                     maghrib_len = _audio_duration_seconds(AUDIO["adhan"])
-                    delay = max(0.0, maghrib_len + 1.0)
+                    if not maghrib_len or maghrib_len < 60:
+                        maghrib_len = 180  # v1.6.2 safe default ≈ 3 min
+                    fire_at = now + timedelta(seconds=maghrib_len + 1.0)
+                    try:
+                        sched.add_job(
+                            play_twilight,
+                            DateTrigger(run_date=fire_at),
+                            kwargs={"target": target},
+                            id=f"twilight_after_maghrib_{now.strftime('%Y%m%d%H%M%S')}",
+                            replace_existing=True,
+                        )
+                        log.info(f"🌅 Twilight reminder scheduled @ {fire_at.strftime('%H:%M:%S')} ({maghrib_len:.0f}s after Maghrib adhan) — survives restart")
+                    except Exception as e:
+                        log.error(f"Failed to schedule twilight job: {e}")
 
-                    def _delayed_twilight():
-                        try:
-                            time.sleep(delay)
-                            play_twilight(target=target)
-                        except Exception as e:
-                            log.error(f"Delayed twilight reminder error: {e}")
-
-                    t = threading.Thread(target=_delayed_twilight, daemon=True)
-                    t.start()
-                    follow_up_threads.append(t)
-                    log.info("🌅 Twilight reminder scheduled after Maghrib Adhan")
-                    
         except Exception as e:
             log.error(f"Follow-up audio chaining error: {e}")
 
