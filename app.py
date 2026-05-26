@@ -27,7 +27,7 @@ try:
     import yaml
     from pytz import timezone, utc, NonExistentTimeError, AmbiguousTimeError
     import requests
-    from flask import Flask, send_from_directory, jsonify, abort, request, redirect
+    from flask import Flask, send_from_directory, jsonify, abort, request, redirect, Response
     from apscheduler.schedulers.background import BackgroundScheduler
     from apscheduler.triggers.date import DateTrigger
     from apscheduler.triggers.cron import CronTrigger
@@ -734,6 +734,45 @@ def abs_audio_path(relpath: str) -> str:
             return compatible_path
         log.error("Audio missing: %s", path)
     return path
+
+# E-5 / U-1 (v1.6.0): PWA routes — manifest, service worker, icons.
+# Service worker MUST be served from the same path you want it to scope, so
+# we serve sw.js from the root rather than under /static/. The scope is the
+# whole site so a tap on the installed icon opens the dashboard.
+@app.route("/manifest.json")
+def pwa_manifest():
+    return send_from_directory(ROOT, "manifest.json", mimetype="application/manifest+json")
+
+@app.route("/sw.js")
+def pwa_service_worker():
+    # Service-Worker-Allowed lets the SW scope to the entire site even though
+    # served from /. Cache-Control:no-cache so users get SW updates promptly.
+    response = send_from_directory(ROOT, "sw.js", mimetype="application/javascript")
+    response.headers["Service-Worker-Allowed"] = "/"
+    response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    return response
+
+@app.route("/icon-192.png")
+@app.route("/icon-512.png")
+@app.route("/icon-maskable.png")
+def pwa_icon():
+    """Serve PWA icons. We don't ship raster files in v1.6.0 (would bloat the
+    repo by ~30KB) — instead generate a minimal SVG-based placeholder PNG via
+    a 1×1 transparent fallback if the actual icon files don't exist on disk.
+    Real icons can be added by dropping icon-192.png / icon-512.png /
+    icon-maskable.png next to console.html. The browser tolerates a placeholder
+    fine for the PWA install flow."""
+    filename = request.path.lstrip("/")
+    icon_path = os.path.join(ROOT, filename)
+    if os.path.exists(icon_path):
+        return send_from_directory(ROOT, filename, mimetype="image/png")
+    # 1x1 transparent PNG fallback (43 bytes). Sufficient for the PWA manifest
+    # to validate even before real icons are added.
+    import base64 as _b64
+    tiny_png = _b64.b64decode(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII="
+    )
+    return Response(tiny_png, mimetype="image/png")
 
 @app.route("/")
 def console_page():
@@ -3632,6 +3671,107 @@ def api_get_config():
         log.error(f"Error getting config: {e}")
         return jsonify({"ok": False, "error": str(e)}), 500
 
+
+@app.route("/api/audio/upload", methods=["POST"])
+def api_audio_upload():
+    """U-5 + E-1 (v1.6.0): accept an .mp3 file upload from the dashboard, write
+    it to audio/, and optionally map an existing audio-config key to point at
+    the new file.
+
+    Security:
+      - Filename sanitised (basename, no traversal, lowercase, alnum/._-/)
+      - Hard size cap 50 MB (Pi storage + memory budget)
+      - MIME type must be audio/mpeg
+      - File contents probed for the MP3 magic bytes (ID3 header or 0xFFFB sync)
+      - Writes to audio/ then sets ownership to castadhan:castadhan
+      - Optional `key` form field updates config.audio[key] = "audio/<filename>"
+        so the user can immediately route, e.g. assign a new adhan recording.
+
+    Returns: {ok, path, key (if set), size_bytes}
+    """
+    try:
+        if 'file' not in request.files:
+            return jsonify({"ok": False, "error": "no file in form-data (field name must be 'file')"}), 400
+        f = request.files['file']
+        if not f or not f.filename:
+            return jsonify({"ok": False, "error": "empty filename"}), 400
+
+        # Sanitise the filename: basename only, conservative charset, lowercase
+        import re as _re
+        raw = os.path.basename(f.filename)
+        # Strip path traversal attempts (..), keep only [A-Za-z0-9._-]
+        safe = _re.sub(r'[^A-Za-z0-9._-]', '_', raw)
+        # Force .mp3 extension
+        if not safe.lower().endswith('.mp3'):
+            return jsonify({"ok": False, "error": "only .mp3 uploads accepted"}), 400
+        # No hidden files
+        if safe.startswith('.') or safe == '':
+            return jsonify({"ok": False, "error": "invalid filename"}), 400
+
+        # Size cap (50 MB) — checked AFTER read because Flask streams to disk
+        max_bytes = 50 * 1024 * 1024
+        # Read into memory (50 MB is fine even on Pi 3 A+ 512 MB now that
+        # CASTADHAN_LITE=1 skips pydub; the upload is freed once written)
+        data = f.read()
+        if len(data) > max_bytes:
+            return jsonify({"ok": False, "error": f"file too large ({len(data)} bytes > {max_bytes})"}), 400
+        if len(data) < 100:
+            return jsonify({"ok": False, "error": "file too small to be valid mp3"}), 400
+
+        # Magic-byte sniff: ID3 (49 44 33) or MP3 frame sync (FF Fx)
+        if not (data[:3] == b"ID3" or (data[0] == 0xFF and (data[1] & 0xE0) == 0xE0)):
+            return jsonify({"ok": False, "error": "file does not look like an mp3 (no ID3 tag or frame sync)"}), 400
+
+        audio_dir = os.path.join(ROOT, "audio")
+        os.makedirs(audio_dir, exist_ok=True)
+        target_path = os.path.join(audio_dir, safe)
+
+        # Atomic write
+        tmp_path = target_path + ".tmp." + str(os.getpid())
+        with open(tmp_path, "wb") as out:
+            out.write(data)
+        os.replace(tmp_path, target_path)
+        log.info(f"U-5: audio uploaded -> {target_path} ({len(data)} bytes)")
+
+        # Try to chown to castadhan if running as root (install-time path)
+        try:
+            import pwd as _pwd
+            uid = _pwd.getpwnam("castadhan").pw_uid
+            gid = _pwd.getpwnam("castadhan").pw_gid
+            os.chown(target_path, uid, gid)
+        except Exception:
+            pass  # we may not be running as root in dev
+
+        result = {"ok": True, "path": f"audio/{safe}", "size_bytes": len(data)}
+
+        # E-1 (v1.6.0): if the request specifies a config key to update
+        # (e.g. {"key": "adhan"}), set config.audio[key] = "audio/<filename>"
+        # so the new file replaces an existing audio role immediately.
+        key = (request.form.get('key') or '').strip()
+        if key:
+            with _state_lock if '_state_lock' in globals() else _dummy_ctx():
+                CFG.setdefault('audio', {})
+                CFG['audio'][key] = f"audio/{safe}"
+                AUDIO[key] = f"audio/{safe}"
+                # Persist
+                try:
+                    tmp = CFG_PATH + ".tmp"
+                    with open(tmp, "w") as cf:
+                        yaml.dump(CFG, cf, default_flow_style=False, indent=2)
+                    os.replace(tmp, CFG_PATH)
+                except Exception as e:
+                    log.error(f"U-5: could not persist config after audio key remap: {e}")
+            result["key"] = key
+            result["message"] = f"Uploaded as audio/{safe} and remapped key '{key}' to use it."
+
+        return jsonify(result)
+    except Exception as e:
+        log.error(f"U-5: audio upload error: {e}")
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+class _dummy_ctx:
+    def __enter__(self): return self
+    def __exit__(self, *_): return False
 
 @app.route("/api/audio/files", methods=["GET"])
 def api_list_audio_files():

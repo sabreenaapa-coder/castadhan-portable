@@ -1,0 +1,32 @@
+{
+  "name": "CastAdhan Portable",
+  "short_name": "Adhan",
+  "description": "Islamic prayer-time broadcaster — opens straight into the Stop button so a misfiring adhan can be silenced with one tap from any speaker in the house.",
+  "start_url": "/?mode=simple",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#0c0a08",
+  "theme_color": "#d4af37",
+  "orientation": "any",
+  "icons": [
+    {
+      "src": "/icon-192.png",
+      "type": "image/png",
+      "sizes": "192x192",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-512.png",
+      "type": "image/png",
+      "sizes": "512x512",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-maskable.png",
+      "type": "image/png",
+      "sizes": "512x512",
+      "purpose": "maskable"
+    }
+  ],
+  "categories": ["lifestyle", "utilities"]
+}

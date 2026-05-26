@@ -2,8 +2,27 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover"/>
 <title>CastAdhan - Complete Speaker Management Console</title>
+
+<!-- E-5 / U-1 (v1.6.0): PWA support so the dashboard can be installed to
+     the home screen and opens straight into Simple Mode (giant STOP button).
+     The single biggest UX win for the 6am Snoozer persona. -->
+<link rel="manifest" href="/manifest.json">
+<meta name="theme-color" content="#d4af37">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Adhan">
+<link rel="apple-touch-icon" href="/icon-192.png">
+<script>
+  /* Register service worker if available. Failures are non-fatal — the
+     dashboard works fine without it; PWA just won't install. */
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('/sw.js').catch(() => {});
+    });
+  }
+</script>
 <style>
   :root{
     --bg:#0d0d0d; --fg:#f0f0f0; --gold:#D4AF37; --silver:#b0b0b0;
@@ -154,7 +173,85 @@
   /* Toast */
   .toast {position: fixed;bottom: 20px;left: 50%;transform: translateX(-50%);background: rgba(20, 20, 20, 0.9);color: var(--fg);border: 1px solid var(--gold);border-radius: 5px;padding: 8px 16px;z-index: 100;opacity: 0;transition: opacity 0.3s ease;}
   .toast.show {opacity: 1;}
-  
+
+  /* E-4 (v1.6.0): Simple Mode — activated by ?mode=simple URL param or the
+     "Simple Mode" toggle. Designed for the 6am Snoozer persona: woken by the
+     wakey-wakey audio, half-asleep, fumbling for the phone. Needs to stop
+     the audio in <3 seconds with eyes-closed accuracy. Single giant STOP
+     button takes 60% of viewport height. Next-prayer time is small below.
+     Three discreet small buttons (Settings, Test, Speakers) bottom-right. */
+  body.simple-mode .clock-container,
+  body.simple-mode .below-clock,
+  body.simple-mode .control-panel.speaker-controls,
+  body.simple-mode .control-panel.action-controls,
+  body.simple-mode .panel,
+  body.simple-mode #language-picker,
+  body.simple-mode .top-bar > *:not(.simple-mode-header),
+  body.simple-mode .footer { display: none !important; }
+  body.simple-mode .container { display: flex; flex-direction: column; min-height: 100vh; padding: 0; margin: 0; }
+  body.simple-mode #simple-mode-pane {
+    display: flex !important;
+    flex-direction: column; align-items: center; justify-content: center;
+    flex: 1; padding: 5vh 4vw; gap: 3vh;
+  }
+  body.simple-mode .simple-stop {
+    width: 90%; max-width: 600px;
+    aspect-ratio: 1;
+    background: linear-gradient(135deg, #b3261e, #7a1818);
+    color: #fff; border: 6px solid #fff4;
+    border-radius: 50%; font-size: clamp(2.5rem, 8vw, 5rem); font-weight: 700;
+    cursor: pointer; box-shadow: 0 12px 60px rgba(255,0,0,.4), inset 0 -8px 30px rgba(0,0,0,.3);
+    transition: transform .08s ease, box-shadow .15s ease;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    line-height: 1.05;
+  }
+  body.simple-mode .simple-stop:active { transform: scale(.97); box-shadow: 0 6px 30px rgba(255,0,0,.4); }
+  body.simple-mode .simple-stop .lbl-sub { font-size: 0.4em; font-weight: 400; opacity: .8; margin-top: 0.3em; }
+  body.simple-mode .simple-next { color: var(--gold); font-size: clamp(1.2rem, 3vw, 1.8rem); text-align: center; }
+  body.simple-mode .simple-next .name { font-weight: 700; }
+  body.simple-mode .simple-mini-actions { display:flex; gap: 12px; flex-wrap: wrap; justify-content: center; opacity:.7; }
+  body.simple-mode .simple-mini-actions button {
+    background: transparent; border: 1px solid var(--gold); color: var(--gold);
+    border-radius: 8px; padding: 8px 16px; font-size: .95rem; cursor: pointer;
+  }
+  body.simple-mode .simple-mini-actions button:active { background: rgba(212,175,55,.15); }
+  body.simple-mode .simple-tip { font-size: 0.85rem; color: #888; text-align: center; max-width: 400px; }
+  /* Triple-tap on the title area returns to full dashboard */
+  body.simple-mode .simple-mode-header { color: var(--gold); font-size: 1rem; text-align:center; padding: 12px; cursor: pointer; opacity: .8; }
+  #simple-mode-pane { display: none; }
+
+  /* U-4 (v1.6.0): Responsive layout.
+     Three breakpoints addressing the audit's "zero @media queries — desktop
+     only" complaint. The dashboard must work on aunt's iPad and the
+     Snoozer's phone, not just a 1280px desktop. */
+  @media (max-width: 1024px) {
+    /* Tablet landscape: shrink the clock, tighten gaps, allow panel-stacking */
+    :root { --clock: 360px; }
+    .container { padding: 12px; }
+    .control-panel { padding: 10px; }
+  }
+  @media (max-width: 720px) {
+    /* Tablet portrait / large phone: stack the three top panels vertically;
+       prayer cards collapse to single column. */
+    :root { --clock: 280px; }
+    .container { padding: 8px; }
+    .top-bar { flex-direction: column !important; gap: 10px; }
+    .control-panel { position: static !important; width: 100% !important; max-width: 100% !important; }
+    .control-panel.speaker-controls, .control-panel.action-controls { max-height: 50vh; overflow-y: auto; }
+    .clock-container { transform: scale(.85); transform-origin: top center; margin-top: -20px; }
+    .panel { grid-template-columns: 1fr !important; gap: 6px !important; }
+    .card { padding: 8px !important; }
+    .modal-content { max-width: 95vw !important; max-height: 90vh !important; }
+    .routing-matrix table { font-size: .8em; }
+    .routing-matrix th { white-space: normal !important; word-break: break-word; max-width: 80px; }
+  }
+  @media (max-width: 380px) {
+    /* Small phone (iPhone SE / older Android): even tighter. */
+    :root { --clock: 240px; }
+    h1 { font-size: 1.1rem; }
+    .control-btn { padding: 8px 10px !important; font-size: .85em !important; }
+  }
+
   /* Misc */
   .sunrise-marker {position: absolute;width: 8px;height: 8px;background: var(--gold);border-radius: 50%;z-index: 7;transform: translate(-50%, -50%);}
   /* LAYOUT FIX (2026-05-23): match Home v4.5 — moon is now an inline flex item in .below-clock,
@@ -180,6 +277,26 @@
 </style>
 </head>
 <body>
+<!-- E-4 (v1.6.0): Simple Mode pane. Hidden by default; activated when the
+     URL has ?mode=simple or when the user taps the Simple Mode toggle. PWA
+     manifest's start_url has ?mode=simple, so tapping the home-screen icon
+     opens straight into this. Triple-tap the header to return to the full
+     dashboard. -->
+<div id="simple-mode-pane">
+  <div class="simple-mode-header" id="simple-mode-title" title="Triple-tap to return to full dashboard" onclick="_simpleTitleTap()">CastAdhan</div>
+  <button class="simple-stop" onclick="emergencyStopFromSimple()" aria-label="Stop adhan and pause schedule">
+    STOP
+    <span class="lbl-sub">stop adhan + pause 60 min</span>
+  </button>
+  <div class="simple-next" id="simple-next-line">—</div>
+  <div class="simple-mini-actions">
+    <button onclick="quickAction('test_adhan')">🔔 Test</button>
+    <button onclick="openSettingsModal('basic')">⚙️ Settings</button>
+    <button onclick="window.location.href='/'">↩ Full dashboard</button>
+  </div>
+  <div class="simple-tip">Or say <em>"Hey Google, stop"</em> to any speaker.</div>
+</div>
+
 <div class="container">
   <!-- Speaker Controls (Left) -->
   <div class="control-panel speaker-controls">
@@ -642,11 +759,43 @@
     </div>
     
     <div id="audio-tab" class="tab-pane">
+      <!-- U-5 (v1.6.0): Upload new audio files via the dashboard.
+           Drop-zone with click-to-browse fallback. Posts to /api/audio/upload. -->
+      <div class="control-group">
+        <h4>📥 Upload audio</h4>
+        <p style="font-size:.85em; color:#aaa; margin:0 0 8px 0;">
+          Drop an .mp3 here (or click to browse) to add a new audio file to your library.
+          Up to 50 MB. The file appears in the table below and can then be routed to any
+          prayer slot. <strong>Optional:</strong> choose an existing slot to replace its
+          file in one step (useful for E-1 multi-adhan picker — drop your favourite
+          adhan recording and assign it to "adhan").
+        </p>
+        <div id="audio-upload-drop"
+             style="border:2px dashed var(--gold); border-radius:8px; padding:20px; text-align:center; cursor:pointer; background:rgba(212,175,55,0.05);"
+             onclick="document.getElementById('audio-upload-input').click()"
+             ondragover="event.preventDefault(); this.style.background='rgba(212,175,55,0.15)';"
+             ondragleave="this.style.background='rgba(212,175,55,0.05)';"
+             ondrop="event.preventDefault(); this.style.background='rgba(212,175,55,0.05)'; handleAudioUpload(event.dataTransfer.files);">
+          <div style="font-size:1.1em; color:var(--gold);">⬇ Drop .mp3 file here</div>
+          <div style="font-size:0.85em; color:#888; margin-top:4px;">or click to browse</div>
+        </div>
+        <input type="file" id="audio-upload-input" accept=".mp3,audio/mpeg" style="display:none;"
+               onchange="handleAudioUpload(this.files); this.value='';">
+        <div style="margin-top:10px; display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+          <label style="font-size:.85em; color:#aaa;">Optional — replace existing slot:</label>
+          <select id="audio-upload-key" style="background:#0c0a08;color:var(--text);border:1px solid var(--card-bd);padding:6px;">
+            <option value="">(just add as a new file)</option>
+            <!-- populated by renderAudioFiles() -->
+          </select>
+        </div>
+        <div id="audio-upload-status" style="margin-top:10px; font-size:.85em;"></div>
+      </div>
+
       <div class="control-group">
         <h4>🎵 Audio Files</h4>
         <table class="routing-matrix">
           <thead>
-            <tr><th>Audio Type</th><th>File Path</th><th>Status</th></tr>
+            <tr><th>Audio Type</th><th>File Path</th><th>Status</th><th>Test</th></tr>
           </thead>
           <tbody id="audio-file-list">
             <!-- Filled by JavaScript -->
@@ -1536,6 +1685,44 @@ async function testWakeupNow() {
 /* D7 FIX (2026-05-23): Audio Files tab was completely empty — no function ever populated it.
    Implementing now. Reads /api/config, walks the audio dict, lists each audio type with file path
    and a probe of file existence (via HEAD on /media/audio/<file>). Also offers a Test ▶ button. */
+/* U-5 + E-1 (v1.6.0): upload a chosen audio file via /api/audio/upload.
+   Optionally also remap an existing config.audio key to use the new file
+   (so e.g. dropping a new adhan.mp3 and selecting "adhan" in the slot picker
+   replaces the playing adhan in one step). */
+async function handleAudioUpload(files) {
+  const statusEl = document.getElementById('audio-upload-status');
+  if (!files || files.length === 0) return;
+  const file = files[0];
+  if (!file.name.toLowerCase().endsWith('.mp3')) {
+    statusEl.innerHTML = '<span style="color:#f44336;">Only .mp3 files are accepted.</span>';
+    return;
+  }
+  if (file.size > 50 * 1024 * 1024) {
+    statusEl.innerHTML = '<span style="color:#f44336;">File too large (max 50 MB).</span>';
+    return;
+  }
+  const key = (document.getElementById('audio-upload-key').value || '').trim();
+  statusEl.innerHTML = '<span class="spinner"></span> Uploading ' + file.name + ' (' + Math.round(file.size/1024) + ' KB)…';
+  const form = new FormData();
+  form.append('file', file);
+  if (key) form.append('key', key);
+  try {
+    const r = await fetch('/api/audio/upload', { method: 'POST', body: form });
+    const data = await r.json();
+    if (data.ok) {
+      statusEl.innerHTML = '<span style="color:#4caf50;">✓ Uploaded as ' + data.path
+        + (data.key ? ' &mdash; assigned to <strong>' + data.key + '</strong>' : '')
+        + '.</span>';
+      renderAudioFiles(); /* refresh the table */
+      showToast('Audio uploaded');
+    } else {
+      statusEl.innerHTML = '<span style="color:#f44336;">✗ ' + (data.error || 'unknown error') + '</span>';
+    }
+  } catch (e) {
+    statusEl.innerHTML = '<span style="color:#f44336;">✗ Network error: ' + e.message + '</span>';
+  }
+}
+
 async function renderAudioFiles() {
   const body = $('audio-file-list');
   if (!body) return;
@@ -1550,6 +1737,15 @@ async function renderAudioFiles() {
     if (keys.length === 0) {
       body.innerHTML = '<tr><td colspan="4" style="color:#888; padding:8px;">No audio files configured.</td></tr>';
       return;
+    }
+    /* U-5 (v1.6.0): populate the upload-slot picker with the same key list,
+       so the user can drop a new file and assign it to "adhan" in one step. */
+    const slotPicker = document.getElementById('audio-upload-key');
+    if (slotPicker) {
+      const cur = slotPicker.value;
+      slotPicker.innerHTML = '<option value="">(just add as a new file)</option>' +
+        keys.map(k => `<option value="${k}">Replace: ${audioKeyDisplay(k)}</option>`).join('');
+      slotPicker.value = cur;
     }
     body.innerHTML = '';
     for (const key of keys) {
@@ -2463,6 +2659,10 @@ async function refresh(){
        Hold can expire (60-min auto-release) or be cleared via Resume button on
        another tab — refresh ticks pick up the change. */
     if (data.scheduler_hold) updateSchedulerHoldBanner(data.scheduler_hold);
+
+    /* E-4 (v1.6.0): if we're in Simple Mode, refresh the next-prayer line so
+       the Snoozer can see what's coming next without leaving the giant STOP. */
+    updateSimpleModeNextLine(data);
     
     updateAdaptiveBrightness();
     updateCelestialVisibility(new Date());
@@ -2479,8 +2679,58 @@ async function refresh(){
   }
 }
 
+/* E-4 (v1.6.0): Simple Mode helpers.
+   - Activated when URL has ?mode=simple OR if the user opened via the
+     PWA home-screen icon (start_url=/?mode=simple in manifest.json).
+   - Triple-tap on the header escapes back to full dashboard.
+   - Refresh() updates the next-prayer line so the Snoozer can see what
+     they're silencing at a glance. */
+function _isSimpleMode() {
+  try { return new URLSearchParams(location.search).get('mode') === 'simple'; } catch { return false; }
+}
+let _simpleTitleTaps = 0;
+let _simpleTitleTapTimer = null;
+function _simpleTitleTap() {
+  _simpleTitleTaps++;
+  clearTimeout(_simpleTitleTapTimer);
+  _simpleTitleTapTimer = setTimeout(() => { _simpleTitleTaps = 0; }, 700);
+  if (_simpleTitleTaps >= 3) {
+    _simpleTitleTaps = 0;
+    /* Strip the ?mode=simple param and reload into full dashboard. */
+    const u = new URL(location.href); u.searchParams.delete('mode');
+    location.href = u.toString();
+  }
+}
+async function emergencyStopFromSimple() {
+  /* Same as emergencyStop() but with a smaller confirm dialog suited to
+     a half-asleep user. */
+  if (!confirm('Stop the adhan + pause schedule for 60 minutes?')) return;
+  try {
+    const res = await fetch('/api/emergency/stop', { method: 'POST', headers: { 'Content-Type': 'application/json' } });
+    const data = await res.json();
+    const line = document.getElementById('simple-next-line');
+    if (line) line.innerHTML = data.ok ? '<span style="color:#7fb37f">✓ stopped — paused 60 min</span>' : '<span style="color:#ff7070">stop failed</span>';
+  } catch (e) { /* ignore */ }
+}
+function updateSimpleModeNextLine(data) {
+  if (!document.body.classList.contains('simple-mode')) return;
+  const line = document.getElementById('simple-next-line');
+  if (!line) return;
+  const np = data && data.next_prayer;
+  if (np && np.name) {
+    const t = np.effective_time_pretty || np.time_pretty || '';
+    const localName = (typeof prayerName === 'function') ? prayerName(np.name) : np.name;
+    line.innerHTML = `Next prayer: <span class="name">${localName}</span> at ${t}`;
+  }
+}
+
 /* ----------------------- boot ----------------------- */
 window.addEventListener('load', () => {
+  /* Activate Simple Mode before first render so we don't flash full
+     dashboard then collapse. */
+  if (_isSimpleMode()) {
+    document.body.classList.add('simple-mode');
+  }
   setTimeout(() => {
     refresh().then(() => {
       updateHands();
