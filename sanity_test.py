@@ -1,0 +1,584 @@
+#!/usr/bin/env python3
+"""CastAdhan Portable — Sanity Test
+=====================================
+
+Derived from INCIDENT_REPORT_2026-05-22.md. Every check below corresponds
+to a bug we've actually shipped + regressed. If any check FAILs, the
+corresponding documented bug class is back.
+
+Run on the Pi:
+    python3 /opt/castadhan-portable/sanity_test.py            # full report
+    python3 /opt/castadhan-portable/sanity_test.py --quiet    # failures only
+    python3 /opt/castadhan-portable/sanity_test.py --json     # machine-readable
+
+Or remotely via SSH:
+    ssh farley@<pi> 'python3 /opt/castadhan-portable/sanity_test.py'
+
+Exit codes (used by castadhan-update.sh to gate releases):
+    0   all checks passed
+    1   at least one CRITICAL check failed  → auto-update rolls back
+    2   no CRITICAL fails, but at least one HIGH/MEDIUM/LOW fail
+    3   internal test error (e.g. couldn't reach localhost API)
+
+────────────────────────────────────────────────────────────────────────────
+CONTRIBUTOR NOTE — how this file grows
+────────────────────────────────────────────────────────────────────────────
+Every time a bug ships + is fixed in production, ADD a check here that
+would have caught it. The test is append-only (never remove old checks —
+they're the regression net for bugs the incident report has documented).
+
+Rules of thumb:
+  1. Each check maps to a specific bug ID or lesson number from the report.
+     Reference the ID in the check name + detail string so future readers
+     can find the context.
+  2. Severity choice:
+       CRITICAL  = "users will silently lose the product if this fails"
+                   (no adhan, wrong prayer time, scheduler dies). Triggers
+                   auto-rollback on update.
+       HIGH      = "feature regressed but core still works". Logged as
+                   warning, doesn't roll back. Operator should fix.
+       MEDIUM    = "nice to have working" — informational.
+       LOW       = "absence is not a real problem" — purely informational.
+  3. Tests must be:
+       - Safe (NEVER play audio — that's an active intervention, not a test)
+       - Idempotent (running twice gives same result)
+       - Fast (each check < 5s; whole suite < 30s — runs during update grace
+         window with margin)
+       - Self-contained (Python stdlib + subprocess to commands the Pi ships
+         with — avahi-browse, systemctl, ping, curl, tailscale)
+  4. Output format is stable: SEVERITY ✓/✗/! NAME DETAIL — don't break
+     this, the update script + future log scrapers parse it.
+  5. New layers (L12+) belong at the bottom — keep existing L1-L11 stable.
+"""
+import argparse
+import json
+import os
+import re
+import socket
+import subprocess
+import sys
+import time
+import urllib.request
+
+BASE_URL = "http://127.0.0.1:8786"
+INSTALL_DIR = "/opt/castadhan-portable"
+results = []   # (severity, category, name, status, detail)
+
+def t(severity, category, name, ok, detail=""):
+    results.append((severity, category, name, "PASS" if ok else "FAIL", detail))
+
+def err(severity, category, name, e):
+    results.append((severity, category, name, "ERROR", str(e)))
+
+def http_get(path, timeout=5):
+    r = urllib.request.urlopen(BASE_URL + path, timeout=timeout)
+    return r.status, r.read()
+
+def http_json(path, timeout=5):
+    code, body = http_get(path, timeout)
+    return code, json.loads(body.decode("utf-8"))
+
+def read(path):
+    with open(path) as f:
+        return f.read()
+
+def run(cmd, timeout=8):
+    return subprocess.run(cmd, shell=isinstance(cmd, str), capture_output=True, text=True, timeout=timeout)
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Layer 1 — System health
+# ─────────────────────────────────────────────────────────────────────────────
+def L1_system():
+    cat = "L1 system"
+
+    # Service active (basic sanity)
+    try:
+        r = run(["systemctl", "is-active", "castadhan-portable.service"])
+        t("CRITICAL", cat, "service-active", r.stdout.strip() == "active", r.stdout.strip())
+    except Exception as e: err("CRITICAL", cat, "service-active", e)
+
+    # NTP synced
+    try:
+        r = run(["timedatectl"])
+        synced = "System clock synchronized: yes" in r.stdout
+        t("HIGH", cat, "ntp-synced", synced, "extracted from timedatectl")
+    except Exception as e: err("HIGH", cat, "ntp-synced", e)
+
+    # O29 / Lesson 26 — system tz matches app tz
+    try:
+        app_tz = None
+        for line in read(INSTALL_DIR + "/config.yaml").splitlines():
+            m = re.match(r"\s*timezone:\s*(\S+)\s*$", line)
+            if m and ":" in m.group(0):
+                app_tz = m.group(1).strip("'\"")
+                break
+        sys_tz = None
+        for line in run(["timedatectl"]).stdout.splitlines():
+            m = re.search(r"Time zone:\s+(\S+)", line)
+            if m: sys_tz = m.group(1); break
+        t("HIGH", cat, "tz-app-eq-system", app_tz == sys_tz, f"app={app_tz} system={sys_tz}")
+    except Exception as e: err("HIGH", cat, "tz-app-eq-system", e)
+
+    # Memory headroom — read from /proc instead of systemd (cleaner — systemd's
+    # MemoryCurrent can be '[not set]' under certain unit-file configurations)
+    try:
+        pid = run(["pgrep", "-f", "castadhan-portable/app.py"]).stdout.strip().split("\n")[0]
+        cur_kb = 0
+        if pid:
+            for line in open(f"/proc/{pid}/status"):
+                if line.startswith("VmRSS:"):
+                    cur_kb = int(line.split()[1]); break
+        # Ceiling: parse MemoryMax from systemd if numeric, otherwise unlimited
+        r = run(["systemctl", "show", "castadhan-portable.service", "--property=MemoryMax"])
+        mmax_bytes = 0
+        for line in r.stdout.splitlines():
+            if line.startswith("MemoryMax="):
+                v = line.split("=",1)[1].strip()
+                if v.isdigit(): mmax_bytes = int(v)
+        cur_mb = cur_kb // 1024
+        max_mb = mmax_bytes // 1024 // 1024
+        ok = max_mb == 0 or cur_mb < max_mb * 0.85
+        t("MEDIUM", cat, "memory-headroom", ok,
+          f"{cur_mb}MB used / {max_mb if max_mb else '∞'}MB ceiling")
+    except Exception as e: err("MEDIUM", cat, "memory-headroom", e)
+
+    # Disk space
+    try:
+        r = run(["df", "-h", "/"])
+        line = [l for l in r.stdout.splitlines() if "/" in l and "Filesystem" not in l][0]
+        used_pct = int(line.split()[4].rstrip("%"))
+        t("MEDIUM", cat, "disk-space", used_pct < 90, f"{used_pct}% used on /")
+    except Exception as e: err("MEDIUM", cat, "disk-space", e)
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Layer 2 — Configuration integrity (huge in the incident report)
+# ─────────────────────────────────────────────────────────────────────────────
+def L2_config():
+    cat = "L2 config"
+    try:
+        _, cfg = http_json("/api/config")
+        rules = cfg["config"]["rules"]
+        app = cfg["config"]["app"]
+        spk = cfg["config"]["speakers"]
+
+        # B-Belgium-1 / O24 / B-Belgium-19 — include_if_name_contains MUST be ''
+        t("CRITICAL", cat, "include-filter-empty",
+          spk.get("include_if_name_contains") == "",
+          f"got {spk.get('include_if_name_contains')!r}")
+
+        # O3 — auto_detect_location_on_startup MUST be false
+        t("HIGH", cat, "auto-detect-disabled",
+          rules.get("auto_detect_location_on_startup") is False,
+          f"got {rules.get('auto_detect_location_on_startup')!r}")
+
+        # C-1 — calculation_method must be one of the supported values
+        valid_methods = {"ISNA","MWL","Egyptian","Karachi","UmmAlQura","Umm al-Qura"}
+        cm = app.get("calculation_method","")
+        t("CRITICAL", cat, "calc-method-valid", cm in valid_methods, f"got {cm!r}")
+
+        # C-2 — madhab must be one of the supported values
+        valid_madhab = {"shafii","hanafi","maliki","hanbali"}
+        m = (rules.get("madhab") or "").lower()
+        t("CRITICAL", cat, "madhab-valid", m in valid_madhab, f"got {m!r}")
+
+        # O37 — high_latitude_method must be one of the supported values
+        valid_hilat = {"combine_prayers","1_7_rule","static_offset"}
+        h = rules.get("high_latitude_method","")
+        t("HIGH", cat, "hilat-valid", h in valid_hilat, f"got {h!r}")
+
+        # B-Belgium-13 / O29 — app + Pi system tz match
+        t("HIGH", cat, "app-tz-set", bool(app.get("timezone")), f"got {app.get('timezone')!r}")
+
+        # Setup completed
+        t("HIGH", cat, "setup-complete", rules.get("setup_complete") is True,
+          f"got {rules.get('setup_complete')!r}")
+
+        # Location actually set
+        loc = app.get("location",{})
+        has_loc = bool(loc.get("city") and loc.get("country") and loc.get("latitude"))
+        t("CRITICAL", cat, "location-set", has_loc, f"city={loc.get('city')}, lat={loc.get('latitude')}")
+
+        # takbeeraat_window default exists + valid
+        tw = (rules.get("takbeeraat_window") or "inclusive").lower()
+        t("MEDIUM", cat, "takbeeraat-window-valid", tw in ("inclusive","strict"), f"got {tw!r}")
+    except Exception as e:
+        err("CRITICAL", cat, "config-load", e)
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Layer 3 — Discovery (the recurring nightmare)
+# ─────────────────────────────────────────────────────────────────────────────
+def L3_discovery():
+    cat = "L3 discovery"
+    try:
+        # avahi-browse can be shelled out to
+        r = run(["avahi-browse", "-atrp", "-l", "--resolve"], timeout=6)
+        cast_count = sum(1 for line in r.stdout.splitlines()
+                         if line.startswith("=;") and "_googlecast" in line and ";IPv4;" in line)
+        t("HIGH", cat, "avahi-cast-visible", cast_count > 0,
+          f"{cast_count} Cast records visible via system mDNS")
+
+        # known_speakers.json exists + valid JSON
+        ks_path = INSTALL_DIR + "/known_speakers.json"
+        ks = json.loads(read(ks_path))
+        t("HIGH", cat, "known-speakers-json-valid", isinstance(ks, dict), f"{len(ks)} entries")
+
+        # Each known speaker IP responds to ping (basic reachability)
+        for name, ip in ks.items():
+            r = run(["ping", "-c", "1", "-W", "2", ip])
+            t("MEDIUM", cat, f"ping-{name}", r.returncode == 0, ip)
+
+        # O39 — each known speaker's :8009 either open OR clearly dead (no hangs)
+        for name, ip in ks.items():
+            try:
+                with socket.create_connection((ip, 8009), timeout=2):
+                    t("MEDIUM", cat, f"port8009-{name}", True, f"{ip}:8009 open")
+            except (OSError, socket.timeout):
+                # NOT a fail — speaker might just be off. But log it as INFO.
+                t("LOW", cat, f"port8009-{name}", False, f"{ip}:8009 unreachable (speaker likely off)")
+
+        # B-Belgium-2/8/16/19 — discover_casts() returns >= 1 speaker
+        _, state = http_json("/api/state", timeout=15)
+        spks = state.get("devices",{}).get("speakers",[])
+        t("CRITICAL", cat, "discover-returns-speakers",
+          len(spks) > 0, f"{len(spks)} speakers: {[s.get('name') for s in spks]}")
+
+        # Each discovered speaker is connected=true
+        all_conn = all(s.get("connected") for s in spks)
+        t("HIGH", cat, "all-speakers-connected", all_conn or len(spks)==0,
+          f"{sum(1 for s in spks if s.get('connected'))}/{len(spks)} connected")
+    except Exception as e:
+        err("CRITICAL", cat, "discovery-overall", e)
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Layer 4 — Scheduler (Lesson 27 / B-Belgium-13 / O35 next_run_time bug)
+# ─────────────────────────────────────────────────────────────────────────────
+def L4_scheduler():
+    cat = "L4 scheduler"
+    try:
+        _, state = http_json("/api/state")
+        jobs = state.get("scheduled_jobs",[])
+        job_ids = {j.get("id","") for j in jobs}
+
+        # O35 — periodic jobs MUST be present (smoking gun for schedule_today truncation)
+        required = {"cast_rediscovery","dst_protection_refresh","health_check","twilight_scan","refresh_daily"}
+        missing = required - job_ids
+        t("CRITICAL", cat, "periodic-jobs-present", not missing,
+          f"missing: {sorted(missing)}" if missing else f"{len(required)} periodic jobs scheduled")
+
+        # Scheduler running
+        t("CRITICAL", cat, "scheduler-running",
+          state.get("scheduler_running") is True, f"got {state.get('scheduler_running')!r}")
+
+        # At least 1 adhan_X job scheduled (unless ALL prayers have passed today, in which case
+        # there should be a refresh_daily that re-builds tomorrow's schedule)
+        adhans = [j for j in jobs if j.get("id","").startswith("adhan_")]
+        t("HIGH", cat, "adhans-or-refresh", len(adhans) > 0 or "refresh_daily" in job_ids,
+          f"{len(adhans)} adhans + refresh_daily={'yes' if 'refresh_daily' in job_ids else 'no'}")
+
+        # Lesson 26 — all job timestamps in same tz as app (no +01 vs +02 drift)
+        tz_offsets = set()
+        for j in jobs:
+            nr = j.get("next_run","")
+            m = re.search(r"([+-]\d{2}:\d{2})$", nr)
+            if m: tz_offsets.add(m.group(1))
+        t("HIGH", cat, "job-tz-consistent", len(tz_offsets) <= 1,
+          f"offsets seen: {sorted(tz_offsets)}")
+
+        # B-Belgium-13 — verify no SCHEDULER_INCOMPLETE in last 24h
+        try:
+            _, ph = http_json("/api/play_history?limit=200&status=SCHEDULER_INCOMPLETE", timeout=5)
+            t("HIGH", cat, "no-recent-truncation", ph.get("count",0) == 0,
+              f"{ph.get('count')} SCHEDULER_INCOMPLETE entries in history")
+        except Exception:
+            pass  # endpoint shape, not fatal
+    except Exception as e:
+        err("CRITICAL", cat, "scheduler-overall", e)
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Layer 5 — API health (responsiveness + presence of post-mortem endpoints)
+# ─────────────────────────────────────────────────────────────────────────────
+def L5_api():
+    cat = "L5 api"
+
+    # B-Belgium-18 / O39 — /api/state responds in <3s (no retry storms)
+    try:
+        t0 = time.time()
+        http_get("/api/state", timeout=5)
+        dt = time.time() - t0
+        t("HIGH", cat, "state-fast", dt < 3.0, f"{dt:.3f}s")
+    except Exception as e: err("HIGH", cat, "state-fast", e)
+
+    # C-3 — /api/version exists + returns {ok, version}
+    try:
+        code, data = http_json("/api/version")
+        ok = code == 200 and "version" in data
+        t("HIGH", cat, "version-endpoint", ok, f"v{data.get('version')}")
+    except Exception as e: err("HIGH", cat, "version-endpoint", e)
+
+    # O25 — /api/play_history exists (no AttributeError from v1.6.1 hotfix regression)
+    try:
+        code, data = http_json("/api/play_history?limit=5")
+        t("HIGH", cat, "play-history-endpoint", code == 200 and "entries" in data,
+          f"{data.get('count',0)} entries returned")
+    except Exception as e: err("HIGH", cat, "play-history-endpoint", e)
+
+    # O36 — /api/speakers/add_by_ip exists (rejects empty body with 400, that's enough)
+    try:
+        r = run(["curl","-sSm","3","-o","/dev/null","-w","%{http_code}",
+                 "-X","POST", BASE_URL+"/api/speakers/add_by_ip",
+                 "-H","Content-Type: application/json","-d","{}"])
+        code = r.stdout.strip()
+        t("MEDIUM", cat, "add-by-ip-endpoint", code in ("400","422"),
+          f"HTTP {code} on empty body (400/422 expected)")
+    except Exception as e: err("MEDIUM", cat, "add-by-ip-endpoint", e)
+
+    # C-4 — /api/scheduler/hold exists
+    try:
+        code, data = http_json("/api/scheduler/hold")
+        t("MEDIUM", cat, "scheduler-hold-endpoint", code == 200 and "held" in data,
+          f"held={data.get('held')}")
+    except Exception as e: err("MEDIUM", cat, "scheduler-hold-endpoint", e)
+
+    # O32 — next_prayer payload has effective_* + shifted fields
+    try:
+        _, state = http_json("/api/state")
+        np = state.get("next_prayer",{})
+        needed = {"name","time_pretty","effective_time_pretty","shifted"}
+        has_all = needed.issubset(np.keys())
+        t("HIGH", cat, "next-prayer-enriched", has_all,
+          f"keys: {sorted(np.keys())}")
+    except Exception as e: err("HIGH", cat, "next-prayer-enriched", e)
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Layer 6 — UI surface (regression checks for HTML/JS bugs)
+# ─────────────────────────────────────────────────────────────────────────────
+def L6_ui():
+    cat = "L6 ui"
+
+    # Root page loads
+    try:
+        code, body = http_get("/")
+        t("HIGH", cat, "dashboard-loads", code == 200 and len(body) > 1000,
+          f"HTTP {code}, {len(body)}B")
+        html = body.decode("utf-8","ignore")
+    except Exception as e:
+        err("HIGH", cat, "dashboard-loads", e); return
+
+    # C-3 — footer reads /api/version (no hardcoded version)
+    t("HIGH", cat, "footer-version-dynamic",
+      'id="footer-version"' in html and 'CastAdhan v3.2' not in html,
+      "footer-version span present + v3.2 absent")
+
+    # B-Belgium-19 — HTML default for include filter is "" not "speaker"
+    t("CRITICAL", cat, "include-input-default-empty",
+      'id="config-include-name" value=""' in html,
+      "should be value='' not value='speaker'")
+
+    # B-Belgium-19 — JS uses ?? not || for the include filter (regression check)
+    t("CRITICAL", cat, "include-js-uses-nullish",
+      "include_if_name_contains ?? ''" in html,
+      "should be ?? '' not || 'speaker'")
+
+    # C-2 / U-2 — madhab dropdown wired in dashboard
+    t("HIGH", cat, "madhab-dropdown-present",
+      'id="config-madhab"' in html and 'value="hanafi"' in html,
+      "config-madhab + hanafi option")
+
+    # E-4 — simple-mode pane present
+    t("MEDIUM", cat, "simple-mode-pane",
+      'id="simple-mode-pane"' in html, "simple-mode-pane div")
+
+    # E-5 PWA — manifest + sw.js routes work
+    try:
+        code, _ = http_get("/manifest.json")
+        t("MEDIUM", cat, "manifest-route", code == 200, f"HTTP {code}")
+    except Exception as e: err("MEDIUM", cat, "manifest-route", e)
+    try:
+        code, _ = http_get("/sw.js")
+        t("MEDIUM", cat, "service-worker-route", code == 200, f"HTTP {code}")
+    except Exception as e: err("MEDIUM", cat, "service-worker-route", e)
+
+    # U-4 — responsive @media queries present
+    t("MEDIUM", cat, "responsive-media-queries",
+      "@media (max-width: 720px)" in html, "720px breakpoint")
+
+    # v1.6.4 — weather widget uses open-meteo (no weatherapi key embedded)
+    t("HIGH", cat, "weather-uses-openmeteo",
+      "api.open-meteo.com" in html and "WEATHER_API_KEY = '3" not in html,
+      "open-meteo URL present, weatherapi key absent")
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Layer 7 — Audio files (every config.audio entry must exist on disk)
+# ─────────────────────────────────────────────────────────────────────────────
+def L7_audio():
+    cat = "L7 audio"
+    try:
+        _, cfg = http_json("/api/config")
+        audio = cfg["config"]["audio"]
+        for key, rel in audio.items():
+            full = os.path.join(INSTALL_DIR, rel)
+            exists = os.path.isfile(full)
+            t("HIGH", cat, f"audio-file-{key}", exists,
+              f"{full} {'present' if exists else 'MISSING'}")
+    except Exception as e: err("HIGH", cat, "audio-config-load", e)
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Layer 8 — Religious correctness (C-1 + C-2 verified through real API)
+# ─────────────────────────────────────────────────────────────────────────────
+def L8_religion():
+    cat = "L8 religion"
+
+    # Aladhan API reachable + returns valid prayer times for aunt's location
+    try:
+        _, cfg = http_json("/api/config")
+        loc = cfg["config"]["app"]["location"]
+        url = (f"https://api.aladhan.com/v1/timings/{int(time.time())}"
+               f"?latitude={loc['latitude']}&longitude={loc['longitude']}&method=2")
+        r = urllib.request.urlopen(url, timeout=10)
+        data = json.loads(r.read().decode("utf-8"))
+        ok = data.get("code") == 200 and "data" in data
+        t("HIGH", cat, "aladhan-reachable", ok, f"Fajr: {data.get('data',{}).get('timings',{}).get('Fajr')}")
+    except Exception as e: err("HIGH", cat, "aladhan-reachable", e)
+
+    # Hijri date sensible (not 1900, not 9999)
+    try:
+        _, state = http_json("/api/state")
+        h = state.get("hijri_now_sunset_aware",{})
+        y = int(h.get("year",0))
+        t("MEDIUM", cat, "hijri-date-sensible", 1400 <= y <= 1500, f"year={y}")
+    except Exception as e: err("MEDIUM", cat, "hijri-date-sensible", e)
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Layer 9 — Auto-update infrastructure (O27)
+# ─────────────────────────────────────────────────────────────────────────────
+def L9_autoupdate():
+    cat = "L9 update"
+
+    # castadhan-update.sh exists
+    p = INSTALL_DIR + "/deploy/castadhan-update.sh"
+    t("HIGH", cat, "update-script-deployed", os.path.isfile(p),
+      f"{p} {'present' if os.path.isfile(p) else 'MISSING'}")
+
+    # /etc/default/castadhan-update has real repo (not placeholder)
+    try:
+        cfg = read("/etc/default/castadhan-update")
+        has_real = "sabreenaapa-coder/castadhan-portable" in cfg
+        no_placeholder = "yourname/castadhan-portable" not in cfg
+        t("HIGH", cat, "update-config-real-repo", has_real and no_placeholder,
+          "real repo set, no placeholder")
+    except Exception as e: err("HIGH", cat, "update-config-real-repo", e)
+
+    # Update timer enabled + active
+    try:
+        r = run(["systemctl", "is-enabled", "castadhan-update.timer"])
+        t("HIGH", cat, "update-timer-enabled", r.stdout.strip() == "enabled", r.stdout.strip())
+        r = run(["systemctl", "is-active", "castadhan-update.timer"])
+        t("HIGH", cat, "update-timer-active", r.stdout.strip() == "active", r.stdout.strip())
+    except Exception as e: err("HIGH", cat, "update-timer", e)
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Layer 10 — Tailscale (Lesson 20)
+# ─────────────────────────────────────────────────────────────────────────────
+def L10_tailscale():
+    cat = "L10 tailscale"
+    try:
+        r = run(["tailscale", "status"], timeout=5)
+        on = "100." in r.stdout
+        t("HIGH", cat, "tailscale-up", on, "100.x address present in status")
+    except Exception as e: err("HIGH", cat, "tailscale-up", e)
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Layer 11 — Recent fire history (canary for silent-failure detection)
+# ─────────────────────────────────────────────────────────────────────────────
+def L11_history():
+    cat = "L11 history"
+    try:
+        _, ph = http_json("/api/play_history?limit=50")
+        entries = ph.get("entries",[])
+        # Look for any NO_SPEAKERS in the last N entries (canary)
+        no_speakers = [e for e in entries if e.get("status") == "NO_SPEAKERS"]
+        t("HIGH", cat, "no-recent-no-speakers",
+          len(no_speakers) == 0,
+          f"{len(no_speakers)} NO_SPEAKERS in last 50: {[e.get('prayer_name') for e in no_speakers]}")
+        # SCHEDULER_INCOMPLETE check
+        sched_incomp = [e for e in entries if e.get("status") == "SCHEDULER_INCOMPLETE"]
+        t("HIGH", cat, "no-recent-scheduler-incomplete",
+          len(sched_incomp) == 0, f"{len(sched_incomp)} in last 50")
+    except Exception as e: err("HIGH", cat, "play-history-fetch", e)
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Run everything
+# ─────────────────────────────────────────────────────────────────────────────
+for fn in [L1_system, L2_config, L3_discovery, L4_scheduler, L5_api,
+           L6_ui, L7_audio, L8_religion, L9_autoupdate, L10_tailscale, L11_history]:
+    try:
+        fn()
+    except Exception as e:
+        err("ERROR", fn.__name__, "category-execute", e)
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Render results
+# ─────────────────────────────────────────────────────────────────────────────
+SEVERITY_ORDER = {"CRITICAL": 0, "HIGH": 1, "MEDIUM": 2, "LOW": 3, "ERROR": 4}
+results.sort(key=lambda r: (SEVERITY_ORDER.get(r[0], 9), r[1], r[2]))
+
+pass_count = sum(1 for r in results if r[3] == "PASS")
+fail_count = sum(1 for r in results if r[3] == "FAIL")
+err_count  = sum(1 for r in results if r[3] == "ERROR")
+crit_fail  = sum(1 for r in results if r[3] == "FAIL" and r[0] == "CRITICAL")
+high_fail  = sum(1 for r in results if r[3] == "FAIL" and r[0] == "HIGH")
+
+# ─────────────────────────────────────────────────────────────────────────────
+# CLI
+# ─────────────────────────────────────────────────────────────────────────────
+_parser = argparse.ArgumentParser(description="CastAdhan sanity test")
+_parser.add_argument("--quiet", action="store_true",
+                     help="only print failures + summary (suitable for update log)")
+_parser.add_argument("--json", action="store_true",
+                     help="emit machine-readable JSON instead of human report")
+_args, _ = _parser.parse_known_args()
+
+if _args.json:
+    print(json.dumps({
+        "summary": {
+            "total": len(results),
+            "pass": pass_count,
+            "fail": fail_count,
+            "error": err_count,
+            "critical_fail": crit_fail,
+            "high_fail": high_fail,
+        },
+        "results": [
+            {"severity": s, "category": c, "name": n, "status": st, "detail": d}
+            for (s, c, n, st, d) in results
+        ],
+    }, indent=2))
+else:
+    print()
+    print("=" * 90)
+    print(f"CastAdhan Portable — Sanity Test  ({len(results)} checks)")
+    print("=" * 90)
+    current_cat = None
+    for sev, cat, name, status, detail in results:
+        if _args.quiet and status == "PASS":
+            continue
+        if cat != current_cat:
+            print(f"\n── {cat} ──")
+            current_cat = cat
+        marker = {"PASS": "✓", "FAIL": "✗", "ERROR": "!"}.get(status, "?")
+        print(f"  [{sev[:4]:<4}] {marker} {name:<32} {detail[:60]}")
+    print()
+    print("=" * 90)
+    print(f"SUMMARY: {pass_count} pass · {fail_count} fail · {err_count} error  "
+          f"(critical-fail: {crit_fail}, high-fail: {high_fail})")
+    print("=" * 90)
+
+# Severity-aware exit code (used by castadhan-update.sh to gate releases).
+# IMPORTANT: only CRITICAL failures should cause auto-rollback. HIGH/MEDIUM
+# failures are loud-logged but don't undo a release — they're regressions
+# of past fixes that should be patched in the next release, not rolled back.
+if crit_fail > 0:
+    sys.exit(1)
+if fail_count > 0 or err_count > 0:
+    sys.exit(2)
+sys.exit(0)

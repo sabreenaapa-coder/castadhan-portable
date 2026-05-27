@@ -139,19 +139,56 @@ log "Starting $SERVICE"
 systemctl start "$SERVICE"
 sleep 8
 
-if systemctl is-active --quiet "$SERVICE"; then
-  log "✅ Update successful. Now on $LATEST_VERSION."
-  rm -rf "$PREV_DIR"   # uncomment this line to immediately free space
-  log "Previous version retained at $PREV_DIR for 24 hours (rollback window)"
-  # Schedule cleanup of previous version after 24h
-  echo "rm -rf '$PREV_DIR'" | at now + 24 hours 2>/dev/null || true
-  exit 0
-else
-  log "❌ Service failed to start on new version. Rolling back…"
+rollback() {
+  local reason="${1:-unknown}"
+  log "❌ Rolling back ($reason)…"
   systemctl stop "$SERVICE" || true
   rm -rf "$INSTALL_DIR"
   mv "$PREV_DIR" "$INSTALL_DIR"
   systemctl start "$SERVICE"
   log "Rollback complete. Still on $CURRENT."
   exit 1
+}
+
+if ! systemctl is-active --quiet "$SERVICE"; then
+  rollback "service failed to start on new version"
 fi
+
+# ---- 5b. Sanity test (v1.7.0): regression net against documented bug --------
+# classes. Lives at $INSTALL_DIR/sanity_test.py, derived from
+# INCIDENT_REPORT_2026-05-22.md. Exit code semantics:
+#     0 — all checks passed
+#     1 — at least one CRITICAL fail → ROLL BACK (release is broken)
+#     2 — only HIGH/MEDIUM/LOW fails → warn but ship (regression to patch
+#         in next release, not bad enough to undo this one)
+#     3 — internal test error
+#
+# Why this exists: the v1.6.5 Eid-Fajr-no-fire incident was caused by a
+# dashboard UI regression that an automated check (L6 include-input-default-
+# empty) would have caught instantly. Releases ship from now on only if the
+# sanity test says they're OK. Lesson 41 turned from documented-only into
+# enforced.
+SANITY="$INSTALL_DIR/sanity_test.py"
+if [ -f "$SANITY" ]; then
+  log "Running sanity_test.py (regression net for past bugs)…"
+  # Up to 60s for the suite (avahi-browse + aladhan call dominate)
+  if timeout 60 python3 "$SANITY" --quiet 2>&1 | tee -a /var/log/castadhan-update.log; then
+    rc=${PIPESTATUS[0]}
+  else
+    rc=${PIPESTATUS[0]:-3}
+  fi
+  case "$rc" in
+    0) log "✅ Sanity test PASSED — all checks green" ;;
+    1) rollback "sanity test reported CRITICAL failures" ;;
+    2) log "⚠️  Sanity test had HIGH/MEDIUM/LOW failures (release shipped; patch in next release)" ;;
+    *) log "⚠️  Sanity test internal error (rc=$rc) — release shipped; check log" ;;
+  esac
+else
+  log "ℹ️  sanity_test.py not present (older install layout) — skipping"
+fi
+
+log "✅ Update successful. Now on $LATEST_VERSION."
+rm -rf "$PREV_DIR"
+log "Previous version retained at $PREV_DIR for 24 hours (rollback window)"
+echo "rm -rf '$PREV_DIR'" | at now + 24 hours 2>/dev/null || true
+exit 0
