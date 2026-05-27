@@ -700,7 +700,7 @@
           <h4>🔊 Speaker Defaults</h4>
           <div class="setting-item">
             <label>Include if name contains</label>
-            <input type="text" id="config-include-name" value="speaker">
+            <input type="text" id="config-include-name" value="" placeholder="(usually leave blank)">
           </div>
           <div class="setting-item">
             <label>Exclude if name contains (comma-separated)</label>
@@ -1491,31 +1491,57 @@ function startCountdownFrom(data){
 }
 
 /* ------------------- panels ------------------- */
+/* O32 / B-Belgium-15 (v1.6.5, Wed 27 May 2026): the prayer CARDS now show
+   the effective (actual fire) time when it differs from the raw aladhan
+   time, with the raw time as a small sub-line. Before this, the card
+   showed only the raw time (e.g. "Fajr 03:41"), the dashboard's countdown
+   line below the clock showed the shift footnote — but users LOOK AT THE
+   CARDS when planning to wake up for Fajr. Aunt didn't hear the adhan
+   this morning because she saw "Fajr 03:41" on the card, went to bed
+   expecting it at 03:41, but the actual fire was 05:10 (combine_prayers
+   shift to sunrise-30). v1.5.0's enriched next_prayer payload already
+   provides the shifted time; we just need to surface it in the card too.
+   _effectiveTimes is populated in refresh() from data.next_prayer when
+   the next prayer is one of the ones with shift; for simplicity we apply
+   the shift only to the next-prayer card (the one most likely the user
+   is reading right now). */
+let _nextPrayerEffective = null; // {name, raw, effective, shifted}
 function renderPanels(times, nextName){
   const left = $('panel-left'), right = $('panel-right');
   left.innerHTML=''; right.innerHTML='';
 
-  /* U-6 (v1.5.1): prayer names in the cards now localized.
-     Arabic gets the Arabic-script names (الفجر / الظهر / etc.) so the dashboard
-     is no longer "Arabic UI + Latin prayer names" — the audit's biggest i18n
-     complaint. */
-  PRAYERS_PANEL_L.forEach(n=>{
+  function cardHTML(n) {
     let timeStr = '--:--';
     if (n === 'Sunrise') {
       timeStr = times.Sunrise || times.sunrise || times.sunrise_time || '--:--';
     } else {
       timeStr = times[n] || '--:--';
     }
+    let subline = '';
+    /* If this card is for the NEXT prayer AND the effective fire time
+       differs from the raw aladhan time, show the effective time large
+       and the raw time as a tiny sub-line. Removes the "I expected 03:41
+       but nothing played" failure mode. */
+    if (_nextPrayerEffective && _nextPrayerEffective.name === n && _nextPrayerEffective.shifted) {
+      const effective = _nextPrayerEffective.effective || timeStr;
+      subline = `<div class="time-sub" style="font-size:0.6em;opacity:0.7;font-weight:400;margin-top:2px">plays at ${effective}</div>`;
+      // Display: large time = effective (what actually plays), tiny = raw
+      return `<div class="name">${prayerName(n)}</div><div class="time">${effective}</div>${subline.replace('plays at '+effective, 'raw '+timeStr)}`;
+    }
+    return `<div class="name">${prayerName(n)}</div><div class="time">${timeStr}</div>${subline}`;
+  }
+
+  PRAYERS_PANEL_L.forEach(n=>{
     const c=document.createElement('div');
     c.className='card'+(nextName===n?' next':'');
-    c.innerHTML = `<div class="name">${prayerName(n)}</div><div class="time">${timeStr}</div>`;
+    c.innerHTML = cardHTML(n);
     left.appendChild(c);
   });
 
   PRAYERS_PANEL_R.forEach(n=>{
     const c=document.createElement('div');
     c.className='card'+(nextName===n?' next':'');
-    c.innerHTML = `<div class="name">${prayerName(n)}</div><div class="time">${times[n]||'--:--'}</div>`;
+    c.innerHTML = cardHTML(n);
     right.appendChild(c);
   });
 }
@@ -2218,7 +2244,15 @@ async function loadConfig(options) {
     
     // Speaker settings
     if (cfg.speakers) {
-      $('config-include-name').value = cfg.speakers.include_if_name_contains || 'speaker';
+      /* B-Belgium-19 / O40 (v1.6.5, Wed 27 May 2026): use nullish coalescing
+         to respect the empty-string ("") value the user / config-yaml may
+         legitimately have set. The previous `|| 'speaker'` treated "" as
+         falsy and reverted the field to the English-only filter every time
+         Settings was loaded. Combined with saveConfig POSTing the field
+         back unmodified, every save-button click was re-poisoning the
+         config — silently breaking discovery for any non-English speaker
+         name (Slaap, Huiskamer, etc.). Caught Wed 27 May after Fajr no-fire. */
+      $('config-include-name').value = cfg.speakers.include_if_name_contains ?? '';
       $('config-exclude-names').value = (cfg.speakers.exclude_if_name_contains_any || []).join(', ');
       $('config-general-volume').value = Math.round((cfg.speakers.general_volume || 0.7) * 100);
       
@@ -2709,6 +2743,16 @@ async function refresh(){
     startCountdownFrom(data);
 
     const nextName = (data.next_prayer && data.next_prayer.name) || getNextPrayerFallback(times)?.name || null;
+    /* O32 v2 (v1.6.5): expose next-prayer shift info to renderPanels so the
+       PRAYER CARD itself shows the effective fire time (not just the
+       countdown line). This is what aunt looks at to decide when to wake. */
+    const np = data.next_prayer || {};
+    _nextPrayerEffective = {
+      name: np.name,
+      raw: np.time_pretty,
+      effective: np.effective_time_pretty,
+      shifted: !!np.shifted,
+    };
     renderPanels(times, nextName);
 
     /* C-4 (v1.5.0): keep the scheduler-hold banner in sync with backend state.
