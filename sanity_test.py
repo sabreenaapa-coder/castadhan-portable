@@ -504,13 +504,76 @@ def L11_history():
         sched_incomp = [e for e in entries if e.get("status") == "SCHEDULER_INCOMPLETE"]
         t("HIGH", cat, "no-recent-scheduler-incomplete",
           len(sched_incomp) == 0, f"{len(sched_incomp)} in last 50")
+        # B-Belgium-22 (v1.7.1) — FAIL entries (cast play failed despite speakers
+        # being present, e.g. stale-socket "is connecting..." failures)
+        fails = [e for e in entries if e.get("status") == "FAIL"]
+        t("HIGH", cat, "no-recent-play-fails",
+          len(fails) == 0, f"{len(fails)} FAIL in last 50: {[e.get('prayer_name') for e in fails]}")
     except Exception as e: err("HIGH", cat, "play-history-fetch", e)
+
+    # B-Belgium-21 (v1.7.1) — play_history.jsonl must EXIST on disk.
+    # If _log_play() is broken (e.g. the timezone-shadowing bug that returned
+    # on v1.7.0), the file is never created and every play goes unrecorded —
+    # exactly the blind spot that hid the Eid Fajr no-play. The file's absence
+    # after the system has run through at least one prayer is a canary that
+    # the logging path itself is broken.
+    try:
+        ph_file = INSTALL_DIR + "/play_history.jsonl"
+        exists = os.path.isfile(ph_file)
+        # Only a hard fail if the service has been up long enough to have fired
+        # something. We approximate: if uptime > 6h, at least one prayer has
+        # almost certainly passed, so the file should exist.
+        up = run(["bash","-lc","ps -o etimes= -p $(pgrep -f castadhan-portable/app.py | head -1) | tr -d ' '"])
+        uptime_s = int((up.stdout.strip().split('\n')[0] or "0"))
+        if uptime_s > 6*3600:
+            t("HIGH", cat, "play-history-file-written", exists,
+              f"{'present' if exists else 'MISSING after '+str(uptime_s//3600)+'h uptime — _log_play likely broken'}")
+        else:
+            t("LOW", cat, "play-history-file-written", True,
+              f"uptime {uptime_s//60}m — too early to require the file")
+    except Exception as e: err("HIGH", cat, "play-history-file-written", e)
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Layer 12 — Live cast connectivity (v1.7.1)
+# The Eid-Fajr-no-play bug: speakers were DISCOVERED (in the list) but their
+# sockets were STALE, so playback failed with "is connecting...". A speaker
+# being "in the list" is not the same as "connectable right now". This layer
+# verifies each discovered speaker's :8009 actually completes a TCP handshake
+# AT TEST TIME — a stale or dropped speaker fails here even though L3 discovery
+# might still list it from cache.
+# ─────────────────────────────────────────────────────────────────────────────
+def L12_connectivity():
+    cat = "L12 connectivity"
+    try:
+        _, state = http_json("/api/state", timeout=15)
+        spks = state.get("devices",{}).get("speakers",[])
+        if not spks:
+            t("LOW", cat, "speakers-to-probe", False, "no speakers discovered to probe")
+            return
+        for s in spks:
+            ip = s.get("ip")
+            name = s.get("name","?")
+            if not ip:
+                continue
+            try:
+                t0 = time.time()
+                with socket.create_connection((ip, 8009), timeout=4):
+                    dt = time.time() - t0
+                # CRITICAL: a discovered speaker whose :8009 won't handshake will
+                # fail to play. This is the direct canary for the May 28 bug.
+                t("CRITICAL", cat, f"connectable-{name}", True, f"{ip}:8009 handshake {dt:.2f}s")
+            except (OSError, socket.timeout) as e:
+                t("CRITICAL", cat, f"connectable-{name}", False,
+                  f"{ip}:8009 NOT connectable ({e}) — playback will fail")
+    except Exception as e:
+        err("CRITICAL", cat, "connectivity-overall", e)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Run everything
 # ─────────────────────────────────────────────────────────────────────────────
 for fn in [L1_system, L2_config, L3_discovery, L4_scheduler, L5_api,
-           L6_ui, L7_audio, L8_religion, L9_autoupdate, L10_tailscale, L11_history]:
+           L6_ui, L7_audio, L8_religion, L9_autoupdate, L10_tailscale, L11_history,
+           L12_connectivity]:
     try:
         fn()
     except Exception as e:

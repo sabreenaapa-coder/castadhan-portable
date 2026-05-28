@@ -1357,12 +1357,81 @@ def discover_casts():
     except Exception as e:
         log.error(f"Error during cast discovery: {e}", exc_info=True)
 
-def ensure_connected(cast):
-    """Ensure cast device is connected with timeout"""
+def _known_speaker_ip(name):
+    """Look up a speaker's IP from known_speakers.json by friendly name."""
     try:
-        cast.wait(timeout=20)
+        ks_path = os.path.join(ROOT, "known_speakers.json")
+        if os.path.exists(ks_path):
+            with open(ks_path) as f:
+                return json.load(f).get(name)
+    except Exception:
+        pass
+    return None
+
+def _cast_ip(cast):
+    """Best-effort extract a cast's current IP from its various attributes."""
+    for getter in (
+        lambda: getattr(getattr(cast, "socket_client", None), "host", None),
+        lambda: getattr(cast, "host", None),
+        lambda: getattr(getattr(cast, "cast_info", None), "host", None),
+    ):
+        try:
+            ip = getter()
+            if ip:
+                return ip
+        except Exception:
+            continue
+    return None
+
+def ensure_connected(cast):
+    """Ensure cast device is connected — self-healing.
+
+    v1.7.1 ROOT-CAUSE FIX (Thu 28 May 2026 — Eid al-Adha day 2 Fajr no-play):
+    The previous version just called cast.wait(timeout=20). When the cached
+    Chromecast object's socket had gone stale (which happens within hours of
+    the last successful connection — e.g. overnight), wait() would sit in the
+    "connecting" state for the full 20s and then play_media would fail with
+    "Chromecast <ip>:8009 is connecting...". This is exactly why playback
+    worked right after every restart (fresh sockets, when I tested) but
+    failed at the next morning's prayer ~17h later (stale sockets).
+
+    New behaviour: if the cached connection isn't live after a short wait,
+    RECREATE the Chromecast from its IP (fresh socket) and swap it into
+    _general_casts so subsequent plays use the live one. Returns a connected
+    cast object — CALLERS MUST USE THE RETURN VALUE (it may be a new object).
+    """
+    name = getattr(cast, "name", "unknown")
+
+    # 1. Try the existing object with a short wait
+    try:
+        cast.wait(timeout=8)
+        sc = getattr(cast, "socket_client", None)
+        if sc is not None and getattr(sc, "is_connected", False):
+            return cast
     except Exception as e:
-        log.warning(f"Connection timeout for {getattr(cast, 'name', 'unknown')}: {e}")
+        log.warning(f"Stale/slow connection for {name}: {e}")
+
+    # 2. Recreate from IP (the robust path)
+    ip = _cast_ip(cast) or _known_speaker_ip(name)
+    if not ip:
+        log.error(f"Cannot recreate {name}: no IP available — playback may fail")
+        return cast
+    try:
+        log.info(f"♻️  Recreating stale cast connection for {name} @ {ip}")
+        host_tuple = (ip, 8009, name, "Google Cast", name)
+        fresh = pychromecast.get_chromecast_from_host(host_tuple)
+        fresh.wait(timeout=12)
+        # Swap the fresh object into _general_casts so future plays reuse it
+        with _cast_lock:
+            for i, c in enumerate(_general_casts):
+                if getattr(c, "name", None) == name:
+                    _general_casts[i] = fresh
+                    break
+        log.info(f"✅ Fresh connection established for {name} @ {ip}")
+        return fresh
+    except Exception as e:
+        log.error(f"Failed to recreate connection for {name} @ {ip}: {e}")
+        return cast
 
 def local_media_url(relpath: str) -> str:
     """Get local media URL with better IP detection"""
@@ -1466,7 +1535,7 @@ def _set_scheduler_hold(minutes: int, reason: str):
     service restart preserves the hold (otherwise an emergency stop would be
     undone by any subsequent restart, defeating its purpose)."""
     global _scheduler_hold
-    until = (datetime.now(timezone.utc) + timedelta(minutes=minutes)).isoformat()
+    until = (datetime.now(utc) + timedelta(minutes=minutes)).isoformat()
     _scheduler_hold = {"until": until, "reason": reason, "set_at_local": now_local().isoformat()}
     try:
         with open(_SCHEDULER_HOLD_FILE, "w") as f:
@@ -1495,7 +1564,7 @@ def _load_scheduler_hold():
                 _scheduler_hold = json.load(f)
             if _scheduler_hold.get("until"):
                 until = datetime.fromisoformat(_scheduler_hold["until"].replace("Z", "+00:00"))
-                if until <= datetime.now(timezone.utc):
+                if until <= datetime.now(utc):
                     _clear_scheduler_hold()
                 else:
                     log.warning(f"📋 Restored scheduler hold from disk; in effect until {_scheduler_hold['until']}")
@@ -1511,7 +1580,7 @@ def _scheduler_held() -> bool:
         return False
     try:
         until = datetime.fromisoformat(u.replace("Z", "+00:00"))
-        if until <= datetime.now(timezone.utc):
+        if until <= datetime.now(utc):
             _clear_scheduler_hold()
             return False
         return True
@@ -1584,7 +1653,9 @@ def play_on_cast(cast, media_url: str, volume: float, audio_type: str = None):
         return
 
     try:
-        ensure_connected(cast)
+        # v1.7.1: ensure_connected may return a FRESH cast object if the cached
+        # one had a stale socket. Use the return value, not the original.
+        cast = ensure_connected(cast)
         cast.set_volume(volume)
         mc = cast.media_controller
         mc.play_media(media_url, content_type="audio/mpeg", stream_type="BUFFERED")
@@ -2882,7 +2953,7 @@ def _log_play(audio_type: str, prayer_name: Optional[str], status: str, speakers
     status is one of: PASS, FAIL, NO_SPEAKERS, DISCOVERY_RECOVERED."""
     try:
         entry = {
-            "ts_utc": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            "ts_utc": datetime.now(utc).isoformat(timespec="seconds"),
             "ts_local": now_local().isoformat(timespec="seconds"),
             "audio_type": audio_type,
             "prayer_name": prayer_name,
