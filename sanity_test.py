@@ -150,6 +150,23 @@ def L1_system():
         t("MEDIUM", cat, "disk-space", used_pct < 90, f"{used_pct}% used on /")
     except Exception as e: err("MEDIUM", cat, "disk-space", e)
 
+    # B-Belgium-23 (v1.7.3) — thread-count canary. The cast-object thread leak
+    # hit 89 threads on 28 May, starving APScheduler's worker pool so Asr +
+    # Maghrib jobs never executed. A healthy process sits ~6-15 threads. This
+    # is HIGH (not CRITICAL) because a high count doesn't instantly break a
+    # single play — it degrades over hours — but it's the direct canary for
+    # the leak. If it trips, the disconnect-on-replace logic has regressed.
+    try:
+        pid = run(["pgrep", "-f", "castadhan-portable/app.py"]).stdout.strip().split("\n")[0]
+        nthreads = 0
+        if pid:
+            for line in open(f"/proc/{pid}/status"):
+                if line.startswith("Threads:"):
+                    nthreads = int(line.split()[1]); break
+        t("HIGH", cat, "thread-count-sane", 0 < nthreads < 40,
+          f"{nthreads} threads (leak suspected if >40 — see B-Belgium-23)")
+    except Exception as e: err("HIGH", cat, "thread-count-sane", e)
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Layer 2 — Configuration integrity (huge in the incident report)
 # ─────────────────────────────────────────────────────────────────────────────

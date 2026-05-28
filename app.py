@@ -1339,10 +1339,27 @@ def discover_casts():
             log.warning(f"Could not save known_speakers.json: {e}")
 
         with _cast_lock:
+            # v1.7.3 CRITICAL: disconnect the OLD cast objects before replacing
+            # them. discover_casts() runs every 30 min + 3 min before each
+            # prayer (prewarm). Each call creates brand-new Chromecast objects
+            # via get_chromecast_from_host / get_chromecast_from_cast_info, each
+            # spawning a socket_client thread. Without disconnecting the old set,
+            # threads accumulate every cycle — the 28 May 89-thread leak that
+            # starved APScheduler and killed Asr + Maghrib (B-Belgium-23).
+            # Only disconnect old objects that are NOT carried over by identity.
+            old_casts = list(_general_casts)
+            new_ids = {id(c) for c in found_general}
             _general_casts = found_general
             for c in found_general:
                 if c.name not in _speaker_playback_status:
                     _speaker_playback_status[c.name] = False
+            stale_to_drop = [c for c in old_casts if id(c) not in new_ids]
+
+        # Disconnect stale objects OUTSIDE the lock (disconnect can block briefly)
+        for c in stale_to_drop:
+            _disconnect_cast_quietly(c)
+        if stale_to_drop:
+            log.info(f"Disconnected {len(stale_to_drop)} stale cast object(s) to prevent thread leak")
 
         with _state_lock:
             for c in found_general:
@@ -1418,6 +1435,12 @@ def ensure_connected(cast):
         return cast
     try:
         log.info(f"♻️  Recreating stale cast connection for {name} @ {ip}")
+        # v1.7.3 CRITICAL: disconnect the stale object FIRST. Without this, its
+        # socket_client thread keeps retrying forever. Recreating without
+        # disconnecting was a THREAD LEAK — on 28 May the process hit 89 threads,
+        # starving APScheduler's worker pool, so Asr + Maghrib jobs never ran
+        # (B-Belgium-23). disconnect() stops the old socket_client thread.
+        _disconnect_cast_quietly(cast)
         host_tuple = (ip, 8009, name, "Google Cast", name)
         fresh = pychromecast.get_chromecast_from_host(host_tuple)
         fresh.wait(timeout=12)
@@ -1432,6 +1455,24 @@ def ensure_connected(cast):
     except Exception as e:
         log.error(f"Failed to recreate connection for {name} @ {ip}: {e}")
         return cast
+
+def _disconnect_cast_quietly(cast):
+    """v1.7.3: stop a Chromecast object's socket_client thread so it doesn't
+    leak. pychromecast spawns a background thread per Chromecast object that
+    retries the connection forever; if we drop the object without calling
+    disconnect(), the thread lives on. Accumulating these starves the
+    APScheduler worker pool (the 28 May Asr/Maghrib no-play). Never raises."""
+    if cast is None:
+        return
+    try:
+        cast.disconnect(blocking=False)
+    except Exception:
+        try:
+            sc = getattr(cast, "socket_client", None)
+            if sc is not None:
+                sc.disconnect()
+        except Exception:
+            pass
 
 def local_media_url(relpath: str) -> str:
     """Get local media URL with better IP detection"""
