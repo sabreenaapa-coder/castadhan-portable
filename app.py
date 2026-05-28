@@ -2707,6 +2707,26 @@ def schedule_today():
                 )
                 log.info("Scheduled %s @ %s", p, dt)
 
+                # v1.7.1 belt-and-braces: schedule a fresh discovery 3 minutes
+                # before each adhan so the cast sockets are guaranteed live when
+                # the adhan fires. ensure_connected() already self-heals stale
+                # sockets at play time, but pre-warming means the heal has
+                # already happened by the time the adhan job runs — no 20s
+                # connection-timeout delay at the critical moment. Defends
+                # against the Eid-Fajr stale-socket no-play (28 May 2026).
+                prewarm_dt = dt - timedelta(minutes=3)
+                if prewarm_dt > now_local():
+                    try:
+                        sched.add_job(
+                            discover_casts,
+                            DateTrigger(run_date=prewarm_dt),
+                            id=f"prewarm_{p}",
+                            replace_existing=True,
+                        )
+                        log.info("Scheduled discovery pre-warm for %s @ %s (3 min before adhan)", p, prewarm_dt)
+                    except Exception as e:
+                        log.warning(f"Could not schedule pre-warm for {p}: {e}")
+
         # Schedule suhoor alarm during Ramadan
         if ramadan and "Fajr" in times:
             fajr_time_str = times["Fajr"]
