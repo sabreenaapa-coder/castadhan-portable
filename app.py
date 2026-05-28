@@ -1645,6 +1645,27 @@ def stop_all_audio():
          a forceful fallback. quit_app on its own would always work, but stop() is gentler
          (keeps the receiver app warm for the next play) so we try it first.
     """
+    # B-Belgium-25 (v1.7.4): cancel any pending chained-audio jobs (takbeeraat
+    # / twilight) BEFORE stopping playback. These are scheduled as delayed
+    # APScheduler jobs (~3.5 min after an adhan). If the user hits Stop while
+    # an adhan is playing, the pending follow-up would otherwise still fire
+    # minutes later — exactly what startled aunt at 22:38 on 28 May after a
+    # test adhan was stopped but its takbeeraat job survived.
+    try:
+        cancelled = 0
+        for job in list(sched.get_jobs()):
+            jid = getattr(job, "id", "") or ""
+            if jid.startswith("takbeeraat_after_") or jid.startswith("twilight_after_"):
+                try:
+                    sched.remove_job(jid)
+                    cancelled += 1
+                except Exception:
+                    pass
+        if cancelled:
+            log.info(f"🛑 Cancelled {cancelled} pending chained-audio job(s) (takbeeraat/twilight) on stop")
+    except Exception as e:
+        log.warning(f"Could not cancel pending chained-audio jobs: {e}")
+
     try:
         stopped_count = 0
         all_casts = _all_casts()
@@ -2479,6 +2500,15 @@ def should_play_takbeerat_after_adhan(prayer_name: Optional[str], when: Optional
 
     if prayer_name is None:
         prayer_name = ""
+
+    # B-Belgium-24 (v1.7.4, Thu 28 May 2026): a TEST adhan (from the dashboard's
+    # "Test Adhan" button or /api/test/play) must NEVER trigger the Eid
+    # takbeeraat chain. On 28 May a 5%-volume test adhan during the Eid window
+    # scheduled a takbeeraat job that then fired ~3.5 min later at full volume
+    # in aunt's house at 22:38 — startling. Test plays are for checking the
+    # audio path, not for performing the actual Eid ritual chain.
+    if prayer_name.upper() == "TEST":
+        return False
 
     if when is None:
         when = now_local()
