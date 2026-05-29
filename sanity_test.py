@@ -292,6 +292,13 @@ def L4_scheduler():
         t("HIGH", cat, "adhans-or-refresh", len(adhans) > 0 or "refresh_daily" in job_ids,
           f"{len(adhans)} adhans + refresh_daily={'yes' if 'refresh_daily' in job_ids else 'no'}")
 
+        # v1.8.0 — the Telegram daily-digest job must always be scheduled (it's a
+        # no-op when Telegram is unconfigured, but the JOB should exist). Its
+        # absence means the "did the adhans fire today?" digest will never fire —
+        # a silent-notification regression. MEDIUM: not core playback.
+        t("MEDIUM", cat, "daily-summary-scheduled", "daily_summary" in job_ids,
+          "daily_summary present" if "daily_summary" in job_ids else "MISSING — digest won't fire")
+
         # Lesson 26 — all job timestamps in same tz as app (no +01 vs +02 drift)
         tz_offsets = set()
         for j in jobs:
@@ -330,6 +337,13 @@ def L5_api():
         code, data = http_json("/api/version")
         ok = code == 200 and "version" in data
         t("HIGH", cat, "version-endpoint", ok, f"v{data.get('version')}")
+        # v1.8.3 — /api/version also exposes a stable per-Pi device id used to tag
+        # Telegram alerts + the dashboard footer across the fleet. On a real Pi it
+        # should be RPI-<serial> (or SYS-<machine-id>), not the dev fallback.
+        # LOW: absence doesn't break playback, only the fleet-identification tag.
+        dev = data.get("device_id", "")
+        t("LOW", cat, "device-id-present", bool(dev) and dev != "DEV-GENERIC-PORTABLE",
+          f"device_id={dev!r}")
     except Exception as e: err("HIGH", cat, "version-endpoint", e)
 
     # O25 — /api/play_history exists (no AttributeError from v1.6.1 hotfix regression)
@@ -503,6 +517,34 @@ def L9_autoupdate():
         t("MEDIUM", cat, "manual-update-watcher-active", r.stdout.strip() == "active",
           r.stdout.strip() + " (castadhan-update.path)")
     except Exception as e: err("MEDIUM", cat, "manual-update-watcher", e)
+
+    # B-Belgium-25: the updater MUST preserve runtime state that lives in the
+    # install dir but isn't shipped in releases. Before v1.8.2 every update wiped
+    # play_history.jsonl (the prayer-fired audit trail), ui_state.json (speaker
+    # enable flags + volumes), and known_speakers.json. Static check: the deployed
+    # update script still carries the preserve logic for all three. HIGH (not
+    # CRITICAL): a regression silently loses data + resets settings on the NEXT
+    # update, but the running adhan still works.
+    try:
+        upd = read(INSTALL_DIR + "/deploy/castadhan-update.sh")
+        preserved = all(name in upd for name in
+                        ("play_history.jsonl", "ui_state.json", "known_speakers.json"))
+        t("HIGH", cat, "update-preserves-runtime-state", preserved,
+          "preserve loop covers play_history/ui_state/known_speakers" if preserved
+          else "MISSING preserve logic — updates will wipe state (B-Belgium-25)")
+    except Exception as e: err("HIGH", cat, "update-preserves-runtime-state", e)
+
+    # B-Belgium-26: the updater must NOT delete the .previous backup immediately
+    # after a successful update — that destroyed the advertised 24h rollback
+    # window (and the backup we'd restore wiped state from). The only legitimate
+    # `rm -rf "$PREV_DIR"` is the pre-backup one; a second occurrence means the
+    # premature post-success rm has regressed.
+    try:
+        upd = read(INSTALL_DIR + "/deploy/castadhan-update.sh")
+        n = len(re.findall(r'rm\s+-rf\s+"\$PREV_DIR"', upd))
+        t("MEDIUM", cat, "update-keeps-rollback-window", n == 1,
+          f'{n} `rm -rf "$PREV_DIR"` found (expect exactly 1 — pre-backup only)')
+    except Exception as e: err("MEDIUM", cat, "update-keeps-rollback-window", e)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Layer 10 — Tailscale (Lesson 20)
