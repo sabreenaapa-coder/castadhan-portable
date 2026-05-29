@@ -1,0 +1,24 @@
+# CastAdhan Portable — Telegram notification config (v1.8.0)
+# ===========================================================
+# Copy this to /etc/default/castadhan-telegram on the Pi, owner root, group
+# castadhan, mode 0640 — so the castadhan service user can READ it but not
+# modify it. e.g.:
+#   sudo install -m 640 -o root -g castadhan this-file /etc/default/castadhan-telegram
+# Fill in both values. With these set, the Pi sends:
+#   • an immediate alert if any adhan FAILS to play
+#   • a daily digest at 23:15 local: "all prayers fired today" or a warning
+#
+# Both are optional — with no token configured, all sends are silent no-ops
+# and playback is completely unaffected.
+#
+# DO NOT commit the filled-in file. .gitignore excludes the live filename;
+# only this .template (with empty values) belongs in version control.
+
+# Bot token from @BotFather (looks like 123456789:ABCdef-XYZ...).
+TELEGRAM_BOT_TOKEN=""
+
+# Your numeric chat id (the chat between you and the bot). To find it:
+#   1. set TELEGRAM_BOT_TOKEN above
+#   2. send any message to your bot from your phone
+#   3. POST /api/notify/detect_chat  → returns your chat_id
+TELEGRAM_CHAT_ID=""

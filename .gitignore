@@ -52,3 +52,9 @@ deploy/castadhan-tailscale.defaults
 deploy/castadhan-tailscale.env
 castadhan-tailscale.defaults
 castadhan-tailscale.env
+
+# Telegram notification config contains a bot token (secret). Only the
+# .template (empty values) is committed.
+deploy/castadhan-telegram.defaults
+castadhan-telegram.defaults
+castadhan-telegram.env

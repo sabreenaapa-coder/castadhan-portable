@@ -881,6 +881,49 @@ def api_version():
     """Return the running version of CastAdhan."""
     return jsonify({"ok": True, "version": _read_version_file()})
 
+@app.route("/api/notify/test", methods=["POST"])
+def api_notify_test():
+    """v1.8.0: send a test Telegram message to verify the integration."""
+    try:
+        token, chat_id = _telegram_config()
+        if not token or not chat_id:
+            return jsonify({"ok": False, "error": "No Telegram token/chat_id configured on this Pi"}), 400
+        ok = _telegram_send(f"🔔 CastAdhan ({CITY}) test message — Telegram notifications are working.")
+        return jsonify({"ok": ok, "message": "sent" if ok else "send failed"})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+@app.route("/api/notify/detect_chat", methods=["POST"])
+def api_notify_detect_chat():
+    """v1.8.0: call Telegram getUpdates to find the chat_id of whoever last
+    messaged the bot. Used once during setup so the operator doesn't have to
+    look up their numeric chat id. Requires the token to already be set; the
+    operator messages the bot first, then calls this."""
+    try:
+        token, _ = _telegram_config()
+        if not token:
+            return jsonify({"ok": False, "error": "No TELEGRAM_BOT_TOKEN configured yet"}), 400
+        r = requests.get(f"https://api.telegram.org/bot{token}/getUpdates", timeout=REQUEST_TIMEOUT)
+        data = r.json()
+        chats = []
+        for upd in data.get("result", []):
+            msg = upd.get("message") or upd.get("edited_message") or {}
+            chat = msg.get("chat") or {}
+            if chat.get("id"):
+                chats.append({
+                    "chat_id": chat.get("id"),
+                    "name": chat.get("first_name") or chat.get("title") or "",
+                    "username": chat.get("username"),
+                    "last_text": (msg.get("text") or "")[:40],
+                })
+        # dedupe by chat_id, keep most recent
+        seen = {}
+        for c in chats:
+            seen[c["chat_id"]] = c
+        return jsonify({"ok": True, "chats": list(seen.values())})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
 @app.route("/api/update/status")
 def api_update_status():
     """Report auto-update state: enabled, channel, last attempt, last log lines."""
@@ -2615,6 +2658,81 @@ def schedule_twilight_scan():
     except Exception as e:
         log.error(f"Error scheduling twilight scan: {e}")
 
+def schedule_daily_summary():
+    """v1.8.0: schedule the daily Telegram digest at 23:15 local (after the last
+    prayer, year-round for this latitude). Always scheduled; the job itself is a
+    no-op when Telegram is unconfigured."""
+    try:
+        existing = [job.id for job in sched.get_jobs()]
+        if 'daily_summary' not in existing:
+            sched.add_job(run_daily_summary, CronTrigger(hour=23, minute=15), id="daily_summary")
+            log.info("Scheduled daily Telegram summary at 23:15")
+    except Exception as e:
+        log.error(f"Error scheduling daily summary: {e}")
+
+def run_daily_summary():
+    """v1.8.0: send a once-daily Telegram digest of which adhans fired today.
+    Built from the persistent play_history.jsonl (source of truth across
+    restarts). No-op if Telegram isn't configured."""
+    if shutdown_event.is_set():
+        return
+    token, chat_id = _telegram_config()
+    if not token or not chat_id:
+        return  # not configured — nothing to send
+    try:
+        today_str = date.today().isoformat()
+        prayers = ["Fajr", "Dhuhr", "Asr", "Maghrib", "Isha"]
+        # Latest adhan entry per prayer for today; later entries overwrite earlier.
+        results: Dict[str, Optional[dict]] = {p: None for p in prayers}
+        try:
+            with open(_PLAY_HISTORY_FILE) as f:
+                history = [json.loads(ln) for ln in f if ln.strip()]
+        except FileNotFoundError:
+            history = list(_play_history)
+        except Exception as e:
+            log.error(f"Daily summary: history read failed, using in-memory ring: {e}")
+            history = list(_play_history)
+        for entry in history:
+            try:
+                if entry.get("audio_type") != "adhan":
+                    continue
+                if not (entry.get("ts_local") or "").startswith(today_str):
+                    continue
+                p = entry.get("prayer_name")
+                if p in results:
+                    results[p] = entry
+            except Exception:
+                continue
+
+        try:
+            isha_expected = should_play_isha(date.today())
+        except Exception:
+            isha_expected = True
+
+        lines = []
+        any_problem = False
+        for p in prayers:
+            e = results[p]
+            status = e.get("status") if e else None
+            if status in ("PASS", "DISCOVERY_RECOVERED"):
+                lines.append(f"✅ {p} {e['ts_local'][11:16]}")
+            elif status in ("FAIL", "NO_SPEAKERS"):
+                any_problem = True
+                lines.append(f"❌ {p} FAILED ({status})")
+            elif p == "Isha" and not isha_expected:
+                lines.append("➖ Isha (combined with Maghrib)")
+            else:
+                any_problem = True
+                lines.append(f"⚠️ {p} — no record")
+
+        header = (f"⚠️ CastAdhan ({CITY}) — a prayer may not have played today:"
+                  if any_problem else
+                  f"✅ CastAdhan ({CITY}) — all prayers fired today:")
+        _telegram_send(header + "\n" + "\n".join(lines))
+        log.info("Daily Telegram summary sent")
+    except Exception as e:
+        log.error(f"Daily summary error: {e}")
+
 def run_health_check():
     """Run health self-test and log results"""
     if shutdown_event.is_set():
@@ -2675,7 +2793,7 @@ def schedule_today():
         jobs_to_remove = []
         for job in sched.get_jobs():
             # Keep infrastructure jobs
-            if job.id in ['cast_rediscovery', 'dst_protection_refresh', 'health_check', 'twilight_scan', 'refresh_daily']:
+            if job.id in ['cast_rediscovery', 'dst_protection_refresh', 'health_check', 'twilight_scan', 'refresh_daily', 'daily_summary']:
                 continue
             jobs_to_remove.append(job.id)
         
@@ -2933,6 +3051,7 @@ def schedule_today():
         schedule_dst_protection()
         schedule_health_check()
         schedule_twilight_scan()
+        schedule_daily_summary()  # v1.8.0: Telegram daily digest
 
     except Exception as e:
         log.error(f"Error scheduling today's activities: {e}")
@@ -3034,6 +3153,60 @@ def _play_to_targets(media_relpath: str, target: Optional[str] = None, audio_typ
 #      cases into successful plays.
 #   3. /api/play_history endpoint (defined further down with the other routes).
 # ─────────────────────────────────────────────────────────────────────────────
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Telegram notifications (v1.8.0)
+#
+# Optional. Reads a bot token + chat id from /etc/default/castadhan-telegram
+# (root-owned, 0600, never committed — see deploy/castadhan-telegram.defaults.template).
+# With both set, the Pi sends an immediate alert the moment an adhan FAILs
+# (hooked in _log_play below) and a daily digest at 23:15 local. With nothing
+# configured, every send is a silent no-op so playback is completely unaffected.
+# ─────────────────────────────────────────────────────────────────────────────
+_TELEGRAM_CONFIG_FILE = "/etc/default/castadhan-telegram"
+
+def _telegram_config() -> Tuple[Optional[str], Optional[str]]:
+    """Return (bot_token, chat_id). Env vars win (for dev), then the root-only
+    config file. Returns (None, None) if either is unset. Never raises."""
+    token = os.environ.get("TELEGRAM_BOT_TOKEN")
+    chat_id = os.environ.get("TELEGRAM_CHAT_ID")
+    try:
+        if (not token or not chat_id) and os.path.exists(_TELEGRAM_CONFIG_FILE):
+            with open(_TELEGRAM_CONFIG_FILE) as f:
+                for line in f:
+                    line = line.strip()
+                    if not line or line.startswith("#") or "=" not in line:
+                        continue
+                    k, _, v = line.partition("=")
+                    k, v = k.strip(), v.strip().strip('"').strip("'")
+                    if k == "TELEGRAM_BOT_TOKEN" and not token:
+                        token = v
+                    elif k == "TELEGRAM_CHAT_ID" and not chat_id:
+                        chat_id = v
+    except Exception as e:
+        log.error(f"Telegram config read failed: {e}")
+    return (token or None, chat_id or None)
+
+def _telegram_send(text: str) -> bool:
+    """Send a Telegram message. Returns False if unconfigured or on any error.
+    Never raises — notifications must never break playback."""
+    token, chat_id = _telegram_config()
+    if not token or not chat_id:
+        return False
+    try:
+        r = requests.post(
+            f"https://api.telegram.org/bot{token}/sendMessage",
+            json={"chat_id": chat_id, "text": text, "disable_web_page_preview": True},
+            timeout=REQUEST_TIMEOUT,
+        )
+        if r.status_code != 200:
+            log.error(f"Telegram send failed: HTTP {r.status_code} {r.text[:200]}")
+            return False
+        return True
+    except Exception as e:
+        log.error(f"Telegram send error: {e}")
+        return False
+
 import collections
 _play_history = collections.deque(maxlen=50)
 _play_history_lock = threading.Lock()
@@ -3059,6 +3232,19 @@ def _log_play(audio_type: str, prayer_name: Optional[str], status: str, speakers
                     f.write(json.dumps(entry) + "\n")
             except Exception as e:
                 log.error(f"play_history write failed: {e}")
+        # v1.8.0: immediate Telegram alert on a genuine playback failure.
+        # Outside the lock so the network send can't block other plays.
+        # SKIPPED_HOLD (Emergency Stop) and DISCOVERY_RECOVERED are not failures.
+        if status in ("FAIL", "NO_SPEAKERS"):
+            try:
+                label = prayer_name or audio_type or "audio"
+                msg = (f"⚠️ CastAdhan ({CITY}): {label} did NOT play "
+                       f"({status}) at {entry['ts_local'][11:16]}.")
+                if entry.get("error"):
+                    msg += f"\n{entry['error']}"
+                _telegram_send(msg)
+            except Exception as e:
+                log.error(f"Telegram failure-alert error: {e}")
     except Exception as e:
         # Logging must never break playback. Swallow.
         log.error(f"_log_play internal error: {e}")
