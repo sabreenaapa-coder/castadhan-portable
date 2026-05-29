@@ -55,13 +55,15 @@ _DEFAULT_TYPES = {
     # SECONDARY + ATTENUATE — the key case: the only signal Isha entered when
     # prayers are combined, so it must be quiet-but-present, never silenced.
     "twilight":        {"category": "SECONDARY", "quiet": "ATTENUATE"},
-    # PERIPHERAL + SUPPRESS — the neighbour-risk audio (dhikr, takbeeraat, duas).
+    # PERIPHERAL — the neighbour-risk audio. Eid takbeeraat is SUPPRESS (the core
+    # complaint, esp. at Fajr). Owner preference (overrides the spec): dhikr + the
+    # duas stay quiet-but-present at night = ATTENUATE, not silenced.
     "takbeeraat":      {"category": "PERIPHERAL", "quiet": "SUPPRESS"},
-    "morning_dhikr":   {"category": "PERIPHERAL", "quiet": "SUPPRESS"},
-    "evening_dhikr":   {"category": "PERIPHERAL", "quiet": "SUPPRESS"},
-    "surah_kahf":      {"category": "PERIPHERAL", "quiet": "SUPPRESS"},
-    "friday_prayer":   {"category": "PERIPHERAL", "quiet": "SUPPRESS"},
-    "dua_of_soul":     {"category": "PERIPHERAL", "quiet": "SUPPRESS"},
+    "morning_dhikr":   {"category": "PERIPHERAL", "quiet": "ATTENUATE"},
+    "evening_dhikr":   {"category": "PERIPHERAL", "quiet": "ATTENUATE"},
+    "surah_kahf":      {"category": "PERIPHERAL", "quiet": "SUPPRESS"},   # long recitation
+    "friday_prayer":   {"category": "PERIPHERAL", "quiet": "ATTENUATE"},  # Friday dua, quiet-but-present
+    "dua_of_soul":     {"category": "PERIPHERAL", "quiet": "ATTENUATE"},
 }
 
 # Fail-safe for any type not in the map AND not caught by the duration rule:

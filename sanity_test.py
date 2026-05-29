@@ -664,6 +664,12 @@ def L13_volume_policy():
         t("HIGH", cat, "twilight-survives-night", v is not None and 0 < v < 100,
           f"vol={v} (expect a quiet-but-present number, not None)")
 
+        # Owner preference — dhikr / duas are quiet-but-present at night (ATTENUATE),
+        # NOT suppressed. Guards against regressing this back to SUPPRESS (None).
+        vd = vp.resolve_play_volume("morning_dhikr", 100, None, QUIET)
+        t("HIGH", cat, "dhikr-quiet-but-present", vd is not None and 0 < vd < 100,
+          f"vol={vd} (expect quiet-but-present, not None)")
+
         # Spec check 3 — legacy config (no volume_policy keys) is safe: CORE rides master,
         # never floored, master_volume untouched.
         v = vp.resolve_play_volume("adhan", 70, None, QUIET)   # None config == legacy/missing
