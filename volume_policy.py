@@ -46,7 +46,11 @@ _DEFAULT_TYPES = {
     # CORE + ALLOW — deliberate alarms that fire INSIDE quiet hours by design.
     # (Not in the abstract spec list, but the spec's own rule says Core is never
     # silenced; silencing these would defeat the alarm's entire purpose.)
-    "suhoor_alarm":    {"category": "CORE",      "quiet": "ALLOW"},   # Ramadan ~Fajr-30m
+    # suhoor: enabled by default, ALLOW so quiet hours can't silence the wake
+    # alarm, but at a fixed 50% (per-type `ratio` override) — loud enough to wake
+    # the sleeper, not the block. wakeup: CORE+ALLOW if played, but DISABLED by
+    # default at the scheduler level (owner opts in via the console).
+    "suhoor_alarm":    {"category": "CORE",      "quiet": "ALLOW", "ratio": 0.5},  # Ramadan ~Fajr-30m
     "wakeup":          {"category": "CORE",      "quiet": "ALLOW"},   # alarm clock (e.g. 06:30)
     # SECONDARY + ATTENUATE — the key case: the only signal Isha entered when
     # prayers are combined, so it must be quiet-but-present, never silenced.
@@ -155,7 +159,12 @@ def resolve_play_volume(audio_type, speaker_base_volume, profile_config=None,
         category = spec.get("category", "CORE")
         behaviour = spec.get("quiet", "ALLOW")
         ratios = p["category_ratios"]
-        category_volume = base * ratios.get(category, 1.0)
+        # A type may pin its own volume ratio (e.g. suhoor at 0.5) that overrides
+        # its category ratio; otherwise it rides the category ratio.
+        ratio = spec.get("ratio")
+        if ratio is None:
+            ratio = ratios.get(category, 1.0)
+        category_volume = base * ratio
 
         if in_quiet_hours(now_local, p["quiet_hours"]):
             if behaviour == "SUPPRESS":

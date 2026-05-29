@@ -681,11 +681,13 @@ def L13_volume_policy():
         t("HIGH", cat, "allow-rides-master-not-fixed-100", v == 55,
           f"adhan@master55 -> {v} (expect 55, proving ALLOW uses master)")
 
-        # Gotcha — the deliberate night alarms must still SOUND during quiet hours.
+        # Gotcha — the deliberate night alarms must still SOUND during quiet hours
+        # (never None). suhoor is pinned to 50% of master; wakeup (if enabled by the
+        # owner) rides master. Both must be audible, not silenced.
         vs = vp.resolve_play_volume("suhoor_alarm", 100, None, _dt(2026, 1, 1, 4, 30))
         vk = vp.resolve_play_volume("wakeup", 100, None, _dt(2026, 1, 1, 6, 30))
-        t("HIGH", cat, "alarms-sound-in-quiet-hours", vs == 100 and vk == 100,
-          f"suhoor={vs} wakeup={vk}")
+        t("HIGH", cat, "alarms-sound-in-quiet-hours", vs == 50 and vk == 100,
+          f"suhoor={vs} (expect 50) wakeup={vk} (expect 100)")
     except Exception as e:
         err("HIGH", cat, "volume-policy-overall", e)
 

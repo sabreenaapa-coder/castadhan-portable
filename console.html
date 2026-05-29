@@ -597,8 +597,9 @@
                Previously the only way to disable was emptying the time field — ambiguous.
                Also added help text clarifying the audio file used. -->
           <div class="setting-item checkbox">
-            <input type="checkbox" id="config-wakeup-enabled" checked>
-            <label for="config-wakeup-enabled"><strong>Enable Morning Wakeup</strong></label>
+            <!-- v1.8.8: OFF by default on every portable CastAdhan; owner opts in here. -->
+            <input type="checkbox" id="config-wakeup-enabled">
+            <label for="config-wakeup-enabled"><strong>Enable Morning Wakeup</strong> <span style="color:#888;font-weight:normal">(off by default)</span></label>
           </div>
           <div class="setting-item">
             <label>Wakeup Time</label>
@@ -720,9 +721,47 @@
             <input type="text" id="config-exclude-names" value="display, hub, nest hub">
           </div>
           <div class="setting-item">
-            <label>General Volume (%)</label>
+            <label>Master Speaker Volume (%)</label>
             <input type="number" id="config-general-volume" value="70" min="0" max="100">
           </div>
+        </div>
+
+        <!-- Considerate Mode (v1.8.8) — aunt-facing, plain language. Two levels:
+             the toggle, then an Advanced disclosure. No jargon shown to the user. -->
+        <div class="control-group">
+          <h4>🤫 Considerate Mode</h4>
+          <div class="setting-item checkbox">
+            <input type="checkbox" id="config-considerate-mode" checked>
+            <label for="config-considerate-mode"><strong>Considerate Mode</strong> (recommended for flats)</label>
+          </div>
+          <p style="font-size:.85em;color:#888;margin:2px 0 8px 0;">
+            Keeps the call to prayer at full volume, quietens extra audio (dhikr,
+            takbeeraat, duas), and silences it overnight so it won't disturb neighbours.
+          </p>
+          <details>
+            <summary style="cursor:pointer;color:var(--gold);font-size:.9em;">Advanced</summary>
+            <div class="setting-item" style="margin-top:8px;">
+              <label>Extra audio volume: <span id="extra-audio-volume-label">30</span>%</label>
+              <input type="range" id="config-extra-audio-volume" min="0" max="100" value="30"
+                     style="width:100%;"
+                     oninput="document.getElementById('extra-audio-volume-label').textContent=this.value">
+              <small style="display:block;color:#888;margin-top:4px;font-size:.8em;">
+                How loud dhikr / takbeeraat / duas play, relative to the master volume.
+              </small>
+            </div>
+            <div class="setting-item">
+              <label>Quiet overnight</label>
+              <div style="display:flex;align-items:center;gap:8px;">
+                <input type="time" id="config-quiet-start" value="22:00" style="flex:0 0 auto;">
+                <span style="color:#888;">→</span>
+                <input type="time" id="config-quiet-end" value="07:00" style="flex:0 0 auto;">
+              </div>
+              <small style="display:block;color:#888;margin-top:4px;font-size:.8em;">
+                Extra audio is silenced between these times. The call to prayer and the
+                suhoor alarm always play.
+              </small>
+            </div>
+          </details>
         </div>
 
         <!-- Updates -->
@@ -2216,6 +2255,22 @@ async function loadConfig(options) {
       $('config-method').value = cfg.app.calculation_method;
     }
 
+    // Considerate Mode (v1.8.8) — populate from cfg.volume_policy.
+    if ($('config-considerate-mode')) {
+      const vp = cfg.volume_policy || {};
+      $('config-considerate-mode').checked = (vp.enabled !== false);  // default ON
+      const ratio = (vp.category_ratios && vp.category_ratios.PERIPHERAL != null)
+                    ? vp.category_ratios.PERIPHERAL : 0.30;
+      const perc = Math.round(ratio * 100);
+      if ($('config-extra-audio-volume')) {
+        $('config-extra-audio-volume').value = perc;
+        if ($('extra-audio-volume-label')) $('extra-audio-volume-label').textContent = perc;
+      }
+      const qh = vp.quiet_hours || {};
+      if ($('config-quiet-start')) $('config-quiet-start').value = qh.start || '22:00';
+      if ($('config-quiet-end'))   $('config-quiet-end').value   = qh.end   || '07:00';
+    }
+
     /* C-2 / U-2 (v1.6.3): load madhab into the new dropdown. Default to
        shafii to match the schema default + Aladhan's own default. */
     if ($('config-madhab')) {
@@ -2341,6 +2396,19 @@ async function saveConfig() {
         general_volume: parseInt($('config-general-volume').value) / 100,
         suhoor_exclude_names: getExclusions(),
         audio_routing: currentRouting
+      },
+      // Considerate Mode (v1.8.8). ON = quieten extra audio + silence overnight;
+      // OFF = everything rides master volume (the "opt up" / house setting).
+      volume_policy: {
+        enabled: ($('config-considerate-mode') ? $('config-considerate-mode').checked : true),
+        category_ratios: {
+          PERIPHERAL: (parseInt(($('config-extra-audio-volume') || {}).value) || 30) / 100
+        },
+        quiet_hours: {
+          strategy: 'CLOCK_ONLY',
+          start: (($('config-quiet-start') || {}).value || '22:00'),
+          end:   (($('config-quiet-end')   || {}).value || '07:00')
+        }
       }
     };
     

@@ -61,7 +61,7 @@ rules:
   skip_isha_during_persistent_twilight: true
   suhoor_lead_minutes: 30
   twilight_scan_frequency_days: 14
-  wakeup_enabled: true
+  wakeup_enabled: false
   wakeup_time: 06:30
   wakeup_weekdays_only: true
   # UI language: en / nl / fr / ar. The wizard exposes a language picker.

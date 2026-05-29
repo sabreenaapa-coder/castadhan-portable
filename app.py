@@ -201,6 +201,10 @@ DEFAULT_CONFIG = {
     },
     'rules': {
         'morning_dhikr_time': '07:00',
+        # v1.8.8: wakey-wakey alarm is OFF by default on every portable CastAdhan.
+        # It's a personal alarm clock, not a prayer feature — the owner opts in via
+        # the console. (Time/weekday settings are kept so enabling is one click.)
+        'wakeup_enabled': False,
         'wakeup_time': '06:30',
         'wakeup_weekdays_only': True,
         'evening_after_maghrib_minutes': 30,
@@ -3074,10 +3078,11 @@ def schedule_today():
 
         # Wakeup - plays on all enabled speakers
         # S4 FIX (2026-05-23): respect explicit wakeup_enabled flag.
-        # Default True so existing configs (which never had this field) keep current behaviour.
-        # Setting it False disables wakeup regardless of wakeup_time being set —
-        # cleaner than the old "empty the time field to disable" workaround.
-        if RULES.get("wakeup_enabled", True) and RULES.get("wakeup_time"):
+        # v1.8.8: default flipped True → False. The wakey-wakey alarm is OFF by
+        # default on every portable CastAdhan (it's a personal alarm, not a prayer
+        # feature); the owner opts in via the console. The False fallback also
+        # disables it on existing installs whose config predates the flag.
+        if RULES.get("wakeup_enabled", False) and RULES.get("wakeup_time"):
             should_schedule_wakeup = True
             if RULES.get("wakeup_weekdays_only", True):
                 should_schedule_wakeup = now_local().weekday() < 5
