@@ -61,7 +61,7 @@ _DEFAULT_TYPES = {
     "takbeeraat":      {"category": "PERIPHERAL", "quiet": "SUPPRESS"},
     "morning_dhikr":   {"category": "PERIPHERAL", "quiet": "ATTENUATE"},
     "evening_dhikr":   {"category": "PERIPHERAL", "quiet": "ATTENUATE"},
-    "surah_kahf":      {"category": "PERIPHERAL", "quiet": "SUPPRESS"},   # long recitation
+    "surah_kahf":      {"category": "PERIPHERAL", "quiet": "ATTENUATE"},  # Friday recitation, quiet-but-present
     "friday_prayer":   {"category": "PERIPHERAL", "quiet": "ATTENUATE"},  # Friday dua, quiet-but-present
     "dua_of_soul":     {"category": "PERIPHERAL", "quiet": "ATTENUATE"},
 }
