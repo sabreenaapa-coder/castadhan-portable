@@ -399,7 +399,7 @@
 
   <!-- (moved to top-right corner of viewport — see #lang-picker-wrapper below header) -->
 
-  <div class="footer"><p>CastAdhan <span id="footer-version">…</span> • <span id="current-year"></span></p></div>
+  <div class="footer"><p>CastAdhan <span id="footer-version">…</span> • <span id="current-year"></span><span id="footer-device"></span></p></div>
   <div class="toast" id="toast"></div>
 </div>
 
@@ -1292,6 +1292,11 @@ function updateHands(){
       const v = (d && (d.version || d.ok && d.version)) || '?';
       const el = document.getElementById('footer-version');
       if (el) el.textContent = 'v' + v;
+      /* Fleet device id (B-Belgium fleet mgmt): show so it can be read off the
+         dashboard for the fleet sheet without SSHing in. */
+      const dev = d && d.device_id;
+      const de = document.getElementById('footer-device');
+      if (de && dev) de.textContent = ' • ' + dev;
     }).catch(() => {
       const el = document.getElementById('footer-version');
       if (el) el.textContent = '(version unknown)';

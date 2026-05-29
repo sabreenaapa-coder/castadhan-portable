@@ -876,10 +876,53 @@ def _read_version_file():
     except Exception:
         return "unknown"
 
+_CACHED_DEVICE_ID = None
+
+def get_device_id() -> str:
+    """Stable per-device identifier so a fleet of gifted Pis is distinguishable in
+    alerts and on the dashboard. Read once and cached. Tries, in order:
+      1. the Raspberry Pi hardware serial from /proc/cpuinfo  -> "RPI-<serial>"
+      2. the systemd machine-id                               -> "SYS-<id16>"
+      3. a generic fallback (non-Pi / dev hosts)
+    All sources are read-only and OS/hardware-managed — nothing to persist across
+    updates (which is why the updater does NOT touch machine-id)."""
+    global _CACHED_DEVICE_ID
+    if _CACHED_DEVICE_ID is not None:
+        return _CACHED_DEVICE_ID
+    try:
+        if os.path.exists("/proc/cpuinfo"):
+            with open("/proc/cpuinfo") as f:
+                for line in f:
+                    if line.startswith("Serial"):
+                        serial = line.split(":")[-1].strip()
+                        if serial and set(serial) != {"0"}:
+                            _CACHED_DEVICE_ID = "RPI-" + serial.upper()
+                            return _CACHED_DEVICE_ID
+    except Exception as e:
+        log.error(f"Device-id: /proc/cpuinfo read failed: {e}")
+    for p in ("/etc/machine-id", "/var/lib/dbus/machine-id"):
+        try:
+            if os.path.exists(p):
+                with open(p) as f:
+                    mid = f.read().strip()
+                if mid:
+                    _CACHED_DEVICE_ID = "SYS-" + mid[:16].upper()
+                    return _CACHED_DEVICE_ID
+        except Exception:
+            continue
+    _CACHED_DEVICE_ID = "DEV-GENERIC-PORTABLE"
+    return _CACHED_DEVICE_ID
+
+def _site_label() -> str:
+    """Human location + stable device id, e.g. 'Ghent · RPI-10000000A1B2C3D4'.
+    Used to tag every outbound Telegram message so the maintainer knows which Pi
+    in the fleet it came from."""
+    return f"{CITY} · {get_device_id()}" if CITY else get_device_id()
+
 @app.route("/api/version")
 def api_version():
-    """Return the running version of CastAdhan."""
-    return jsonify({"ok": True, "version": _read_version_file()})
+    """Return the running version + device id of CastAdhan."""
+    return jsonify({"ok": True, "version": _read_version_file(), "device_id": get_device_id()})
 
 @app.route("/api/notify/test", methods=["POST"])
 def api_notify_test():
@@ -888,7 +931,7 @@ def api_notify_test():
         token, chat_id = _telegram_config()
         if not token or not chat_id:
             return jsonify({"ok": False, "error": "No Telegram token/chat_id configured on this Pi"}), 400
-        ok = _telegram_send(f"🔔 CastAdhan ({CITY}) test message — Telegram notifications are working.")
+        ok = _telegram_send(f"🔔 CastAdhan ({_site_label()}) test message — Telegram notifications are working.")
         return jsonify({"ok": ok, "message": "sent" if ok else "send failed"})
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 500
@@ -2752,9 +2795,9 @@ def run_daily_summary():
                 any_problem = True
                 lines.append(f"⚠️ {p} — no record")
 
-        header = (f"⚠️ CastAdhan ({CITY}) — a prayer may not have played today:"
+        header = (f"⚠️ CastAdhan ({_site_label()}) — a prayer may not have played today:"
                   if any_problem else
-                  f"✅ CastAdhan ({CITY}) — all prayers fired today:")
+                  f"✅ CastAdhan ({_site_label()}) — all prayers fired today:")
         _telegram_send(header + "\n" + "\n".join(lines))
         log.info("Daily Telegram summary sent")
     except Exception as e:
@@ -3265,7 +3308,7 @@ def _log_play(audio_type: str, prayer_name: Optional[str], status: str, speakers
         if status in ("FAIL", "NO_SPEAKERS"):
             try:
                 label = prayer_name or audio_type or "audio"
-                msg = (f"⚠️ CastAdhan ({CITY}): {label} did NOT play "
+                msg = (f"⚠️ CastAdhan ({_site_label()}): {label} did NOT play "
                        f"({status}) at {entry['ts_local'][11:16]}.")
                 if entry.get("error"):
                     msg += f"\n{entry['error']}"
