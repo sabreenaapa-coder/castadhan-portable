@@ -639,11 +639,57 @@ def L12_connectivity():
         err("CRITICAL", cat, "connectivity-overall", e)
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Layer 13 — Volume policy (v1.8.6) — peripheral-audio quiet-hours behaviour.
+# Pure-logic checks: import volume_policy and assert the locked design. These are
+# deterministic (no Pi state). The adhan-untouched check is CRITICAL — a policy
+# that could mute the call to prayer must roll an update back.
+# ─────────────────────────────────────────────────────────────────────────────
+def L13_volume_policy():
+    cat = "L13 volume"
+    try:
+        if INSTALL_DIR not in sys.path:
+            sys.path.insert(0, INSTALL_DIR)
+        import volume_policy as vp
+        from datetime import datetime as _dt
+        QUIET = _dt(2026, 1, 1, 5, 0)    # 05:00 — inside default quiet hours
+        DAY   = _dt(2026, 1, 1, 14, 0)   # 14:00 — daytime
+
+        # Design check 1 — Eid takbeeraat at Fajr (quiet hours) must be SUPPRESSED.
+        _, act = vp.resolve("takbeeraat", 1.0, QUIET)
+        t("HIGH", cat, "takbeeraat-suppressed-at-fajr", act == vp.ACTION_SUPPRESS, f"action={act}")
+
+        # Design check 2 — combined-Isha twilight at night: attenuated, NOT silent.
+        vol, act = vp.resolve("twilight", 1.0, _dt(2026, 1, 1, 23, 35))
+        t("HIGH", cat, "twilight-attenuated-not-silent",
+          act == vp.ACTION_PLAY and 0.0 < vol < 1.0, f"vol={vol:.2f} action={act}")
+
+        # Design check 3 (CRITICAL) — the adhan is NEVER touched: full master, any hour.
+        v_q, a_q = vp.resolve("adhan", 1.0, QUIET)
+        v_d, a_d = vp.resolve("adhan", 1.0, DAY)
+        t("CRITICAL", cat, "adhan-untouched",
+          a_q == vp.ACTION_PLAY and a_d == vp.ACTION_PLAY and v_q == 1.0 and v_d == 1.0,
+          f"quiet_vol={v_q} day_vol={v_d}")
+
+        # Gotcha — the deliberate night alarms must still SOUND during quiet hours.
+        v_s, a_s = vp.resolve("suhoor_alarm", 1.0, _dt(2026, 1, 1, 4, 30))
+        v_w, a_w = vp.resolve("wakeup", 1.0, _dt(2026, 1, 1, 6, 30))
+        t("HIGH", cat, "alarms-sound-in-quiet-hours",
+          a_s == vp.ACTION_PLAY and v_s == 1.0 and a_w == vp.ACTION_PLAY and v_w == 1.0,
+          f"suhoor={v_s} wakeup={v_w}")
+
+        # Fail-safe — an unknown/legacy audio type must PLAY, never be silently muted.
+        v_u, a_u = vp.resolve("some_future_clip", 1.0, QUIET)
+        t("HIGH", cat, "unknown-type-fail-safe", a_u == vp.ACTION_PLAY and v_u > 0.0,
+          f"vol={v_u} action={a_u}")
+    except Exception as e:
+        err("HIGH", cat, "volume-policy-overall", e)
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Run everything
 # ─────────────────────────────────────────────────────────────────────────────
 for fn in [L1_system, L2_config, L3_discovery, L4_scheduler, L5_api,
            L6_ui, L7_audio, L8_religion, L9_autoupdate, L10_tailscale, L11_history,
-           L12_connectivity]:
+           L12_connectivity, L13_volume_policy]:
     try:
         fn()
     except Exception as e:

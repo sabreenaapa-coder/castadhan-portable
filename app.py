@@ -22,6 +22,8 @@ from urllib.parse import quote
 from typing import List, Dict, Optional, Tuple, Any, Union
 from pathlib import Path
 
+import volume_policy  # peripheral-audio volume + quiet-hours policy (pure, fail-safe)
+
 # Third-party imports
 try:
     import yaml
@@ -185,6 +187,17 @@ DEFAULT_CONFIG = {
         'exclude_if_name_contains_any': ['display', 'hub', 'nest hub'],
         'suhoor_exclude_names': [],
         'audio_routing': {}  # Per-speaker audio routing: {"speaker_name": {"adhan": true, "morning_dhikr": false, ...}}
+    },
+    # Peripheral-audio volume + quiet-hours policy (v1.8.6). Apartment-friendly
+    # defaults: peripheral audio (dhikr/takbeeraat/duas) plays quieter, and quiet
+    # hours suppress/soften it so it can't disturb neighbours. The full per-type
+    # map + category ratios live in volume_policy.py; these top-level knobs are the
+    # ones an owner is most likely to tune. Owner can opt "up" (e.g. enabled:false
+    # for a house, or widen the quiet window). The adhan + prayer warnings are
+    # always CORE+ALLOW and are never touched by this.
+    'volume_policy': {
+        'enabled': True,
+        'quiet_hours': {'strategy': 'clock', 'start': '22:00', 'end': '07:00'},
     },
     'rules': {
         'morning_dhikr_time': '07:00',
@@ -1817,6 +1830,8 @@ def stop_all_audio():
         log.error(f"Error stopping all audio: {e}")
         return 0
 
+_last_suppress_log = {}  # audio_type -> "YYYYmmddHHMM": dedupe SUPPRESSED log to once/event
+
 def play_on_cast(cast, media_url: str, volume: float, audio_type: str = None):
     """Enhanced play function with better error handling and routing awareness"""
     if shutdown_event.is_set():
@@ -1826,6 +1841,29 @@ def play_on_cast(cast, media_url: str, volume: float, audio_type: str = None):
     if audio_type and not _should_play_on_speaker(cast.name, audio_type):
         log.debug(f"Skipping {audio_type} on {cast.name} (routing disabled)")
         return
+
+    # v1.8.6: peripheral-audio volume + quiet-hours policy. Attenuates peripheral
+    # audio and suppresses it during quiet hours so it can't disturb a high-rise
+    # neighbour. CORE+ALLOW (adhan, warnings, the deliberate suhoor/wakeup alarms)
+    # is unaffected. Fail-safe: any policy error falls through to master volume.
+    try:
+        eff_vol, action = volume_policy.resolve(audio_type or "", volume, now_local(),
+                                                CFG.get("volume_policy"))
+    except Exception as e:
+        log.error(f"volume_policy error (playing at master volume): {e}")
+        eff_vol, action = volume, "play"
+    if action == volume_policy.ACTION_SUPPRESS:
+        # Record SUPPRESSED once per (type, minute), not once per speaker.
+        try:
+            key = now_local().strftime("%Y%m%d%H%M")
+            if _last_suppress_log.get(audio_type) != key:
+                _last_suppress_log[audio_type] = key
+                _log_play(audio_type or "audio", None, "SUPPRESSED", speakers_count=0)
+            log.info(f"🔕 {audio_type} suppressed by quiet-hours policy ({cast.name})")
+        except Exception:
+            pass
+        return
+    volume = eff_vol
 
     try:
         # v1.7.1: ensure_connected may return a FRESH cast object if the cached
