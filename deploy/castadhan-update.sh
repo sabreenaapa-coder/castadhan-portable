@@ -18,6 +18,11 @@ SERVICE=castadhan-portable.service
 # Source config if present (overrides defaults)
 [ -f /etc/default/castadhan-update ] && . /etc/default/castadhan-update
 
+# B-Belgium-24: consume the manual-update request flag (if any) FIRST, so the
+# castadhan-update.path unit that triggered us doesn't immediately re-fire in a
+# loop. Harmless no-op for the nightly timer path (flag won't exist).
+rm -f "${INSTALL_DIR}/.update-requested" 2>/dev/null || true
+
 GITHUB_REPO=${GITHUB_REPO:-yourname/castadhan-portable}       # set in /etc/default/castadhan-update
 UPDATE_CHANNEL=${UPDATE_CHANNEL:-stable}                       # "stable" or "beta"
 UPDATE_ENABLED=${UPDATE_ENABLED:-true}                         # set to "false" to disable

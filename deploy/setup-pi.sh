@@ -113,12 +113,17 @@ ok "avahi-daemon running — $HOSTNAME.local should resolve on the LAN"
 say "Installing auto-update timer"
 install -m 0644 "$SOURCE_DIR/deploy/castadhan-update.service" /etc/systemd/system/castadhan-update.service
 install -m 0644 "$SOURCE_DIR/deploy/castadhan-update.timer"   /etc/systemd/system/castadhan-update.timer
+# B-Belgium-24: privilege-safe manual "Update Now". The web service runs with
+# NoNewPrivileges and cannot sudo, so it writes a flag the app can reach; this
+# path unit (root, via systemd) watches it and runs the updater.
+install -m 0644 "$SOURCE_DIR/deploy/castadhan-update.path"    /etc/systemd/system/castadhan-update.path
 if [ ! -f /etc/default/castadhan-update ]; then
   install -m 0644 "$SOURCE_DIR/deploy/castadhan-update.defaults" /etc/default/castadhan-update
 fi
-# Sudoers stanza — allows the castadhan service user to trigger updates from the web UI
+# Sudoers stanza — kept for backward compat / other narrow ops (no longer used
+# for the Update Now button, which is now flag-file + castadhan-update.path).
 install -m 0440 "$SOURCE_DIR/deploy/castadhan-sudoers" /etc/sudoers.d/castadhan
-visudo -c -f /etc/sudoers.d/castadhan >/dev/null && ok "sudoers stanza installed" || warn "sudoers check failed — Update Now button may not work"
+visudo -c -f /etc/sudoers.d/castadhan >/dev/null && ok "sudoers stanza installed" || warn "sudoers check failed"
 
 # `at` command is needed for the post-update cleanup of rollback dir
 apt-get install -y --no-install-recommends at >/dev/null 2>&1 || true
@@ -127,7 +132,10 @@ systemctl enable --now atd >/dev/null 2>&1 || true
 systemctl daemon-reload
 systemctl enable castadhan-update.timer >/dev/null
 systemctl start castadhan-update.timer
-ok "auto-update timer enabled (daily 04:00 + 10 min after boot)"
+# Enable + start the manual-update watcher (B-Belgium-24).
+systemctl enable castadhan-update.path >/dev/null 2>&1 || true
+systemctl start castadhan-update.path >/dev/null 2>&1 || true
+ok "auto-update timer + manual-update watcher enabled (daily 04:00 + 10 min after boot)"
 
 # ---- 6c. Tailscale auto-enrolment (v1.3.0, O17v3) -------------------------
 # Goal: every fresh-flashed CastAdhan Pi joins the maintainer's tailnet on

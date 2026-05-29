@@ -965,18 +965,45 @@ def api_update_status():
 
 @app.route("/api/update/run", methods=["POST"])
 def api_update_run():
-    """Trigger the auto-update systemd service manually. Non-blocking."""
+    """Request a manual update (privilege-safe).
+
+    B-Belgium-24: the web service runs with NoNewPrivileges=yes (see
+    castadhan-portable.service), so it CANNOT sudo to start the updater — a
+    fire-and-forget `sudo systemctl start ...` fails silently and the old code
+    returned ok:true regardless, so the button looked like it worked when it
+    never did. Instead the app writes a flag file inside its own ReadWritePaths
+    (/opt/castadhan-portable), and a root-owned systemd path unit
+    (castadhan-update.path) watches that flag and starts castadhan-update.service.
+    This keeps the NoNewPrivileges hardening intact and actually works.
+    """
     import subprocess
+    flag = os.path.join(ROOT, ".update-requested")
     try:
-        # Fire-and-forget; logs will appear in /var/log/castadhan-update.log
-        subprocess.Popen(
-            ["sudo", "-n", "systemctl", "start", "castadhan-update.service"],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
-        log.info("Manual update triggered via web console")
-        return jsonify({"ok": True, "message": "Update started; check logs in 30s"})
+        # Verify the privilege-safe trigger is installed + watching; otherwise the
+        # flag would sit unread and the update would silently never run. Querying
+        # a unit's state is read-only and needs no privileges.
+        try:
+            active = subprocess.run(
+                ["systemctl", "is-active", "castadhan-update.path"],
+                capture_output=True, text=True, timeout=5,
+            ).stdout.strip()
+        except Exception:
+            active = "unknown"
+        if active != "active":
+            log.warning("Manual update requested but castadhan-update.path is '%s' (not active) — refusing to pretend it worked", active)
+            return jsonify({
+                "ok": False,
+                "error": ("Manual update trigger is not installed on this Pi "
+                          "(castadhan-update.path is not active). Install it once as "
+                          "root (see deploy/setup-pi.sh), or wait for the nightly "
+                          "auto-update."),
+            }), 503
+        with open(flag, "w") as f:
+            f.write(datetime.now(utc).isoformat() + "\n")
+        log.info("Manual update requested via web console (flag: %s)", flag)
+        return jsonify({"ok": True, "message": "Update requested — the updater will run within a few seconds. Watch the update status/logs."})
     except Exception as e:
+        log.error(f"Manual update request failed: {e}")
         return jsonify({"ok": False, "error": str(e)}), 500
 
 @app.route("/api/update/config", methods=["POST"])

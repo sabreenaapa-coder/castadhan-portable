@@ -1,0 +1,16 @@
+[Unit]
+Description=CastAdhan Portable — watch for a manual "Update Now" request flag
+Documentation=file:///opt/castadhan-portable/deploy/castadhan-update.sh
+
+# B-Belgium-24: the web service runs with NoNewPrivileges=yes and so cannot sudo
+# to start the updater. It instead writes a flag file inside its ReadWritePaths
+# (/opt/castadhan-portable/.update-requested). systemd (running as root, not via
+# the app's blocked sudo) watches that flag here and starts the updater. The
+# updater removes the flag at the very start of its run, so this never loops.
+
+[Path]
+PathExists=/opt/castadhan-portable/.update-requested
+Unit=castadhan-update.service
+
+[Install]
+WantedBy=multi-user.target

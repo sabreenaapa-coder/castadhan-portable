@@ -493,6 +493,17 @@ def L9_autoupdate():
         t("HIGH", cat, "update-timer-active", r.stdout.strip() == "active", r.stdout.strip())
     except Exception as e: err("HIGH", cat, "update-timer", e)
 
+    # B-Belgium-24: manual "Update Now" watcher. The web service runs with
+    # NoNewPrivileges and can't sudo, so the dashboard button works by writing a
+    # flag that castadhan-update.path (root, via systemd) watches. If this unit
+    # isn't active the button silently does nothing. MEDIUM: nightly timer still
+    # works, only the manual button is affected.
+    try:
+        r = run(["systemctl", "is-active", "castadhan-update.path"])
+        t("MEDIUM", cat, "manual-update-watcher-active", r.stdout.strip() == "active",
+          r.stdout.strip() + " (castadhan-update.path)")
+    except Exception as e: err("MEDIUM", cat, "manual-update-watcher", e)
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Layer 10 — Tailscale (Lesson 20)
 # ─────────────────────────────────────────────────────────────────────────────
