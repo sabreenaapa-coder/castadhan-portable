@@ -1832,7 +1832,7 @@ def stop_all_audio():
 
 _last_suppress_log = {}  # audio_type -> "YYYYmmddHHMM": dedupe SUPPRESSED log to once/event
 
-def play_on_cast(cast, media_url: str, volume: float, audio_type: str = None):
+def play_on_cast(cast, media_url: str, volume: float, audio_type: str = None, prayer_name: str = None):
     """Enhanced play function with better error handling and routing awareness"""
     if shutdown_event.is_set():
         return
@@ -1842,28 +1842,39 @@ def play_on_cast(cast, media_url: str, volume: float, audio_type: str = None):
         log.debug(f"Skipping {audio_type} on {cast.name} (routing disabled)")
         return
 
-    # v1.8.6: peripheral-audio volume + quiet-hours policy. Attenuates peripheral
-    # audio and suppresses it during quiet hours so it can't disturb a high-rise
-    # neighbour. CORE+ALLOW (adhan, warnings, the deliberate suhoor/wakeup alarms)
-    # is unaffected. Fail-safe: any policy error falls through to master volume.
+    # v1.8.6/1.8.7: peripheral-audio volume + quiet-hours policy — the single choke
+    # point. Attenuates/suppresses peripheral audio (dhikr/takbeeraat/duas) so it
+    # can't disturb a high-rise neighbour. CORE+ALLOW (adhan, warnings, the
+    # deliberate suhoor/wakeup alarms) is never touched. resolve_play_volume()
+    # returns 0–100 to play at, or None to suppress. Fail-safe: any error -> master.
     try:
-        eff_vol, action = volume_policy.resolve(audio_type or "", volume, now_local(),
-                                                CFG.get("volume_policy"))
+        base_pct = int(round(volume * 100))
+        dur = None
+        # The >60s duration rule only applies to UNMAPPED types — compute duration
+        # only then, so the adhan/common path never pays for an ffprobe call.
+        if audio_type and audio_type not in volume_policy.DEFAULT_POLICY["types"] and audio_type in AUDIO:
+            try:
+                dur = _audio_duration_seconds(AUDIO[audio_type])
+            except Exception:
+                dur = None
+        vol_pct = volume_policy.resolve_play_volume(
+            audio_type or "", base_pct, CFG.get("volume_policy"), now_local(), prayer_name, dur)
     except Exception as e:
         log.error(f"volume_policy error (playing at master volume): {e}")
-        eff_vol, action = volume, "play"
-    if action == volume_policy.ACTION_SUPPRESS:
-        # Record SUPPRESSED once per (type, minute), not once per speaker.
+        vol_pct = int(round(volume * 100))
+    if vol_pct is None:
+        # Suppressed (HEALTHY, not a failure). Record once per (type, minute), not
+        # once per speaker, so we don't spam play_history with N identical lines.
         try:
             key = now_local().strftime("%Y%m%d%H%M")
             if _last_suppress_log.get(audio_type) != key:
                 _last_suppress_log[audio_type] = key
-                _log_play(audio_type or "audio", None, "SUPPRESSED", speakers_count=0)
+                _log_play(audio_type or "audio", prayer_name, "SUPPRESSED", speakers_count=0)
             log.info(f"🔕 {audio_type} suppressed by quiet-hours policy ({cast.name})")
         except Exception:
             pass
         return
-    volume = eff_vol
+    volume = max(0.0, min(vol_pct / 100.0, 1.0))
 
     try:
         # v1.7.1: ensure_connected may return a FRESH cast object if the cached
@@ -3206,7 +3217,7 @@ def log_feature_summary():
     log.info("=" * 50)
 
 # ---------------- Play Functions ----------------
-def _play_to_targets(media_relpath: str, target: Optional[str] = None, audio_type: Optional[str] = None):
+def _play_to_targets(media_relpath: str, target: Optional[str] = None, audio_type: Optional[str] = None, prayer_name: Optional[str] = None):
     """Internal helper to play a given media file to enabled targets with routing awareness."""
     global _last_play_timestamp
     
@@ -3227,7 +3238,7 @@ def _play_to_targets(media_relpath: str, target: Optional[str] = None, audio_typ
         if target and target.lower() != "all":
             cast = _cast_by_name(target)
             if cast:
-                play_on_cast(cast, url, _speaker_volume(cast.name), audio_type)
+                play_on_cast(cast, url, _speaker_volume(cast.name), audio_type, prayer_name)
             else:
                 log.warning(f"Target {target} not found")
         else:
@@ -3236,9 +3247,9 @@ def _play_to_targets(media_relpath: str, target: Optional[str] = None, audio_typ
             if not casts:
                 log.warning("No speakers available for playback")
                 return
-                
+
             for cast in casts:
-                play_on_cast(cast, url, _speaker_volume(cast.name), audio_type)
+                play_on_cast(cast, url, _speaker_volume(cast.name), audio_type, prayer_name)
     except Exception as e:
         log.error(f"Error playing media {media_relpath}: {e}")
 
@@ -3379,15 +3390,16 @@ def _ensure_speakers(audio_type: str, prayer_name: Optional[str] = None):
     _log_play(audio_type, prayer_name, "DISCOVERY_RECOVERED", speakers_count=len(casts))
     return casts
 
-def play_takbeeraat_all(target: Optional[str] = None):
-    """Play Takbeeraat on enabled speakers (respects enable flags)."""
+def play_takbeeraat_all(target: Optional[str] = None, prayer_name: Optional[str] = None):
+    """Play Takbeeraat on enabled speakers (respects enable flags).
+    prayer_name lets the volume policy apply the explicit Fajr-takbeeraat suppress."""
     if shutdown_event.is_set():
         return
     if "takbeeraat" not in AUDIO:
         log.warning("Takbeeraat requested but AUDIO['takbeeraat'] missing")
         return
     log.info("🕌 Playing Takbeeraat on enabled speakers")
-    _play_to_targets(AUDIO["takbeeraat"], target=target, audio_type="takbeeraat")
+    _play_to_targets(AUDIO["takbeeraat"], target=target, audio_type="takbeeraat", prayer_name=prayer_name)
 
 def play_twilight(target: Optional[str] = None):
     """Play twilight reminder that Isha is combined with Maghrib."""
@@ -3458,7 +3470,7 @@ def play_adhan_all(target: Optional[str] = None, prayer_name: Optional[str] = No
                     sched.add_job(
                         play_takbeeraat_all,
                         DateTrigger(run_date=fire_at),
-                        kwargs={"target": target},
+                        kwargs={"target": target, "prayer_name": prayer_name},
                         id=f"takbeeraat_after_{prayer_name}_{now.strftime('%Y%m%d%H%M%S')}",
                         replace_existing=True,
                     )

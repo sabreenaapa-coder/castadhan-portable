@@ -653,34 +653,39 @@ def L13_volume_policy():
         from datetime import datetime as _dt
         QUIET = _dt(2026, 1, 1, 5, 0)    # 05:00 — inside default quiet hours
         DAY   = _dt(2026, 1, 1, 14, 0)   # 14:00 — daytime
+        # Resolver contract: returns int 0–100 to play at, or None to suppress.
 
-        # Design check 1 — Eid takbeeraat at Fajr (quiet hours) must be SUPPRESSED.
-        _, act = vp.resolve("takbeeraat", 1.0, QUIET)
-        t("HIGH", cat, "takbeeraat-suppressed-at-fajr", act == vp.ACTION_SUPPRESS, f"action={act}")
+        # Spec check 1 — Fajr takbeeraat suppressed (None -> logged suppressed, NOT failed).
+        v = vp.resolve_play_volume("takbeeraat", 100, None, QUIET, "Fajr")
+        t("HIGH", cat, "fajr-takbeeraat-suppressed", v is None, f"returned {v!r} (expect None)")
 
-        # Design check 2 — combined-Isha twilight at night: attenuated, NOT silent.
-        vol, act = vp.resolve("twilight", 1.0, _dt(2026, 1, 1, 23, 35))
-        t("HIGH", cat, "twilight-attenuated-not-silent",
-          act == vp.ACTION_PLAY and 0.0 < vol < 1.0, f"vol={vol:.2f} action={act}")
+        # Spec check 2 — combined-Isha twilight survives the night: ATTENUATE, not None.
+        v = vp.resolve_play_volume("twilight", 100, None, _dt(2026, 1, 1, 23, 35))
+        t("HIGH", cat, "twilight-survives-night", v is not None and 0 < v < 100,
+          f"vol={v} (expect a quiet-but-present number, not None)")
 
-        # Design check 3 (CRITICAL) — the adhan is NEVER touched: full master, any hour.
-        v_q, a_q = vp.resolve("adhan", 1.0, QUIET)
-        v_d, a_d = vp.resolve("adhan", 1.0, DAY)
-        t("CRITICAL", cat, "adhan-untouched",
-          a_q == vp.ACTION_PLAY and a_d == vp.ACTION_PLAY and v_q == 1.0 and v_d == 1.0,
-          f"quiet_vol={v_q} day_vol={v_d}")
+        # Spec check 3 — legacy config (no volume_policy keys) is safe: CORE rides master,
+        # never floored, master_volume untouched.
+        v = vp.resolve_play_volume("adhan", 70, None, QUIET)   # None config == legacy/missing
+        t("HIGH", cat, "legacy-config-safe", v == 70, f"adhan@master70 -> {v} (expect 70, untouched)")
+
+        # Spec check 4 (CRITICAL) — Core is NEVER silenced: adhan + warning in quiet hours
+        # return master volume, never None.
+        va = vp.resolve_play_volume("adhan", 100, None, QUIET)
+        vw = vp.resolve_play_volume("fajr_warning", 100, None, QUIET)
+        t("CRITICAL", cat, "core-never-silenced", va == 100 and vw == 100,
+          f"adhan={va} warning={vw} (both must be 100, never None)")
+
+        # Spec check 5 — ALLOW != loud: the adhan rides master volume, not a fixed 100.
+        v = vp.resolve_play_volume("adhan", 55, None, DAY)
+        t("HIGH", cat, "allow-rides-master-not-fixed-100", v == 55,
+          f"adhan@master55 -> {v} (expect 55, proving ALLOW uses master)")
 
         # Gotcha — the deliberate night alarms must still SOUND during quiet hours.
-        v_s, a_s = vp.resolve("suhoor_alarm", 1.0, _dt(2026, 1, 1, 4, 30))
-        v_w, a_w = vp.resolve("wakeup", 1.0, _dt(2026, 1, 1, 6, 30))
-        t("HIGH", cat, "alarms-sound-in-quiet-hours",
-          a_s == vp.ACTION_PLAY and v_s == 1.0 and a_w == vp.ACTION_PLAY and v_w == 1.0,
-          f"suhoor={v_s} wakeup={v_w}")
-
-        # Fail-safe — an unknown/legacy audio type must PLAY, never be silently muted.
-        v_u, a_u = vp.resolve("some_future_clip", 1.0, QUIET)
-        t("HIGH", cat, "unknown-type-fail-safe", a_u == vp.ACTION_PLAY and v_u > 0.0,
-          f"vol={v_u} action={a_u}")
+        vs = vp.resolve_play_volume("suhoor_alarm", 100, None, _dt(2026, 1, 1, 4, 30))
+        vk = vp.resolve_play_volume("wakeup", 100, None, _dt(2026, 1, 1, 6, 30))
+        t("HIGH", cat, "alarms-sound-in-quiet-hours", vs == 100 and vk == 100,
+          f"suhoor={vs} wakeup={vk}")
     except Exception as e:
         err("HIGH", cat, "volume-policy-overall", e)
 
