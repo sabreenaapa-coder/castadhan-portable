@@ -221,6 +221,15 @@ DEFAULT_CONFIG = {
         # If a user-supplied config still has it, code paths in compute_current_next
         # and schedule_today honour it as a static manual override.
         'suhoor_lead_minutes': 30,
+        # v1.8.11: Fajr adhan timing mode (owner-selectable, always clamped to the
+        # permissible window [true dawn, sunrise)):
+        #   'raw' (default) = fire at the true astronomical dawn, every day.
+        #   'before_sunrise' = fire `fajr_minutes_before_sunrise` minutes before sunrise.
+        # (Ramadan always uses raw dawn regardless of this setting.)
+        'fajr_mode': 'raw',
+        'fajr_minutes_before_sunrise': 30,
+        # Legacy (pre-v1.8.11 weekday/weekend rule); kept for back-compat, now
+        # superseded by fajr_mode above.
         'fajr_workday_cap': '07:00',
         'fajr_weekend_offset_minutes': -30,
         'enable_eid_takbeeraat': True,
@@ -361,6 +370,14 @@ def validate_config(cfg: dict) -> Tuple[bool, str]:
         method = cfg.get('rules', {}).get('high_latitude_method', 'combine_prayers')
         if method not in ['combine_prayers', '1_7_rule', 'static_offset']:
             return False, f"high_latitude_method must be one of: 'combine_prayers', '1_7_rule', 'static_offset'"
+
+        # v1.8.11: Fajr timing mode validation
+        fmode = cfg.get('rules', {}).get('fajr_mode', 'raw')
+        if fmode not in ['raw', 'before_sunrise']:
+            return False, f"fajr_mode must be 'raw' or 'before_sunrise'; got {fmode!r}"
+        fmins = cfg.get('rules', {}).get('fajr_minutes_before_sunrise')
+        if fmins is not None and (not isinstance(fmins, int) or not (0 <= fmins <= 120)):
+            return False, f"fajr_minutes_before_sunrise must be an int 0–120; got {fmins!r}"
 
         # C-2 (v1.5.0): madhab validation
         madhab = cfg.get('rules', {}).get('madhab', 'shafii')
@@ -2968,45 +2985,33 @@ def schedule_today():
 
             # Special Fajr timing logic with configurable cap
             if p == "Fajr":
-                fajr_time = today_at(t)
-
+                # v1.8.11: explicit, owner-selectable Fajr timing, always clamped to
+                # the Islamic-permissibility window [true dawn, sunrise).
+                #   fajr_mode = 'raw'            -> fire at true astronomical dawn (DEFAULT)
+                #   fajr_mode = 'before_sunrise' -> fire `fajr_minutes_before_sunrise` before sunrise
+                # Ramadan always uses raw dawn (suhoor must end at true Fajr), and the
+                # Isha-cap symmetry still forces raw within before_sunrise mode.
+                fajr_time = today_at(t)                                   # true dawn (raw API Fajr)
+                sunrise_time = today_at(times.get("Sunrise", "07:00"))
+                fajr_mode = (RULES.get("fajr_mode") or "raw").lower()
                 fajr_at_start = RULES.get('fajr_at_start_when_isha_capped', True)
 
                 if ramadan:
-                    # Ramadan: Use raw Fajr time, ignore all caps
                     dt = fajr_time
-                    log.info(f"🌙 RAMADAN: Fajr at {dt} (raw API time)")
-                elif fajr_at_start and isha_capped_today:
-                    # Isha was capped today — symmetry: don't delay Fajr either.
-                    # Play at the raw API start time so the night isn't compressed at both ends.
-                    dt = fajr_time
-                    log.info(f"Fajr at raw start {dt} (Isha capped today; fajr_at_start_when_isha_capped=True)")
-                else:
-                    sunrise_time = today_at(times.get("Sunrise", "07:00"))
-                    offset_minutes = RULES.get('fajr_weekend_offset_minutes', -30)
-                    target_before_sunrise = sunrise_time + timedelta(minutes=offset_minutes)
-
-                    # Weekday rule: configurable max time, unless Fajr is after that time
-                    if now_local().weekday() < 5:  # Monday-Friday
-                        cap_str = RULES.get('fajr_workday_cap', '07:00')
-                        max_weekday_time = today_at(cap_str)
-                        if fajr_time > max_weekday_time:
-                            # Exception: Fajr time is after cap, use Fajr time
-                            dt = fajr_time
-                            log.info(f"Fajr after {cap_str} on weekday, using Fajr time: {dt}")
-                        else:
-                            # Use earlier of: target-before-sunrise or cap time
-                            dt = min(target_before_sunrise, max_weekday_time)
-                            log.info(f"Weekday Fajr: target-before-sunrise={target_before_sunrise}, max={cap_str}, using: {dt}")
-                    else:
-                        # Weekend rule: target minutes before sunrise
-                        dt = target_before_sunrise
-                        log.info(f"Weekend Fajr: {abs(offset_minutes)} minutes before sunrise: {dt}")
-                    
-                    # Defensive clamp: ensure dt is not in the past
-                    if dt < now_local():
-                        log.warning(f"Fajr calculation resulted in past time {dt}, using raw Fajr time {fajr_time}")
+                    log.info(f"🌙 RAMADAN: Fajr at raw dawn {dt}")
+                elif fajr_mode == "before_sunrise" and not (fajr_at_start and isha_capped_today):
+                    mins = abs(int(RULES.get("fajr_minutes_before_sunrise", 30)))
+                    dt = sunrise_time - timedelta(minutes=mins)
+                    # Permissibility clamp: never before true dawn, never at/after sunrise.
+                    if dt < fajr_time:
                         dt = fajr_time
+                    elif dt >= sunrise_time:
+                        dt = sunrise_time - timedelta(minutes=1)
+                    log.info(f"Fajr {mins}m before sunrise -> {dt} (clamped to [{fajr_time.strftime('%H:%M')}, sunrise))")
+                else:
+                    # 'raw' (default), Ramadan handled above, or Isha-cap symmetry override.
+                    dt = fajr_time
+                    log.info(f"Fajr at raw dawn {dt} (mode={fajr_mode})")
             else:
                 dt = today_at(t)
 

@@ -479,6 +479,27 @@ def L8_religion():
         t("MEDIUM", cat, "hijri-date-sensible", 1400 <= y <= 1500, f"year={y}")
     except Exception as e: err("MEDIUM", cat, "hijri-date-sensible", e)
 
+    # v1.8.11 — Fajr adhan must be scheduled within the permissible window
+    # [true dawn, sunrise). Whatever fajr_mode is chosen, it can never fire before
+    # true dawn (impermissible) or at/after sunrise (window closed). Only checkable
+    # while the Fajr job is still pending today; skipped once it has fired.
+    try:
+        _, state = http_json("/api/state")
+        pt = state.get("prayer_times", {})
+        raw_fajr, sunrise = pt.get("Fajr"), pt.get("Sunrise")
+        jobs = {j.get("id"): (j.get("next_run") or "") for j in state.get("scheduled_jobs", [])}
+        fajr_run = jobs.get("adhan_Fajr")
+        m = re.search(r"T(\d{2}:\d{2})", fajr_run) if fajr_run else None
+        if m and raw_fajr and sunrise:
+            sched_hhmm = m.group(1)
+            ok = raw_fajr <= sched_hhmm < sunrise   # zero-padded HH:MM compares fine
+            t("HIGH", cat, "fajr-within-dawn-sunrise", ok,
+              f"scheduled {sched_hhmm} must be in [{raw_fajr}, {sunrise})")
+        else:
+            t("LOW", cat, "fajr-within-dawn-sunrise", True,
+              "Fajr already fired or not yet scheduled — skipped")
+    except Exception as e: err("HIGH", cat, "fajr-within-dawn-sunrise", e)
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Layer 9 — Auto-update infrastructure (O27)
 # ─────────────────────────────────────────────────────────────────────────────

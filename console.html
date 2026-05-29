@@ -560,14 +560,34 @@
              so the right column isn't an empty void next to a tall Schedule block. -->
         <div class="control-group">
           <h4>🌅 Fajr Rules</h4>
+          <!-- v1.8.11: owner-selectable Fajr adhan timing. Always kept within the
+               permissible window (true dawn → sunrise). -->
           <div class="setting-item">
-            <label>Workday Cap Time</label>
-            <input type="time" id="config-fajr-cap" value="07:00">
+            <label for="config-fajr-mode">Fajr adhan time</label>
+            <select id="config-fajr-mode" onchange="document.getElementById('fajr-before-sunrise-row').style.display = (this.value==='before_sunrise'?'block':'none')">
+              <option value="raw">At true dawn (recommended)</option>
+              <option value="before_sunrise">A set time before sunrise</option>
+            </select>
+            <small style="display:block;color:#888;margin-top:4px;font-size:.8em;">
+              "At true dawn" calls Fajr at the start of the prayer time, every day.
+              Either way it never plays before dawn or after sunrise.
+            </small>
           </div>
-          <div class="setting-item">
-            <label>Weekend Offset (minutes before sunrise)</label>
-            <input type="number" id="config-weekend-offset" value="-30" step="5">
+          <div class="setting-item" id="fajr-before-sunrise-row" style="display:none;">
+            <label>Minutes before sunrise</label>
+            <input type="number" id="config-fajr-mins-before-sunrise" value="30" min="0" max="120" step="5">
           </div>
+          <details>
+            <summary style="cursor:pointer;color:#888;font-size:.85em;">Legacy (pre-v1.8.11, unused)</summary>
+            <div class="setting-item" style="margin-top:8px;">
+              <label>Workday Cap Time</label>
+              <input type="time" id="config-fajr-cap" value="07:00">
+            </div>
+            <div class="setting-item">
+              <label>Weekend Offset (minutes before sunrise)</label>
+              <input type="number" id="config-weekend-offset" value="-30" step="5">
+            </div>
+          </details>
         </div>
 
         <div class="control-group">
@@ -2282,6 +2302,15 @@ async function loadConfig(options) {
       $('config-fajr-cap').value = cfg.rules.fajr_workday_cap || '07:00';
       $('config-weekend-offset').value = cfg.rules.fajr_weekend_offset_minutes || -30;
       $('config-suhoor-lead').value = cfg.rules.suhoor_lead_minutes || 30;
+      // v1.8.11: Fajr adhan timing mode (default 'raw').
+      if ($('config-fajr-mode')) {
+        const fmode = cfg.rules.fajr_mode || 'raw';
+        $('config-fajr-mode').value = fmode;
+        if ($('config-fajr-mins-before-sunrise'))
+          $('config-fajr-mins-before-sunrise').value = (cfg.rules.fajr_minutes_before_sunrise != null ? cfg.rules.fajr_minutes_before_sunrise : 30);
+        const row = $('fajr-before-sunrise-row');
+        if (row) row.style.display = (fmode === 'before_sunrise' ? 'block' : 'none');
+      }
       
       // High latitude method
       const method = cfg.rules.high_latitude_method || 'combine_prayers';
@@ -2370,6 +2399,9 @@ async function saveConfig() {
       rules: {
         /* C-2 / U-2 (v1.6.3): persist madhab from the new dropdown. */
         madhab: ($('config-madhab') ? $('config-madhab').value : 'shafii'),
+        // v1.8.11: Fajr adhan timing mode.
+        fajr_mode: ($('config-fajr-mode') ? $('config-fajr-mode').value : 'raw'),
+        fajr_minutes_before_sunrise: (parseInt(($('config-fajr-mins-before-sunrise') || {}).value) || 30),
         fajr_workday_cap: $('config-fajr-cap').value,
         fajr_weekend_offset_minutes: parseInt($('config-weekend-offset').value),
         high_latitude_method: document.querySelector('input[name="high-lat-method"]:checked').value,

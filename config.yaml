@@ -44,6 +44,8 @@ rules:
   evening_after_maghrib_minutes: 30
   evening_dhikr_cutoff_time: '20:00'
   fajr_at_start_when_isha_capped: true
+  fajr_minutes_before_sunrise: 30
+  fajr_mode: raw
   fajr_weekend_offset_minutes: -30
   fajr_workday_cap: 07:00
   friday_prayer_gap_seconds: 5
