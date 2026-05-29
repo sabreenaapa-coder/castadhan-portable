@@ -124,6 +124,17 @@ mv "$STAGE/unpack" "$INSTALL_DIR"
 # Preserve venv & config & audio files from the previous install
 [ -d "$PREV_DIR/venv" ] && cp -a "$PREV_DIR/venv" "$INSTALL_DIR/venv"
 [ -f "$PREV_DIR/config.yaml" ] && cp "$PREV_DIR/config.yaml" "$INSTALL_DIR/config.yaml"
+
+# B-Belgium-25: preserve runtime state that lives in the install dir but is NOT
+# shipped in releases. Without this, every update wiped it — destroying the
+# prayer-fired audit trail and resetting speaker enable/volume to defaults:
+#   • play_history.jsonl     — the "did each prayer fire?" audit trail
+#   • ui_state.json(.lock)   — per-speaker enable flags + volumes
+#   • known_speakers.json    — discovered cast hosts (saves a re-discovery)
+for f in play_history.jsonl ui_state.json ui_state.json.lock known_speakers.json; do
+  [ -f "$PREV_DIR/$f" ] && cp -a "$PREV_DIR/$f" "$INSTALL_DIR/$f"
+done
+
 # Keep ALL audio files from the previous install (new releases don't ship audio)
 if [ -d "$PREV_DIR/audio" ]; then
   rm -rf "$INSTALL_DIR/audio" 2>/dev/null
@@ -193,7 +204,10 @@ else
 fi
 
 log "✅ Update successful. Now on $LATEST_VERSION."
-rm -rf "$PREV_DIR"
+# B-Belgium-26: do NOT delete $PREV_DIR here — that immediate rm defeated the
+# 24h rollback window the next two lines promise (and destroyed the backup we
+# could otherwise restore runtime state from). Cleanup is the scheduled `at`
+# job; failing that, the next update's pre-backup rm clears it.
 log "Previous version retained at $PREV_DIR for 24 hours (rollback window)"
 echo "rm -rf '$PREV_DIR'" | at now + 24 hours 2>/dev/null || true
 exit 0
