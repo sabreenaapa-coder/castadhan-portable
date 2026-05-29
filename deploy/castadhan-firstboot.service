@@ -1,0 +1,26 @@
+[Unit]
+Description=CastAdhan Portable — first-boot setup (Tailscale auto-enrol etc.)
+Documentation=file:///opt/castadhan-portable/deploy/setup-pi.sh
+# Tailscale install + enrol need the network; apt may too.
+After=network-online.target
+Wants=network-online.target
+# Only meaningful if the installer is present (i.e. a CastAdhan image).
+ConditionPathExists=/opt/castadhan-portable/deploy/setup-pi.sh
+
+[Service]
+Type=oneshot
+# setup-pi.sh is idempotent: on a cloned gift image almost every step is a
+# no-op; the one thing that matters on first boot is picking up the SD-card
+# auth key (/boot[/firmware]/castadhan-tailscale.env), enrolling on the
+# tailnet, and shredding the key. Runs as root (systemd default).
+ExecStart=/usr/bin/bash /opt/castadhan-portable/deploy/setup-pi.sh
+# Disable self ONLY on success, so a first boot with no network (or a transient
+# apt/tailscale hiccup) retries on the next boot instead of giving up.
+ExecStartPost=/bin/systemctl disable castadhan-firstboot.service
+StandardOutput=journal
+StandardError=journal
+# Generous: a full first-boot install on a Pi Zero can take several minutes.
+TimeoutStartSec=1200
+
+[Install]
+WantedBy=multi-user.target

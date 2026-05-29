@@ -93,7 +93,13 @@ sudo TS_AUTHKEY=tskey-auth-... TS_HOSTNAME=aunt-pi-ghent bash setup-pi.sh
 
 **Alternative — SD-card pre-bake (zero-touch flash workflow):**
 
-Drop the filled-in `castadhan-tailscale.env` onto the boot partition of the SD card (mount the SD on your Mac/Windows, copy the file to `/boot/` or `/boot/firmware/` on the FAT partition). The Pi's first-boot `setup-pi.sh` will find it, enrol, then shred. Perfect for "flash and post the SD card" gift workflows.
+This is the true "flash and post the SD card" path, and it needs **no manual `setup-pi.sh` step** on the recipient's side:
+
+1. Prepare a golden image with `sudo bash deploy/clone-prep.sh` (v1.8.4+). Among other things, clone-prep installs + enables `castadhan-firstboot.service` — a one-shot that runs `setup-pi.sh` automatically on the next owner's first boot, then disables itself.
+2. Drop the filled-in `castadhan-tailscale.env` onto the boot partition of the SD card (mount the SD on your Mac/Windows, copy the file to `/boot/` or `/boot/firmware/` on the FAT partition).
+3. Post the card. The recipient powers on; first boot finds the key, enrols on your tailnet, and **shreds the key file** — no SSH, no commands.
+
+> The auto-run runs the installer as root on first boot, so use a **one-shot, pre-approved, short-expiry** auth key on the card (Reusable: OFF) — if the card leaks before first boot, the key is single-use and expires. If first boot has no network, the oneshot stays enabled and retries on the next boot.
 
 Once enrolled, SSH from any other tailnet device:
 ```

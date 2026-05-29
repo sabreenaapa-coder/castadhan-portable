@@ -92,6 +92,21 @@ UNIT
 systemctl enable regenerate-ssh-host-keys.service >/dev/null
 ok "SSH host keys removed"
 
+# ---- 5b. first-boot auto-setup (zero-touch Tailscale enrol on gift Pis) -----
+# So a flashed gift card needs NO manual `sudo bash setup-pi.sh`: on first boot
+# this oneshot runs the installer once (which picks up the SD-card auth key,
+# enrols on the tailnet, shreds the key), then disables itself. Lets you "flash,
+# drop the auth-key file on /boot, post the SD card" — recipient just powers on.
+say "Enabling first-boot auto-setup"
+if [ -f "$INSTALL_DIR/deploy/castadhan-firstboot.service" ]; then
+  install -m 0644 "$INSTALL_DIR/deploy/castadhan-firstboot.service" /etc/systemd/system/castadhan-firstboot.service
+  systemctl daemon-reload
+  systemctl enable castadhan-firstboot.service >/dev/null
+  ok "first-boot setup will run once on the next owner's first boot"
+else
+  warn "castadhan-firstboot.service not found in $INSTALL_DIR/deploy — skipping (update the install first)"
+fi
+
 # ---- 6. shell history + sensitive logs --------------------------------------
 say "Clearing shell history & logs"
 for user_home in /root /home/*; do
