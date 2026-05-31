@@ -477,6 +477,26 @@ LATITUDE = CFG["app"]["location"]["latitude"]
 LONGITUDE = CFG["app"]["location"]["longitude"]
 METHOD = CFG["app"]["calculation_method"]
 
+def _refresh_location_globals_from_cfg():
+    """v1.8.12: pull CITY / COUNTRY / LATITUDE / LONGITUDE / TZ from live CFG so
+    callers reading the module globals (notably the Aladhan fetcher) see the
+    just-saved values without needing a service restart. Used by
+    api_set_config() and the auto-detect handler — keeps both code paths
+    consistent so a future wizard variant can't reintroduce stale-globals."""
+    global CITY, COUNTRY, LATITUDE, LONGITUDE, TZ, LOCAL_TZ
+    loc = (CFG.get("app", {}) or {}).get("location", {}) or {}
+    CITY      = loc.get("city", "") or ""
+    COUNTRY   = loc.get("country", "") or ""
+    LATITUDE  = loc.get("latitude")
+    LONGITUDE = loc.get("longitude")
+    new_tz = (CFG.get("app", {}) or {}).get("timezone")
+    if new_tz and new_tz != TZ:
+        TZ = new_tz
+        try:
+            LOCAL_TZ = timezone(TZ)
+        except Exception as e:
+            log.warning(f"refresh_location_globals: pytz lookup failed for {new_tz!r}: {e}")
+
 AUDIO = CFG["audio"]
 SPK = CFG["speakers"]
 RULES = CFG["rules"]
@@ -4435,6 +4455,14 @@ def api_set_config():
 
         # Apply updates to live config
         deep_update(CFG, data)
+
+        # v1.8.12: refresh module-level location globals so the prayer-times
+        # fetcher (and anything else reading the live globals) picks up the new
+        # values WITHOUT a service restart. Bug surfaced on son's fresh Pi
+        # 2026-05-31: wizard saved Haverfordwest+coords to CFG, but the running
+        # process kept CITY=""/COUNTRY="" from startup and the Aladhan call sent
+        # `?city=&country=&` -> 400 -> dashboard stuck at --:-- until restart.
+        _refresh_location_globals_from_cfg()
 
         # Save to file with atomic write
         tmp_path = CFG_PATH + ".tmp"

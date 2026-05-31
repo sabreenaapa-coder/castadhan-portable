@@ -191,10 +191,16 @@ else
   fi
 
   if [ -n "$TS_AUTHKEY" ]; then
-    # Idempotent: skip enrolment if already on the tailnet
-    if tailscale status --json 2>/dev/null | grep -q '"Self"'; then
+    # v1.8.12: idempotency must check BackendState, not just `"Self"` existence.
+    # A freshly-installed-but-not-yet-enrolled Tailscale ALSO emits a JSON status
+    # with a "Self" object (BackendState="NeedsLogin"/"Stopped"), so the old
+    # `grep -q '"Self"'` check matched on first-install and silently skipped
+    # `tailscale up` — leaving the Pi un-enrolled and the auth key un-shredded.
+    # Live evidence: son's Pi 2026-05-31, see INCIDENT_REPORT for details.
+    TS_STATE=$(tailscale status --json 2>/dev/null | python3 -c 'import sys,json; print(json.load(sys.stdin).get("BackendState","Unknown"))' 2>/dev/null || echo "Unknown")
+    if [ "$TS_STATE" = "Running" ]; then
       EXISTING_TAILNET=$(tailscale status --json 2>/dev/null | python3 -c 'import sys,json; print(json.load(sys.stdin).get("CurrentTailnet",{}).get("Name","unknown"))' 2>/dev/null || echo "unknown")
-      ok "Tailscale already enrolled (tailnet: $EXISTING_TAILNET) — skipping"
+      ok "Tailscale already enrolled (tailnet: $EXISTING_TAILNET, state: Running) — skipping"
     else
       say "Enrolling on tailnet as hostname '$TS_HOSTNAME'"
       # shellcheck disable=SC2086

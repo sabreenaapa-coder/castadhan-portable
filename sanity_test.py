@@ -479,6 +479,20 @@ def L8_religion():
         t("MEDIUM", cat, "hijri-date-sensible", 1400 <= y <= 1500, f"year={y}")
     except Exception as e: err("MEDIUM", cat, "hijri-date-sensible", e)
 
+    # v1.8.12: /api/state must compute today's prayer_times. Catches the stale-
+    # module-globals failure mode where /api/config has the right city/coords
+    # but the fetcher calls Aladhan with empty city/country params and 400s
+    # (live evidence: son's Pi 2026-05-31 after the first-run wizard saved
+    # Haverfordwest — dashboard stuck at --:-- until a service restart).
+    # CRITICAL: a Pi that can't compute prayer times can't schedule any adhan.
+    try:
+        _, state = http_json("/api/state", timeout=10)
+        pt = state.get("prayer_times", {}) or {}
+        any_set = bool(pt.get("Fajr") and pt.get("Dhuhr") and pt.get("Sunrise"))
+        t("CRITICAL", cat, "prayer-times-computed", any_set,
+          f"Fajr={pt.get('Fajr')!r} Dhuhr={pt.get('Dhuhr')!r} Sunrise={pt.get('Sunrise')!r}")
+    except Exception as e: err("CRITICAL", cat, "prayer-times-computed", e)
+
     # v1.8.11 — Fajr adhan must be scheduled within the permissible window
     # [true dawn, sunrise). Whatever fajr_mode is chosen, it can never fire before
     # true dawn (impermissible) or at/after sunrise (window closed). Only checkable
@@ -577,6 +591,22 @@ def L10_tailscale():
         on = "100." in r.stdout
         t("HIGH", cat, "tailscale-up", on, "100.x address present in status")
     except Exception as e: err("HIGH", cat, "tailscale-up", e)
+
+    # v1.8.12: BackendState must be "Running" — catches the failure mode where
+    # tailscaled was installed but `tailscale up` never ran (the old setup-pi.sh
+    # idempotency bug). A freshly-installed-but-not-enrolled daemon still emits a
+    # Self object so the previous check passed, but BackendState reads NeedsLogin
+    # or Stopped. Live evidence: son's Pi 2026-05-31.
+    try:
+        r = run(["tailscale", "status", "--json"], timeout=5)
+        state = "Unknown"
+        try:
+            state = json.loads(r.stdout or "{}").get("BackendState", "Unknown")
+        except Exception:
+            pass
+        t("HIGH", cat, "tailscale-backend-running", state == "Running",
+          f"BackendState={state} (expect Running)")
+    except Exception as e: err("HIGH", cat, "tailscale-backend-running", e)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Layer 11 — Recent fire history (canary for silent-failure detection)
