@@ -2910,14 +2910,17 @@ def run_daily_summary():
 
         lines = []
         any_problem = False
+        silent_whitelist = set(RULES.get("expected_silent_prayers") or [])
         for p in prayers:
             e = results[p]
             status = e.get("status") if e else None
             if status in ("PASS", "DISCOVERY_RECOVERED"):
                 lines.append(f"✅ {p} {e['ts_local'][11:16]}")
-            elif status == "SILENT_EXPECTED":
+            elif status == "SILENT_EXPECTED" or (status == "NO_SPEAKERS" and p in silent_whitelist):
                 # v1.8.14: owner-whitelisted silent prayer (e.g. aunt's Fajr when
                 # she powers her speakers down for the night). Healthy, not a fail.
+                # Second condition handles historical NO_SPEAKERS entries written
+                # before v1.8.14 added the SILENT_EXPECTED downgrade in _log_play.
                 lines.append(f"🔕 {p} — silent by design")
             elif status in ("FAIL", "NO_SPEAKERS"):
                 any_problem = True
