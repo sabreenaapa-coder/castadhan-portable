@@ -232,6 +232,18 @@ DEFAULT_CONFIG = {
         # superseded by fajr_mode above.
         'fajr_workday_cap': '07:00',
         'fajr_weekend_offset_minutes': -30,
+        # v1.8.14: prayers whose NO_SPEAKERS is treated as silent-by-design
+        # (downgraded to status SILENT_EXPECTED): no instant Telegram alert, no
+        # daily-digest warning, no L11 sanity HIGH-fail. A genuine FAIL (cast
+        # timeout etc.) for the same prayer still alerts. Use case: aunt powers
+        # her bedroom speakers off at night, so the 03:40 raw-dawn Fajr never
+        # finds any speakers — that's intentional, not a bug.
+        'expected_silent_prayers': [],
+        # v1.8.14: when True (the new global default), the 23:15 Telegram digest
+        # is sent ONLY on days with problems — silent on all-green days. Instant
+        # failure alerts continue regardless. Owner explicitly chose this so the
+        # phone only buzzes when something genuinely needs attention.
+        'telegram_only_on_failure': True,
         'enable_eid_takbeeraat': True,
         # v1.6.2: 'inclusive' (default) = Fajr 9 → Asr 13 Dhū al-Hijjah
         # 'strict' = 10-12 only (the pre-v1.6.2 behaviour, narrower scholarly view).
@@ -972,6 +984,33 @@ def _site_label() -> str:
     Used to tag every outbound Telegram message so the maintainer knows which Pi
     in the fleet it came from."""
     return f"{CITY} · {get_device_id()}" if CITY else get_device_id()
+
+_CACHED_TAILSCALE_IP: Optional[str] = None
+_CACHED_TAILSCALE_IP_AT: float = 0.0
+
+def _get_tailscale_ip() -> Optional[str]:
+    """v1.8.14: best-effort Tailscale IPv4 of this Pi, cached for 5 min so each
+    Telegram alert doesn't shell out. Returned in failure alerts so the owner
+    can tap straight through to the faulty Pi's dashboard without looking it up.
+    Returns None on any error / if Tailscale isn't installed — alerts still work,
+    just without the URL line."""
+    global _CACHED_TAILSCALE_IP, _CACHED_TAILSCALE_IP_AT
+    now = time.time()
+    if _CACHED_TAILSCALE_IP and now - _CACHED_TAILSCALE_IP_AT < 300:
+        return _CACHED_TAILSCALE_IP
+    try:
+        import subprocess
+        r = subprocess.run(["tailscale", "ip", "-4"],
+                           capture_output=True, text=True, timeout=3)
+        ip = (r.stdout or "").strip().splitlines()[0] if r.stdout else ""
+        if ip.startswith("100."):
+            _CACHED_TAILSCALE_IP = ip
+            _CACHED_TAILSCALE_IP_AT = now
+            return ip
+    except Exception as e:
+        log.debug(f"_get_tailscale_ip failed: {e}")
+    _CACHED_TAILSCALE_IP_AT = now   # avoid hammering on a slow/failing tailscale
+    return None
 
 @app.route("/api/version")
 def api_version():
@@ -2876,6 +2915,10 @@ def run_daily_summary():
             status = e.get("status") if e else None
             if status in ("PASS", "DISCOVERY_RECOVERED"):
                 lines.append(f"✅ {p} {e['ts_local'][11:16]}")
+            elif status == "SILENT_EXPECTED":
+                # v1.8.14: owner-whitelisted silent prayer (e.g. aunt's Fajr when
+                # she powers her speakers down for the night). Healthy, not a fail.
+                lines.append(f"🔕 {p} — silent by design")
             elif status in ("FAIL", "NO_SPEAKERS"):
                 any_problem = True
                 lines.append(f"❌ {p} FAILED ({status})")
@@ -2885,10 +2928,24 @@ def run_daily_summary():
                 any_problem = True
                 lines.append(f"⚠️ {p} — no record")
 
+        # v1.8.14: when telegram_only_on_failure is True (new global default),
+        # skip the digest entirely on all-green days. Instant failure alerts
+        # continue regardless; this only suppresses the once-a-day "everything
+        # fine" message that the owner explicitly didn't want.
+        if (RULES.get("telegram_only_on_failure", True) and not any_problem):
+            log.info("Daily Telegram summary: no problems today, suppressed by telegram_only_on_failure")
+            return
+
         header = (f"⚠️ CastAdhan ({_site_label()}) — a prayer may not have played today:"
                   if any_problem else
                   f"✅ CastAdhan ({_site_label()}) — all prayers fired today:")
-        _telegram_send(header + "\n" + "\n".join(lines))
+        body = header + "\n" + "\n".join(lines)
+        # v1.8.14: tail with the Tailscale URL so the owner can jump to the
+        # dashboard / SSH from the alert on their phone.
+        ts_ip = _get_tailscale_ip()
+        if ts_ip:
+            body += f"\n\nTailscale: http://{ts_ip}:8786"
+        _telegram_send(body)
         log.info("Daily Telegram summary sent")
     except Exception as e:
         log.error(f"Daily summary error: {e}")
@@ -3363,8 +3420,18 @@ _PLAY_HISTORY_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "p
 
 def _log_play(audio_type: str, prayer_name: Optional[str], status: str, speakers_count: int = 0, error: Optional[Exception] = None):
     """Record a play attempt for visibility.
-    status is one of: PASS, FAIL, NO_SPEAKERS, DISCOVERY_RECOVERED."""
+    status is one of: PASS, FAIL, NO_SPEAKERS, DISCOVERY_RECOVERED, SKIPPED_HOLD,
+    SUPPRESSED (volume policy), SILENT_EXPECTED (v1.8.14 — NO_SPEAKERS for a
+    prayer in expected_silent_prayers; intentionally silent, not a failure)."""
     try:
+        # v1.8.14: a NO_SPEAKERS for an owner-whitelisted prayer is recorded as
+        # SILENT_EXPECTED, NOT NO_SPEAKERS. This downstream-suppresses the
+        # instant alert, the daily-digest warning, and the L11 sanity HIGH-fail.
+        # A real FAIL on the same prayer (cast timeout etc.) still alerts.
+        if (status == "NO_SPEAKERS" and audio_type == "adhan"
+                and prayer_name
+                and prayer_name in (RULES.get("expected_silent_prayers") or [])):
+            status = "SILENT_EXPECTED"
         entry = {
             "ts_utc": datetime.now(utc).isoformat(timespec="seconds"),
             "ts_local": now_local().isoformat(timespec="seconds"),
@@ -3383,12 +3450,18 @@ def _log_play(audio_type: str, prayer_name: Optional[str], status: str, speakers
                 log.error(f"play_history write failed: {e}")
         # v1.8.0: immediate Telegram alert on a genuine playback failure.
         # Outside the lock so the network send can't block other plays.
-        # SKIPPED_HOLD (Emergency Stop) and DISCOVERY_RECOVERED are not failures.
+        # SKIPPED_HOLD (Emergency Stop), DISCOVERY_RECOVERED, SUPPRESSED (quiet
+        # hours policy) and SILENT_EXPECTED (v1.8.14 whitelist) are not failures.
         if status in ("FAIL", "NO_SPEAKERS"):
             try:
                 label = prayer_name or audio_type or "audio"
+                # v1.8.14: include the Pi's Tailscale IP so the owner can SSH /
+                # open the dashboard from the alert without looking it up.
+                ts_ip = _get_tailscale_ip()
                 msg = (f"⚠️ CastAdhan ({_site_label()}): {label} did NOT play "
                        f"({status}) at {entry['ts_local'][11:16]}.")
+                if ts_ip:
+                    msg += f"\nTailscale: http://{ts_ip}:8786"
                 if entry.get("error"):
                     msg += f"\n{entry['error']}"
                 _telegram_send(msg)

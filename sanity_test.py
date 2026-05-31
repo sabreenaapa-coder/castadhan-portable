@@ -616,11 +616,22 @@ def L11_history():
     try:
         _, ph = http_json("/api/play_history?limit=50")
         entries = ph.get("entries",[])
-        # Look for any NO_SPEAKERS in the last N entries (canary)
-        no_speakers = [e for e in entries if e.get("status") == "NO_SPEAKERS"]
+        # v1.8.14: exclude NO_SPEAKERS for prayers the owner has whitelisted as
+        # silent-by-design (e.g. aunt's Fajr while she powers her bedroom
+        # speakers down at night). New entries are logged as SILENT_EXPECTED
+        # directly so they wouldn't match this filter anyway — this just keeps
+        # historical NO_SPEAKERS entries from a pre-v1.8.14 install quiet too.
+        try:
+            _, cfg = http_json("/api/config")
+            silent_whitelist = set(cfg["config"]["rules"].get("expected_silent_prayers") or [])
+        except Exception:
+            silent_whitelist = set()
+        no_speakers = [e for e in entries
+                       if e.get("status") == "NO_SPEAKERS"
+                       and e.get("prayer_name") not in silent_whitelist]
         t("HIGH", cat, "no-recent-no-speakers",
           len(no_speakers) == 0,
-          f"{len(no_speakers)} NO_SPEAKERS in last 50: {[e.get('prayer_name') for e in no_speakers]}")
+          f"{len(no_speakers)} NO_SPEAKERS (excl. silent-whitelist {sorted(silent_whitelist)}) in last 50: {[e.get('prayer_name') for e in no_speakers]}")
         # SCHEDULER_INCOMPLETE check
         sched_incomp = [e for e in entries if e.get("status") == "SCHEDULER_INCOMPLETE"]
         t("HIGH", cat, "no-recent-scheduler-incomplete",
