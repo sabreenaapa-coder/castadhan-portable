@@ -1,0 +1,22 @@
+// CastAdhan Portable — polkit rule for NetworkManager (v1.9.0)
+//
+// Why: the castadhan-portable systemd service runs with NoNewPrivileges=yes,
+// which blocks sudo escalation entirely (same constraint that originally broke
+// the Update Now button — see B-Belgium-24). The v1.9.0 "WiFi Setup" wizard
+// needs to scan + connect WiFi via NetworkManager. nmcli isn't setuid: it
+// dispatches D-Bus calls to NetworkManager which calls polkit to authorise.
+// This rule grants the castadhan user permission for NetworkManager actions
+// without password / sudo escalation — the only way that works under
+// NoNewPrivileges.
+//
+// Scope: limited to the castadhan user only, and only NetworkManager actions
+// (org.freedesktop.NetworkManager.*). Other polkit-protected operations are
+// unaffected.
+//
+// Installed at /etc/polkit-1/rules.d/50-castadhan-nm.rules by setup-pi.sh.
+polkit.addRule(function(action, subject) {
+    if (action.id.indexOf("org.freedesktop.NetworkManager.") === 0 &&
+        subject.user === "castadhan") {
+        return polkit.Result.YES;
+    }
+});

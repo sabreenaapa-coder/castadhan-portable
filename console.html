@@ -729,6 +729,39 @@
           </div>
         </div>
 
+        <!-- WiFi Setup (v1.9.0) — the gift-Pi-by-post flow. Pi boots on Ethernet,
+             owner reaches it remotely over Tailscale, uses this section to scan +
+             connect the friend's WiFi, then friend unplugs the Ethernet cable. -->
+        <div class="control-group">
+          <h4>📶 WiFi Setup</h4>
+          <p style="font-size:.85em;color:#888;margin:0 0 8px 0;" id="wifi-status-line">
+            checking connections…
+          </p>
+          <div class="setting-item">
+            <label>Available networks</label>
+            <div style="display:flex;gap:8px;align-items:center;">
+              <select id="wifi-ssid" style="flex:1;">
+                <option value="">— click Scan to populate —</option>
+              </select>
+              <button type="button" class="control-btn" style="flex:0 0 auto;padding:6px 12px;" onclick="wifiScan()">🔄 Scan</button>
+            </div>
+            <small style="display:block;color:#888;margin-top:4px;font-size:.8em;">
+              Sorted by signal strength. Original Pi 3 sees 2.4 GHz networks only.
+            </small>
+          </div>
+          <div class="setting-item">
+            <label for="wifi-password">WiFi password</label>
+            <input type="password" id="wifi-password" placeholder="(leave blank for open networks)">
+          </div>
+          <div class="setting-item">
+            <button type="button" class="control-btn" onclick="wifiConnect()">📶 Connect to selected network</button>
+            <small style="display:block;color:#888;margin-top:4px;font-size:.8em;">
+              Ethernet stays up during the test. If the password's wrong, retry.
+            </small>
+          </div>
+          <p id="wifi-result" style="font-size:.85em;margin:8px 0 0 0;"></p>
+        </div>
+
         <!-- Speaker General Settings -->
         <div class="control-group">
           <h4>🔊 Speaker Defaults</h4>
@@ -2660,6 +2693,99 @@ function openSettingsModal(tab = 'basic') {
   renderRoutingMatrix();
   renderAudioFiles();   // D7 FIX (2026-05-23): populate Audio Files tab on every open
   renderWakeupTab();    // NEW Wakeup tab (2026-05-23): populate on open too
+  refreshWifiStatus();  // v1.9.0: show current WiFi/Ethernet state on modal open
+}
+
+// v1.9.0 — WiFi Setup wizard (for the "post a Pi to a friend" workflow)
+async function refreshWifiStatus() {
+  const el = document.getElementById('wifi-status-line');
+  if (!el) return;
+  try {
+    const r = await fetch('/api/wifi/status');
+    const d = await r.json();
+    if (!d || !d.ok || !d.status) { el.textContent = '(status unavailable)'; return; }
+    const s = d.status;
+    const eth = s.eth0.state === 'connected'
+      ? `Ethernet ✓ (${s.eth0.ip || 'pending IP'})`
+      : `Ethernet ${s.eth0.state || 'unknown'}`;
+    const wlan = s.wlan0.state === 'connected'
+      ? `WiFi ✓ (${s.wlan0.ssid || '?'}, ${s.wlan0.ip || 'pending IP'})`
+      : (s.wlan0_present ? `WiFi ${s.wlan0.state || 'not configured'}` : 'WiFi hardware not detected');
+    let line = `${eth} · ${wlan}`;
+    if (s.safe_to_unplug_ethernet) {
+      line += ` — ✅ safe to unplug Ethernet`;
+    }
+    el.textContent = line;
+  } catch (e) {
+    el.textContent = '(status check failed: ' + e.message + ')';
+  }
+}
+
+async function wifiScan() {
+  const sel = document.getElementById('wifi-ssid');
+  const res = document.getElementById('wifi-result');
+  if (!sel || !res) return;
+  res.textContent = 'Scanning…';
+  res.style.color = '#888';
+  try {
+    const r = await fetch('/api/wifi/scan', { method: 'POST' });
+    const d = await r.json();
+    if (!d || !d.ok) { res.textContent = 'Scan failed: ' + (d.error || 'unknown'); res.style.color = '#ff8a8a'; return; }
+    sel.innerHTML = '';
+    if (!d.networks.length) {
+      sel.innerHTML = '<option value="">(no networks visible)</option>';
+      res.textContent = 'No networks visible. Make sure WiFi hardware is enabled.';
+      res.style.color = '#ffd27a';
+      return;
+    }
+    for (const n of d.networks) {
+      const opt = document.createElement('option');
+      opt.value = n.ssid;
+      const sec = (n.security && n.security !== '--' && n.security !== 'open') ? ` 🔒 ${n.security}` : '';
+      opt.textContent = `${n.ssid} — ${n.signal}% · ${n.band}${sec}`;
+      sel.appendChild(opt);
+    }
+    res.textContent = `Found ${d.networks.length} network(s). Pick one + enter password.`;
+    res.style.color = '#7CFC9B';
+  } catch (e) {
+    res.textContent = 'Scan error: ' + e.message;
+    res.style.color = '#ff8a8a';
+  }
+}
+
+async function wifiConnect() {
+  const sel = document.getElementById('wifi-ssid');
+  const pwd = document.getElementById('wifi-password');
+  const res = document.getElementById('wifi-result');
+  if (!sel || !pwd || !res) return;
+  const ssid = sel.value;
+  if (!ssid) { res.textContent = 'Pick a network first (or click Scan).'; res.style.color = '#ffd27a'; return; }
+  res.textContent = `Connecting to "${ssid}"… (this can take 30–60 s)`;
+  res.style.color = '#888';
+  try {
+    const r = await fetch('/api/wifi/connect', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ssid, password: pwd.value }),
+    });
+    const d = await r.json();
+    if (d && d.ok) {
+      const safe = d.status && d.status.safe_to_unplug_ethernet
+        ? ' — ✅ safe to unplug Ethernet now'
+        : ' — wait a moment for the IP, then unplug Ethernet';
+      res.textContent = `✓ Connected to "${ssid}"` + safe;
+      res.style.color = '#7CFC9B';
+      pwd.value = '';
+      refreshWifiStatus();
+    } else {
+      res.textContent = '❌ ' + (d.error || 'connect failed');
+      res.style.color = '#ff8a8a';
+      refreshWifiStatus();
+    }
+  } catch (e) {
+    res.textContent = 'Network error: ' + e.message;
+    res.style.color = '#ff8a8a';
+  }
 }
 
 function closeSettings() {

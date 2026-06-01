@@ -584,6 +584,22 @@ def L9_autoupdate():
 # ─────────────────────────────────────────────────────────────────────────────
 # Layer 10 — Tailscale (Lesson 20)
 # ─────────────────────────────────────────────────────────────────────────────
+def L9b_wifi_wizard():
+    """v1.9.0: the WiFi-setup wizard depends on a polkit rule that lets the
+    castadhan service user manage NetworkManager without sudo (NoNewPrivileges
+    blocks sudo for this service). Without the rule, scan/connect 401 silently."""
+    cat = "L9b wifi-wizard"
+    p = "/etc/polkit-1/rules.d/50-castadhan-nm.rules"
+    has_rule = os.path.isfile(p)
+    t("MEDIUM", cat, "polkit-rule-installed", has_rule,
+      f"{p} {'present' if has_rule else 'MISSING — setup-pi.sh did not install it'}")
+    # NetworkManager itself must be running for any of the wifi/* endpoints.
+    try:
+        r = run(["systemctl", "is-active", "NetworkManager"])
+        t("MEDIUM", cat, "networkmanager-active", r.stdout.strip() == "active",
+          r.stdout.strip())
+    except Exception as e: err("MEDIUM", cat, "networkmanager-active", e)
+
 def L10_tailscale():
     cat = "L10 tailscale"
     try:
@@ -763,7 +779,7 @@ def L13_volume_policy():
 # Run everything
 # ─────────────────────────────────────────────────────────────────────────────
 for fn in [L1_system, L2_config, L3_discovery, L4_scheduler, L5_api,
-           L6_ui, L7_audio, L8_religion, L9_autoupdate, L10_tailscale, L11_history,
+           L6_ui, L7_audio, L8_religion, L9_autoupdate, L9b_wifi_wizard, L10_tailscale, L11_history,
            L12_connectivity, L13_volume_policy]:
     try:
         fn()

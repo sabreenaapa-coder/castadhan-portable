@@ -143,6 +143,16 @@ fi
 
 chown -R castadhan:castadhan "$INSTALL_DIR"
 
+# v1.9.0: keep system-side install artefacts in sync with the new release.
+# These files live OUTSIDE the swap directory (in /etc/) so they don't ride
+# the tarball; copy them across so a fresh release lands its full bundle.
+if [ -d /etc/polkit-1/rules.d ] \
+   && [ -f "$INSTALL_DIR/deploy/castadhan-nm.rules" ]; then
+  install -m 0644 "$INSTALL_DIR/deploy/castadhan-nm.rules" \
+                  /etc/polkit-1/rules.d/50-castadhan-nm.rules
+  log "polkit rule for NetworkManager refreshed (WiFi wizard)"
+fi
+
 # ---- 4. Update Python dependencies if requirements changed ------------------
 if [ -f "$INSTALL_DIR/requirements.txt" ]; then
   log "Refreshing Python dependencies"

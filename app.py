@@ -1060,6 +1060,178 @@ def api_notify_detect_chat():
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 500
 
+# ────────────────────────────────────────────────────────────────────────────
+# WiFi Setup wizard (v1.9.0)
+# ────────────────────────────────────────────────────────────────────────────
+# For the "post a Pi to a friend" gift workflow: friend plugs Pi into Ethernet
+# on first boot -> Pi joins the tailnet -> owner opens the dashboard remotely
+# over Tailscale -> owner uses these endpoints to scan + connect the friend's
+# WiFi. eth0 is never touched here; NetworkManager keeps both interfaces up so
+# the Pi stays reachable for a retry if the password's wrong. Once wlan0 has
+# an IP, the dashboard shows "safe to unplug Ethernet."
+#
+# All nmcli calls run as the castadhan service user via the polkit rule
+# installed at /etc/polkit-1/rules.d/50-castadhan-nm.rules (no sudo, no
+# NoNewPrivileges fight). Passwords are NEVER logged.
+
+def _get_wifi_status() -> dict:
+    """Read current eth0 + wlan0 state from NetworkManager. Defensive: any
+    nmcli failure resolves to 'unknown' rather than crashing the endpoint."""
+    import subprocess
+    status = {
+        "eth0":  {"state": "unknown", "ip": None},
+        "wlan0": {"state": "unknown", "ip": None, "ssid": None},
+        "safe_to_unplug_ethernet": False,
+        "wlan0_present": False,
+    }
+    try:
+        r = subprocess.run(
+            ["nmcli", "-t", "-f", "DEVICE,TYPE,STATE,CONNECTION", "device", "status"],
+            capture_output=True, text=True, timeout=5)
+        for line in (r.stdout or "").strip().split("\n"):
+            parts = line.split(":")
+            if len(parts) < 4:
+                continue
+            device, _dtype, state, connection = parts[0], parts[1], parts[2], parts[3]
+            if device == "eth0":
+                status["eth0"]["state"] = state
+            elif device == "wlan0":
+                status["wlan0"]["state"] = state
+                status["wlan0"]["ssid"] = connection or None
+                status["wlan0_present"] = True
+        for iface in ("eth0", "wlan0"):
+            try:
+                ipres = subprocess.run(
+                    ["nmcli", "-t", "-f", "IP4.ADDRESS", "device", "show", iface],
+                    capture_output=True, text=True, timeout=5)
+                for ln in (ipres.stdout or "").strip().split("\n"):
+                    if "IP4.ADDRESS" in ln and ":" in ln:
+                        val = ln.split(":", 1)[1].split("/")[0].strip()
+                        if val and val != "--":
+                            status[iface]["ip"] = val
+                            break
+            except Exception:
+                pass
+        status["safe_to_unplug_ethernet"] = (
+            status["wlan0"]["state"] == "connected"
+            and status["wlan0"]["ip"] is not None)
+    except Exception as e:
+        log.error(f"_get_wifi_status error: {e}")
+    return status
+
+@app.route("/api/wifi/status")
+def api_wifi_status():
+    """v1.9.0: current state of eth0 + wlan0, plus 'safe to unplug Ethernet'."""
+    try:
+        return jsonify({"ok": True, "status": _get_wifi_status()})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+@app.route("/api/wifi/scan", methods=["POST"])
+def api_wifi_scan():
+    """v1.9.0: trigger a rescan + return nearby networks (deduped, sorted by
+    signal strength)."""
+    import subprocess
+    try:
+        # Best-effort rescan. NetworkManager rate-limits this, so a recent
+        # rescan may no-op — that's fine, the cached list is what 'list' returns.
+        try:
+            subprocess.run(["nmcli", "device", "wifi", "rescan"],
+                           capture_output=True, timeout=8)
+        except Exception:
+            pass
+        time.sleep(2)
+        r = subprocess.run(
+            ["nmcli", "-t", "-f", "SSID,SIGNAL,SECURITY,FREQ", "device", "wifi", "list"],
+            capture_output=True, text=True, timeout=10)
+        networks = []
+        seen = set()
+        for line in (r.stdout or "").strip().split("\n"):
+            parts = line.split(":")
+            if len(parts) < 4:
+                continue
+            ssid, signal, security, freq = parts[0], parts[1], parts[2], parts[3]
+            if not ssid or ssid in seen:
+                continue
+            seen.add(ssid)
+            try:
+                signal_i = int(signal)
+            except ValueError:
+                signal_i = 0
+            try:
+                freq_i = int(freq)
+            except ValueError:
+                freq_i = 0
+            networks.append({
+                "ssid": ssid,
+                "signal": signal_i,
+                "security": security or "open",
+                "frequency_mhz": freq_i,
+                "band": "5 GHz" if freq_i >= 5000 else "2.4 GHz",
+            })
+        networks.sort(key=lambda n: n["signal"], reverse=True)
+        return jsonify({"ok": True, "networks": networks})
+    except subprocess.TimeoutExpired:
+        return jsonify({"ok": False, "error": "WiFi scan timed out"}), 504
+    except Exception as e:
+        log.error(f"WiFi scan endpoint error: {e}")
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+@app.route("/api/wifi/connect", methods=["POST"])
+def api_wifi_connect():
+    """v1.9.0: connect wlan0 to a chosen SSID. Doesn't touch eth0; leaves both
+    interfaces up so the Pi stays reachable for a retry if the password's wrong.
+    Cleans up the failed connection profile on auth failure so the SSID list
+    doesn't accumulate broken entries."""
+    import subprocess
+    try:
+        body = request.get_json(force=True, silent=True) or {}
+        ssid = (body.get("ssid") or "").strip()
+        password = body.get("password") or ""
+        if not ssid:
+            return jsonify({"ok": False, "error": "ssid is required"}), 400
+        # Confirm wlan0 exists (Pi Zero W has no eth0; Pi Zero or original Pi 3
+        # might lack WiFi on some kernels — defensive check either way).
+        r = subprocess.run(["nmcli", "-t", "-f", "DEVICE", "device"],
+                           capture_output=True, text=True, timeout=5)
+        if "wlan0" not in (r.stdout or ""):
+            return jsonify({"ok": False, "error": "No wlan0 interface on this Pi"}), 400
+
+        # DO NOT log the password.
+        log.info(f"WiFi connect attempt: ssid={ssid!r} (password not logged)")
+
+        cmd = ["nmcli", "device", "wifi", "connect", ssid, "ifname", "wlan0"]
+        if password:
+            cmd.extend(["password", password])
+
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=45)
+        if r.returncode != 0:
+            err_msg = (r.stderr or r.stdout or "").strip()
+            log.warning(f"WiFi connect to {ssid!r} failed: {err_msg}")
+            # Clean up the partial connection profile so the SSID list doesn't
+            # accumulate broken entries on repeated wrong-password attempts.
+            try:
+                subprocess.run(["nmcli", "connection", "delete", ssid],
+                               capture_output=True, timeout=5)
+            except Exception:
+                pass
+            # Translate the most common cases for the UI.
+            hint = "Wrong password or network out of range" if "password" in err_msg.lower() or "secrets" in err_msg.lower() else err_msg
+            return jsonify({"ok": False, "error": hint}), 400
+
+        time.sleep(2)
+        status = _get_wifi_status()
+        return jsonify({
+            "ok": True,
+            "message": f"Connected to {ssid}",
+            "status": status,
+        })
+    except subprocess.TimeoutExpired:
+        return jsonify({"ok": False, "error": "Connection attempt timed out (network out of range?)"}), 504
+    except Exception as e:
+        log.error(f"WiFi connect endpoint error: {e}")
+        return jsonify({"ok": False, "error": str(e)}), 500
+
 @app.route("/api/update/status")
 def api_update_status():
     """Report auto-update state: enabled, channel, last attempt, last log lines."""

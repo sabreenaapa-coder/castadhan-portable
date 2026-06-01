@@ -125,6 +125,16 @@ fi
 install -m 0440 "$SOURCE_DIR/deploy/castadhan-sudoers" /etc/sudoers.d/castadhan
 visudo -c -f /etc/sudoers.d/castadhan >/dev/null && ok "sudoers stanza installed" || warn "sudoers check failed"
 
+# v1.9.0: polkit rule so the castadhan service user can manage WiFi via
+# NetworkManager (for the WiFi-setup wizard). NoNewPrivileges blocks sudo so
+# we route through D-Bus/polkit instead. See deploy/castadhan-nm.rules header.
+if [ -d /etc/polkit-1/rules.d ]; then
+  install -m 0644 "$SOURCE_DIR/deploy/castadhan-nm.rules" /etc/polkit-1/rules.d/50-castadhan-nm.rules
+  ok "polkit rule for NetworkManager installed (WiFi wizard)"
+else
+  warn "/etc/polkit-1/rules.d missing — WiFi wizard won't work until polkit is present"
+fi
+
 # `at` command is needed for the post-update cleanup of rollback dir
 apt-get install -y --no-install-recommends at >/dev/null 2>&1 || true
 systemctl enable --now atd >/dev/null 2>&1 || true
