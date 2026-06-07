@@ -15,7 +15,18 @@ set -euo pipefail
 # ---- config ----------------------------------------------------------------
 INSTALL_DIR=/opt/castadhan-portable
 SERVICE_USER=castadhan
-HOSTNAME=castadhan
+# v1.9.3 (B-Belgium-33): respect a customised hostname (e.g. set by
+# cloud-init's `hostname:` directive) and only override to 'castadhan' when
+# the system is still on Pi OS Lite's default 'raspberrypi'. Previously the
+# installer hard-overwrote whatever cloud-init had set, which on masood-pi
+# meant Tailscale knew the device as 'masood-pi' but mDNS only announced
+# 'castadhan.local' — confusing two-name state. Operators can still force a
+# specific hostname by setting HOSTNAME=... when invoking setup-pi.sh.
+_current_host=$(hostname 2>/dev/null || echo raspberrypi)
+case "$_current_host" in
+  raspberrypi|localhost|"")  HOSTNAME="${HOSTNAME:-castadhan}" ;;
+  *)                          HOSTNAME="${HOSTNAME:-$_current_host}" ;;
+esac
 SOURCE_DIR="${SOURCE_DIR:-$(cd "$(dirname "$0")"/.. && pwd)}"   # parent of deploy/
 PYTHON_BIN=python3
 

@@ -2,11 +2,7 @@
 # Sourced by /opt/castadhan-portable/deploy/castadhan-update.sh
 # Installed at:  /etc/default/castadhan-update
 #
-# v1.8.13: defaults now ship the REAL repo. Previously the placeholder
-# `yourname/castadhan-portable` was committed, so every fresh-flashed Pi had
-# its auto-update silently misconfigured (the L9 update-config-real-repo
-# sanity check would catch it after the fact, but no Pi ever actually updated).
-# Fork? Change this line.
+# Fork? Change the GITHUB_REPO line below to point at your own GitHub repo.
 
 # Where to pull releases from. Format: "owner/repo".
 # Make sure the repo's "Releases" tab contains versioned tags (v1.0.0, v1.0.1, ...).

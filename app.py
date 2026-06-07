@@ -268,6 +268,16 @@ DEFAULT_CONFIG = {
         'madhab': 'shafii',  # options: 'shafii', 'hanafi', 'maliki', 'hanbali'
         'isha_static_offset_minutes': 90,  # Used if method = 'static_offset'
         'isha_max_time': '',  # Optional HH:MM cap (e.g. "22:00"); empty disables (recommended for travel)
+        # B-Belgium-38 (v1.9.3): UK users routinely want the high-latitude
+        # Isha rule to fire YEAR-ROUND, not only during the strict persistent-
+        # twilight window. At 51.6°N (Swansea / London / Cardiff) the sun
+        # technically dips far enough for ISNA to compute an Isha angle for
+        # most of June, but the resulting time is 23:20+ — well past most
+        # mosque timetables. When this flag is True, apply_high_latitude_
+        # overrides() runs the configured method regardless of the persistent-
+        # twilight cache state. Defaults to False to preserve previous
+        # behaviour on every existing Pi.
+        'isha_method_always_apply': False,
         'fajr_at_start_when_isha_capped': True,  # When Isha cap fires today, play Fajr at raw API time
         'twilight_scan_frequency_days': 7
     }
@@ -2463,10 +2473,26 @@ def apply_high_latitude_overrides(raw_times: dict, target_date: date) -> dict:
     # Create a copy to avoid modifying cache
     times = raw_times.copy()
 
-    # Check if we need to apply method-specific overrides
+    # Check if we need to apply method-specific overrides.
+    # B-Belgium-38 (v1.9.3): the previous gate fired ONLY when persistent
+    # twilight was active — which excluded the UK summer use-case where the
+    # sun technically dips far enough for the Aladhan angle to compute an
+    # Isha time, but the result (23:20+) is too late for any practical
+    # household. Now we also fire when isha_method_always_apply is True,
+    # letting users opt into "always use my configured method" regardless
+    # of geographic twilight ambiguity. Default flag is False so existing
+    # Pis see no behaviour change.
     with _twilight_lock:
         twilight_active = _twilight_cache["persistent_twilight_active"]
-        method = _twilight_cache["high_latitude_method"] if twilight_active else None
+        cached_method = _twilight_cache["high_latitude_method"]
+    always_apply = bool(RULES.get('isha_method_always_apply', False))
+    if twilight_active or always_apply:
+        # Always-apply path reads the live rule (not the cache) so a config
+        # change takes effect on the very next schedule_today() without
+        # waiting for the periodic twilight scan to refresh the cache.
+        method = RULES.get('high_latitude_method', cached_method) if always_apply else cached_method
+    else:
+        method = None
 
     if method == 'combine_prayers':
         # Isha is suppressed via should_play_isha() — leave times dict alone here
@@ -3268,11 +3294,17 @@ def schedule_today():
                 dt = today_at(t)
 
             if dt > now_local():  # Only schedule future prayers
+                # B-Belgium-36 (v1.9.3): replace_existing so re-running
+                # schedule_today() during the first-run wizard's config save
+                # doesn't throw ConflictingIdError on adhan_Maghrib (etc).
+                # The remove-loop at top of schedule_today() isn't race-safe
+                # under near-simultaneous config saves on startup.
                 sched.add_job(
                     play_adhan_all,
                     DateTrigger(run_date=dt),
                     id=f"adhan_{p}",
-                    kwargs={"prayer_name": p}
+                    kwargs={"prayer_name": p},
+                    replace_existing=True,
                 )
                 log.info("Scheduled %s @ %s", p, dt)
 
@@ -3303,7 +3335,7 @@ def schedule_today():
             suhoor_time = today_at(fajr_time_str) - timedelta(minutes=lead_minutes)
 
             if suhoor_time > now_local():
-                sched.add_job(play_suhoor_alarm, DateTrigger(run_date=suhoor_time), id="suhoor_alarm")
+                sched.add_job(play_suhoor_alarm, DateTrigger(run_date=suhoor_time), id="suhoor_alarm", replace_existing=True)
                 log.info(f"🌙 Scheduled Suhoor alarm @ {suhoor_time} (Fajr - {lead_minutes} min)")
 
         # Schedule other activities with Adhan conflict detection
@@ -3330,7 +3362,7 @@ def schedule_today():
                 if fajr_adhan_time and abs((md - fajr_adhan_time).total_seconds()) < 120:
                     log.info(f"⏭️ Skipping Morning Dhikr ({md.strftime('%H:%M')}) — too close to Fajr Adhan ({fajr_adhan_time.strftime('%H:%M')})")
                 else:
-                    sched.add_job(play_morning_dhikr, DateTrigger(run_date=md), id="morning_dhikr")
+                    sched.add_job(play_morning_dhikr, DateTrigger(run_date=md), id="morning_dhikr", replace_existing=True)
                     log.info("Scheduled morning dhikr @ %s", md)
 
         # Wakeup - plays on all enabled speakers
@@ -3347,7 +3379,7 @@ def schedule_today():
             if should_schedule_wakeup:
                 wu = today_at(RULES["wakeup_time"])
                 if wu > now_local():
-                    sched.add_job(play_wakeup, DateTrigger(run_date=wu), id="wakeup")
+                    sched.add_job(play_wakeup, DateTrigger(run_date=wu), id="wakeup", replace_existing=True)
                     log.info("Scheduled wakeup @ %s", wu)
         elif RULES.get("wakeup_time") and not RULES.get("wakeup_enabled", True):
             log.info("⏸️ Wakeup is disabled (wakeup_enabled=false in config)")
@@ -3374,7 +3406,7 @@ def schedule_today():
                     end_dt.strftime("%H:%M"), cutoff_str,
                 )
             elif dt > now_local():
-                sched.add_job(play_evening_content, DateTrigger(run_date=dt), id="evening")
+                sched.add_job(play_evening_content, DateTrigger(run_date=dt), id="evening", replace_existing=True)
                 log.info("Scheduled evening content @ %s (ends ~%s, cutoff %s)",
                          dt, end_dt.strftime("%H:%M"), cutoff_str)
 
@@ -3383,7 +3415,7 @@ def schedule_today():
         if sunrise_str:
             sunrise_warn_dt = today_at(sunrise_str) - timedelta(minutes=5)
             if sunrise_warn_dt > now_local():
-                sched.add_job(play_sunrise_warning, DateTrigger(run_date=sunrise_warn_dt), id="sunrise_warning")
+                sched.add_job(play_sunrise_warning, DateTrigger(run_date=sunrise_warn_dt), id="sunrise_warning", replace_existing=True)
                 log.info("Scheduled sunrise warning @ %s (5 min before sunrise)", sunrise_warn_dt)
 
         # Dhuhr warning — 10 minutes before Asr (end of Dhuhr time)
@@ -3391,7 +3423,7 @@ def schedule_today():
         if asr_str:
             dhuhr_warn_dt = today_at(asr_str) - timedelta(minutes=10)
             if dhuhr_warn_dt > now_local():
-                sched.add_job(play_dhuhr_warning, DateTrigger(run_date=dhuhr_warn_dt), id="dhuhr_warning")
+                sched.add_job(play_dhuhr_warning, DateTrigger(run_date=dhuhr_warn_dt), id="dhuhr_warning", replace_existing=True)
                 log.info("Scheduled Dhuhr warning @ %s (10 min before Asr)", dhuhr_warn_dt)
 
         # Asr warning — 10 minutes before Maghrib (12 min on Friday to clear Friday prayer)
@@ -3399,7 +3431,7 @@ def schedule_today():
             asr_warn_offset = 12 if now_local().weekday() == 4 else 10
             asr_warn_dt = today_at(maghrib) - timedelta(minutes=asr_warn_offset)
             if asr_warn_dt > now_local():
-                sched.add_job(play_asr_warning, DateTrigger(run_date=asr_warn_dt), id="asr_warning")
+                sched.add_job(play_asr_warning, DateTrigger(run_date=asr_warn_dt), id="asr_warning", replace_existing=True)
                 log.info("Scheduled Asr warning @ %s (%d min before Maghrib)", asr_warn_dt, asr_warn_offset)
 
         # Maghrib warning — 10 minutes before Isha (suspended when Isha is fully skipped)
@@ -3408,7 +3440,7 @@ def schedule_today():
         if isha_str and not isha_fully_skipped:
             maghrib_warn_dt = today_at(isha_str) - timedelta(minutes=10)
             if maghrib_warn_dt > now_local():
-                sched.add_job(play_maghrib_warning, DateTrigger(run_date=maghrib_warn_dt), id="maghrib_warning")
+                sched.add_job(play_maghrib_warning, DateTrigger(run_date=maghrib_warn_dt), id="maghrib_warning", replace_existing=True)
                 log.info("Scheduled Maghrib warning @ %s (10 min before Isha)", maghrib_warn_dt)
         elif isha_fully_skipped:
             log.info("Maghrib warning suspended: Isha is combined/skipped")
@@ -3420,7 +3452,7 @@ def schedule_today():
                 gap = float(RULES.get("friday_prayer_gap_seconds", 5))
                 fp_dt = today_at(maghrib) - timedelta(seconds=fp_len + gap)
                 if fp_dt > now_local():
-                    sched.add_job(play_friday_prayer, DateTrigger(run_date=fp_dt), id="friday_prayer")
+                    sched.add_job(play_friday_prayer, DateTrigger(run_date=fp_dt), id="friday_prayer", replace_existing=True)
                     log.info("Scheduled Friday prayer @ %s (%.0fs audio + %.0fs gap before Maghrib)", fp_dt, fp_len, gap)
                 else:
                     log.info("Skipping Friday prayer: scheduled time %s already passed", fp_dt)
@@ -4417,6 +4449,14 @@ def api_add_speaker_by_ip():
     try:
         body = request.get_json(force=True, silent=True) or {}
         ip = (body.get("ip") or "").strip()
+        # B-Belgium-34 (v1.9.3): honour a user-supplied name if provided.
+        # Previously the handler ignored the `name` field on the request body —
+        # the friendly name only came from the Cast handshake, which routinely
+        # times out or returns the IP placeholder on slow / partially-isolated
+        # networks. Result: the saved name was the IP string, and a later
+        # rediscovery picked up the SAME device with its real friendly_name and
+        # stored it as a SECOND entry → duplicate speaker on every dashboard.
+        supplied_name = (body.get("name") or "").strip()
         if not ip:
             return jsonify({"ok": False, "error": "ip required"}), 400
         import re as _re
@@ -4429,17 +4469,38 @@ def api_add_speaker_by_ip():
         if not _is_cast_port_alive(ip, timeout=3.0):
             return jsonify({"ok": False, "error": f"{ip}:8009 unreachable. Is the speaker on, on the same WiFi, and Google Cast (not Alexa)?"}), 400
 
-        # Try to instantiate via direct-IP path
+        # Try to instantiate via direct-IP path. The handshake's friendly_name
+        # is treated as a hint — if the user supplied one, theirs wins.
         try:
             import pychromecast as _pc
             host_tuple = (ip, 8009, ip, "Google Cast", ip)  # name placeholder; replaced after status
             cast = _pc.get_chromecast_from_host(host_tuple)
             cast.wait(timeout=10)
-            friendly = getattr(cast, "name", None) or getattr(getattr(cast, "cast_info", None), "friendly_name", None) or ip
+            handshake_name = (
+                getattr(cast, "name", None)
+                or getattr(getattr(cast, "cast_info", None), "friendly_name", None)
+            )
         except Exception as e:
             return jsonify({"ok": False, "error": f"Cast handshake failed: {e}"}), 400
 
-        # Persist to known_speakers.json
+        # Resolve the canonical friendly name:
+        #   1. user-supplied name (intent wins over discovery)
+        #   2. handshake-reported friendly name (if not a placeholder)
+        #   3. fall back to the IP itself (so something gets persisted)
+        if supplied_name:
+            friendly = supplied_name
+        elif handshake_name and handshake_name not in (ip, "Google Cast"):
+            friendly = handshake_name
+        else:
+            friendly = ip
+
+        # Persist to known_speakers.json. B-Belgium-34 (v1.9.3): de-duplicate
+        # by IP before inserting — any prior entry pointing at this IP (whether
+        # under the same name, under the IP-as-name placeholder, or under the
+        # old handshake name) is dropped. Without this dedup, a second call to
+        # add_by_ip with a better name (or a subsequent rediscovery that finds
+        # the same device under a proper friendly_name) leaves both rows in
+        # place and the dashboard shows the same speaker twice.
         ROOT = os.path.dirname(os.path.abspath(__file__))
         KH = os.path.join(ROOT, "known_speakers.json")
         try:
@@ -4447,12 +4508,19 @@ def api_add_speaker_by_ip():
             if os.path.exists(KH):
                 with open(KH) as f:
                     known = json.load(f) or {}
+            # Drop ANY existing entry pointing at this IP — one IP, one row.
+            removed = [k for k, v in known.items() if v == ip and k != friendly]
+            for k in removed:
+                del known[k]
             known[friendly] = ip
             with open(KH, "w") as f:
                 json.dump(known, f, indent=2)
-            log.info(f"O36: known_speakers.json updated with {friendly} -> {ip}")
+            if removed:
+                log.info(f"add_by_ip: replaced {len(removed)} stale entr{'y' if len(removed)==1 else 'ies'} pointing at {ip} (was {removed}) -> {friendly} -> {ip}")
+            else:
+                log.info(f"add_by_ip: known_speakers.json updated with {friendly} -> {ip}")
         except Exception as e:
-            log.warning(f"O36: persist to known_speakers.json failed: {e} — speaker still added live")
+            log.warning(f"add_by_ip: persist to known_speakers.json failed: {e} — speaker still added live")
 
         # Refresh discovery so the new speaker is in _general_casts
         try:

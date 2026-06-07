@@ -526,12 +526,34 @@ def L9_autoupdate():
       f"{p} {'present' if os.path.isfile(p) else 'MISSING'}")
 
     # /etc/default/castadhan-update has real repo (not placeholder)
+    # B-Belgium-40 (v1.9.3): strip comment lines before checking — earlier
+    # versions of castadhan-update.defaults included historical text mentioning
+    # the literal placeholder string ('yourname/castadhan-portable') in a
+    # comment, which made this check false-fail even though the actual
+    # GITHUB_REPO= value was correct. Also: the failure message used to read
+    # like a pass ("real repo set, no placeholder") regardless of state, so
+    # operators saw '✗ real repo set, no placeholder' which was baffling.
+    # Now we describe the actual finding.
     try:
-        cfg = read("/etc/default/castadhan-update")
+        raw = read("/etc/default/castadhan-update")
+        # Keep only non-comment, non-blank lines for the check.
+        cfg = "\n".join(
+            line for line in raw.splitlines()
+            if line.strip() and not line.lstrip().startswith("#")
+        )
         has_real = "sabreenaapa-coder/castadhan-portable" in cfg
         no_placeholder = "yourname/castadhan-portable" not in cfg
-        t("HIGH", cat, "update-config-real-repo", has_real and no_placeholder,
-          "real repo set, no placeholder")
+        passed = has_real and no_placeholder
+        if passed:
+            msg = "real repo set, no placeholder"
+        else:
+            parts = []
+            if not has_real:
+                parts.append("expected 'sabreenaapa-coder/castadhan-portable' NOT FOUND")
+            if not no_placeholder:
+                parts.append("placeholder 'yourname/castadhan-portable' STILL PRESENT")
+            msg = "; ".join(parts) or "unknown failure"
+        t("HIGH", cat, "update-config-real-repo", passed, msg)
     except Exception as e: err("HIGH", cat, "update-config-real-repo", e)
 
     # Update timer enabled + active

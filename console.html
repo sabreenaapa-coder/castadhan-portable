@@ -698,6 +698,18 @@
             <label><input type="radio" name="high-lat-method" value="1_7_rule"> 1/7 Rule</label>
             <label><input type="radio" name="high-lat-method" value="static_offset"> Static Offset</label>
           </div>
+          <!-- B-Belgium-38 (v1.9.3): opt-in for "use this method year-round,
+               not only when persistent twilight is detected". UK users at
+               51-54°N typically want the static offset to fire every night in
+               summer because Aladhan's raw ISNA Isha sits past 23:20 even
+               outside the strict persistent-twilight band. -->
+          <div class="setting-item">
+            <input type="checkbox" id="config-isha-always-apply">
+            <label for="config-isha-always-apply" style="font-size:.9em;">
+              Always apply this method
+              <span style="color:var(--silver); font-weight:normal;">— ignore persistent-twilight detection (UK summer / mosque-published timetables)</span>
+            </label>
+          </div>
           <div class="setting-item" id="static-offset-container">
             <label>Minutes after Maghrib <span id="static-offset-value" class="slider-value">90</span></label>
             <input type="range" id="config-static-offset" class="range-input" min="0" max="180" value="90" step="5">
@@ -2371,6 +2383,9 @@ async function loadConfig(options) {
       $('config-static-offset').value = cfg.rules.isha_static_offset_minutes || 90;
       $('static-offset-value').textContent = cfg.rules.isha_static_offset_minutes || 90;
       $('config-isha-max-time').value = cfg.rules.isha_max_time || '';
+      // B-Belgium-38 (v1.9.3): always-apply flag.
+      if ($('config-isha-always-apply'))
+        $('config-isha-always-apply').checked = cfg.rules.isha_method_always_apply === true;
       $('config-fajr-couple').checked = cfg.rules.fajr_at_start_when_isha_capped !== false;
       $('config-scan-frequency').value = cfg.rules.twilight_scan_frequency_days || 7;
       
@@ -2457,6 +2472,8 @@ async function saveConfig() {
         high_latitude_method: document.querySelector('input[name="high-lat-method"]:checked').value,
         isha_static_offset_minutes: parseInt($('config-static-offset').value),
         isha_max_time: ($('config-isha-max-time').value || '').trim(),
+        // B-Belgium-38 (v1.9.3): persist the always-apply flag.
+        isha_method_always_apply: !!($('config-isha-always-apply') && $('config-isha-always-apply').checked),
         fajr_at_start_when_isha_capped: $('config-fajr-couple').checked,
         twilight_scan_frequency_days: parseInt($('config-scan-frequency').value),
         morning_dhikr_time: $('config-dhikr-time').value,
