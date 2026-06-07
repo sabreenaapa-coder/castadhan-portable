@@ -48,8 +48,12 @@ apt-get install -y --no-install-recommends \
   ffmpeg \
   avahi-daemon \
   ca-certificates curl \
+  iw rfkill \
   >/dev/null
-ok "python3, ffmpeg, avahi-daemon installed"
+ok "python3, ffmpeg, avahi-daemon, iw, rfkill installed"
+# v1.9.2 (B-Belgium-32): iw + rfkill are needed below for the WiFi-country
+# detection block. Bookworm Lite doesn't ship them by default, so Imager's
+# `[rfkill, unblock, wifi]` runcmd silently fails on a fresh Pi.
 
 # ---- 2. user ---------------------------------------------------------------
 say "Creating service user"
@@ -133,6 +137,73 @@ if [ -d /etc/polkit-1/rules.d ]; then
   ok "polkit rule for NetworkManager installed (WiFi wizard)"
 else
   warn "/etc/polkit-1/rules.d missing — WiFi wizard won't work until polkit is present"
+fi
+
+# v1.9.2 (B-Belgium-31): set the WiFi regulatory domain on first install so
+# wlan0 actually becomes usable. Pi OS Lite (Bookworm) ships with no country
+# code by default — wlan0 stays "unavailable" to NetworkManager, `nmcli wifi
+# rescan` returns nothing, and the v1.9.0 WiFi wizard silently fails with
+# "no networks found". A Pi posted to a stranger gets stuck at Stage 7 with
+# no obvious diagnosis. Bug surfaced commissioning masood's Pi in Swansea
+# (2026-06-07) — the first deployment where the wizard had to handle a fresh
+# Pi that hadn't had raspi-config run interactively first.
+say "Setting WiFi regulatory domain"
+if command -v iw >/dev/null 2>&1; then
+  CURRENT_CC=$(iw reg get 2>/dev/null | awk '/^country/ {gsub(":","",$2); print $2; exit}')
+else
+  CURRENT_CC=""
+fi
+if [ -z "$CURRENT_CC" ] || [ "$CURRENT_CC" = "00" ]; then
+  # Derive country from system timezone, fall back to GB for the small fleet.
+  CURRENT_TZ=$(timedatectl show --property=Timezone --value 2>/dev/null || echo "")
+  case "$CURRENT_TZ" in
+    Europe/London|Europe/Belfast|Europe/Edinburgh|Europe/Cardiff|Europe/Isle_of_Man)
+                                              WIFI_CC=GB ;;
+    Europe/Dublin)                            WIFI_CC=IE ;;
+    Europe/Brussels|Europe/Amsterdam|Europe/Luxembourg)
+                                              WIFI_CC=BE ;;
+    Europe/Berlin)                            WIFI_CC=DE ;;
+    Europe/Paris)                             WIFI_CC=FR ;;
+    Europe/Madrid)                            WIFI_CC=ES ;;
+    Europe/Rome)                              WIFI_CC=IT ;;
+    Europe/Lisbon)                            WIFI_CC=PT ;;
+    America/Los_Angeles|America/Denver|America/Chicago|America/New_York|America/Detroit|America/*)
+                                              WIFI_CC=US ;;
+    Asia/Karachi)                             WIFI_CC=PK ;;
+    Asia/Dubai)                               WIFI_CC=AE ;;
+    Asia/Riyadh)                              WIFI_CC=SA ;;
+    Asia/Kolkata|Asia/Calcutta)               WIFI_CC=IN ;;
+    Australia/*)                              WIFI_CC=AU ;;
+    Pacific/Auckland)                         WIFI_CC=NZ ;;
+    *)
+      WIFI_CC=GB
+      warn "unrecognised timezone '$CURRENT_TZ' — defaulting WiFi country to GB"
+      ;;
+  esac
+  if command -v raspi-config >/dev/null 2>&1; then
+    raspi-config nonint do_wifi_country "$WIFI_CC" >/dev/null 2>&1 || true
+    # Verify it landed
+    if command -v iw >/dev/null 2>&1; then
+      NEW_CC=$(iw reg get 2>/dev/null | awk '/^country/ {gsub(":","",$2); print $2; exit}')
+      if [ "$NEW_CC" = "$WIFI_CC" ]; then
+        ok "WiFi regulatory domain set to $WIFI_CC (was unset)"
+      else
+        warn "tried to set WiFi country to $WIFI_CC but iw reg get returns '$NEW_CC' — wlan0 may stay disabled"
+      fi
+    else
+      ok "WiFi regulatory domain configured for $WIFI_CC (iw not present, cannot verify)"
+    fi
+    # Best-effort: bring wlan0 up so NetworkManager moves it out of 'unavailable'.
+    if ip link show wlan0 >/dev/null 2>&1; then
+      ip link set wlan0 up >/dev/null 2>&1 || true
+      # Nudge NetworkManager to re-scan now that the radio is live.
+      nmcli device wifi rescan >/dev/null 2>&1 || true
+    fi
+  else
+    warn "raspi-config not installed — set WiFi country manually with: iw reg set $WIFI_CC"
+  fi
+else
+  ok "WiFi regulatory domain already set ($CURRENT_CC) — leaving as is"
 fi
 
 # `at` command is needed for the post-update cleanup of rollback dir

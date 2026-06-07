@@ -2234,25 +2234,42 @@ function getMockWeather() {
 let _lastLoadedSnapshot = null;
 function _captureFormSnapshot() {
   try {
-    const ids = ['config-city','config-country','config-latitude','config-longitude','config-timezone',
-                 'config-method','config-madhab','config-fajr-cap','config-weekend-offset',
-                 'config-morning-dhikr','config-wakeup-enable','config-wakeup-time','config-wakeup-weekdays',
-                 'config-evening-delay','config-evening-cutoff','config-suhoor-lead'];
+    /* B-Belgium-37 (v1.9.2): the previous hardcoded id whitelist was
+       missing config-static-offset, config-isha-max-time, config-fajr-mode,
+       config-considerate-mode, config-quiet-start/end, config-include-name,
+       config-exclude-names, and several others — meaning any change to
+       those slipped past the dirty check and got silently discarded if the
+       user closed the modal without clicking "💾 Save to YAML". Now we scan
+       every config-* form element inside #settingsModal dynamically. The
+       high-latitude-method radio group uses a name attr (not a config- id)
+       so we capture it separately under a sentinel key. */
+    const modal = document.getElementById('settingsModal');
+    if (!modal) { _lastLoadedSnapshot = {}; return; }
     _lastLoadedSnapshot = {};
-    ids.forEach(id => {
-      const el = document.getElementById(id);
-      if (!el) return;
-      _lastLoadedSnapshot[id] = (el.type === 'checkbox') ? el.checked : el.value;
+    modal.querySelectorAll('input[id^="config-"], select[id^="config-"], textarea[id^="config-"]').forEach(el => {
+      _lastLoadedSnapshot[el.id] = (el.type === 'checkbox' || el.type === 'radio')
+        ? el.checked
+        : el.value;
     });
+    const sel = modal.querySelector('input[name="high-lat-method"]:checked');
+    if (sel) _lastLoadedSnapshot['__high-lat-method'] = sel.value;
   } catch (e) { _lastLoadedSnapshot = null; }
 }
 function _settingsFormDirty() {
   if (!_lastLoadedSnapshot) return false;
+  const modal = document.getElementById('settingsModal');
+  if (!modal) return false;
   for (const id of Object.keys(_lastLoadedSnapshot)) {
+    if (id === '__high-lat-method') continue;
     const el = document.getElementById(id);
     if (!el) continue;
-    const cur = (el.type === 'checkbox') ? el.checked : el.value;
+    const cur = (el.type === 'checkbox' || el.type === 'radio') ? el.checked : el.value;
     if (cur !== _lastLoadedSnapshot[id]) return true;
+  }
+  if (_lastLoadedSnapshot['__high-lat-method'] != null) {
+    const sel = modal.querySelector('input[name="high-lat-method"]:checked');
+    const cur = sel ? sel.value : null;
+    if (cur !== _lastLoadedSnapshot['__high-lat-method']) return true;
   }
   return false;
 }
@@ -2789,6 +2806,11 @@ async function wifiConnect() {
 }
 
 function closeSettings() {
+  /* B-Belgium-37 (v1.9.2): confirm before closing if dirty — previously the
+     × button silently dropped any unsaved edits to slider/time fields. */
+  if (typeof _settingsFormDirty === 'function' && _settingsFormDirty()) {
+    if (!confirm('You have unsaved changes in Settings.\n\nClose without saving?')) return;
+  }
   $('settingsModal').style.display = 'none';
 }
 
@@ -3174,6 +3196,11 @@ window.addEventListener('load', () => {
   window.onclick = function(event) {
     const modal = $('settingsModal');
     if (event.target == modal) {
+      /* B-Belgium-37 (v1.9.2): same dirty-guard as closeSettings() so
+         click-outside doesn't silently discard unsaved edits. */
+      if (typeof _settingsFormDirty === 'function' && _settingsFormDirty()) {
+        if (!confirm('You have unsaved changes in Settings.\n\nClose without saving?')) return;
+      }
       modal.style.display = 'none';
     }
   };
