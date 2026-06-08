@@ -4533,6 +4533,99 @@ def api_add_speaker_by_ip():
         log.error(f"add_by_ip endpoint error: {e}")
         return jsonify({"ok": False, "error": str(e)}), 500
 
+
+@app.route("/api/speakers/remove", methods=["POST"])
+def api_remove_speaker():
+    """B-Belgium-41 (v1.9.4): explicit speaker removal endpoint.
+
+    Pairs with v1.9.3's add_by_ip de-duplication. Removes a speaker
+    completely from all three persistence layers:
+      1. known_speakers.json (the manual-add registry)
+      2. UI["enabled"]["speakers"][name] (the per-speaker on/off state)
+      3. UI["volumes"][name] (the per-speaker volume)
+    Plus disconnects any live Chromecast object for that name and
+    re-runs discover_casts() so the in-memory list rebuilds clean.
+
+    Until v1.9.4, the dashboard had no way to remove a speaker — once
+    added (by manual IP or by mDNS discovery), an entry persisted in
+    the UI state dicts forever, even after explicit toggle-off and
+    even after removing from known_speakers.json by hand. The orphans
+    surfaced on masood-pi after yesterday's accidental duplicate add
+    (B-Belgium-34): even after the duplicate row was cleared from
+    devices.speakers, its keys in UI["volumes"] and UI["enabled"]
+    persisted across restarts. Invisible to the dashboard render,
+    but a long-term cleanliness problem.
+
+    Body: {"name": "<speaker name>"}
+    Returns: {"ok": true, "name": "<...>", "removed": {known, enabled, volume}}
+    """
+    try:
+        data = request.get_json(force=True) or {}
+        name = (data.get("name") or "").strip()
+        if not name:
+            return jsonify({"ok": False, "error": "name required"}), 400
+
+        removed = {"known_speakers": False, "enabled": False, "volume": False}
+
+        # Layer 1: known_speakers.json
+        try:
+            ROOT_ = os.path.dirname(os.path.abspath(__file__))
+            KH = os.path.join(ROOT_, "known_speakers.json")
+            if os.path.exists(KH):
+                with open(KH) as f:
+                    known = json.load(f) or {}
+                if name in known:
+                    del known[name]
+                    with open(KH, "w") as f:
+                        json.dump(known, f, indent=2)
+                    removed["known_speakers"] = True
+        except Exception as e:
+            log.warning(f"remove: known_speakers.json write failed: {e}")
+
+        # Layer 2 + 3: UI state dicts
+        with _state_lock:
+            if name in UI.get("enabled", {}).get("speakers", {}):
+                del UI["enabled"]["speakers"][name]
+                removed["enabled"] = True
+            if name in UI.get("volumes", {}):
+                del UI["volumes"][name]
+                removed["volume"] = True
+            _save_state(UI)
+
+        # Stop + disconnect any live cast object for this name
+        try:
+            c = _cast_by_name(name)
+            if c:
+                try: ensure_connected(c)
+                except Exception: pass
+                try: c.media_controller.stop()
+                except Exception: pass
+                try: c.disconnect(blocking=False)
+                except Exception: pass
+                with _cast_lock:
+                    _speaker_playback_status.pop(name, None)
+        except Exception as e:
+            log.warning(f"remove: live cast cleanup for '{name}' failed: {e}")
+
+        # Refresh in-memory discovery so the speaker tile rebuilds clean
+        try:
+            discover_casts()
+        except Exception as e:
+            log.warning(f"remove: post-remove discovery failed: {e}")
+
+        log.info(
+            f"Speaker '{name}' removed "
+            f"(known_speakers={removed['known_speakers']}, "
+            f"enabled={removed['enabled']}, "
+            f"volume={removed['volume']})"
+        )
+        return jsonify({"ok": True, "name": name, "removed": removed})
+
+    except Exception as e:
+        log.error(f"Error removing speaker: {e}")
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
 @app.route("/api/schedule/refresh", methods=["POST"])
 def api_refresh_schedule():
     """Manually refresh today's schedule"""

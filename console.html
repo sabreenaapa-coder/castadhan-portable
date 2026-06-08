@@ -1699,15 +1699,24 @@ async function renderSpeakers(passedData) {
       const isEnabled = data.enabled?.speakers?.[s.name] !== false;
       const volume = data.volumes?.[s.name] || data.volumes?.__default || 70;
       
+      // B-Belgium-41 (v1.9.4): expose a remove button so dupes and
+      // stale entries can be cleaned from the dashboard, not by editing
+      // known_speakers.json by hand. Escape the speaker name for the
+      // onclick attribute (apostrophes in names like "Mum's room"
+      // would break the JS otherwise).
+      const safeName = String(s.name).replace(/'/g, "\\'").replace(/"/g, '&quot;');
       div.innerHTML = `
         <span class="speaker-status ${isPlaying ? 'status-playing' : 'status-stopped'}"></span>
         <span class="speaker-name" title="${s.name}">${s.name}</span>
         <label class="switch">
-          <input type="checkbox" ${isEnabled ? 'checked' : ''} onchange="toggleSpeaker('${s.name}', this.checked)">
+          <input type="checkbox" ${isEnabled ? 'checked' : ''} onchange="toggleSpeaker('${safeName}', this.checked)">
           <span class="slider"></span>
         </label>
-        <input type="range" class="speaker-volume" min="0" max="100" value="${volume}" 
-               onchange="setVolume('${s.name}', this.value)">
+        <input type="range" class="speaker-volume" min="0" max="100" value="${volume}"
+               onchange="setVolume('${safeName}', this.value)">
+        <button class="speaker-remove" title="Remove this speaker from the dashboard"
+                onclick="removeSpeaker('${safeName}')"
+                style="background:none; border:none; cursor:pointer; opacity:.55; font-size:1.05em; padding:2px 6px;">🗑</button>
       `;
       speakerList.appendChild(div);
     });
@@ -2108,6 +2117,32 @@ async function setVolume(name, volume) {
     });
   } catch (err) {
     showToast('Error setting volume');
+  }
+}
+
+/* B-Belgium-41 (v1.9.4): explicit speaker removal from the dashboard.
+   Confirms before sending so a stray click doesn't destroy state. The
+   API at /api/speakers/remove cleans known_speakers.json AND prunes
+   the UI dict orphans that would otherwise persist after a soft
+   "disable" toggle. */
+async function removeSpeaker(name) {
+  if (!confirm(`Remove "${name}" from the dashboard?\n\nThis clears its name, volume, and enabled state. The physical Cast device on your network is not affected — you can add it again later via "Add Speaker by IP" or it'll show up on the next discovery scan.`)) return;
+  try {
+    const res = await fetch('/api/speakers/remove', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name })
+    });
+    const d = await res.json();
+    if (res.ok && d.ok) {
+      showToast(`Removed "${name}"`);
+      // Re-render the speaker tile from a fresh /api/state
+      renderSpeakers();
+    } else {
+      showToast(`Remove failed: ${d.error || 'unknown'}`);
+    }
+  } catch (err) {
+    showToast(`Remove error: ${err.message}`);
   }
 }
 
