@@ -89,7 +89,18 @@ fi
 log "Update available: $CURRENT → $LATEST_VERSION. Beginning atomic update."
 
 # ---- 2. Download tarball to a staging dir -----------------------------------
-STAGE=$(mktemp -d /tmp/castadhan-update.XXXXXX)
+# B-Belgium-43 (v1.9.6): stage in /var/tmp, not /tmp. Pi OS Lite mounts /tmp
+# as tmpfs sized at ~half of available RAM (453 MB on a Pi 3B+ with 1 GB
+# RAM, ~209 MB on smaller variants). The release tarball is ~273 MB
+# compressed and ~550 MB once extracted — won't fit in tmpfs on smaller
+# Pis, so `tar -xzf` hits "No space left on device" partway through and
+# aborts. Two full auto-update cycles silently failed on masood-pi today
+# (v1.9.3 attempt at 04:41 + v1.9.5 attempt at 22:00) before this was
+# diagnosed. /var/tmp lives on rootfs (50+ GB free on every Pi in the
+# fleet) so it can absorb any reasonable release. The trap still cleans up
+# on exit, and a leftover stage from a crashed run is just a hidden dir
+# under /var/tmp that survives reboots (which is fine — it's < 600 MB).
+STAGE=$(mktemp -d /var/tmp/castadhan-update.XXXXXX)
 trap 'rm -rf "$STAGE"' EXIT
 
 log "Downloading $TARBALL_URL"
