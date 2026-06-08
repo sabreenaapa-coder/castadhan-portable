@@ -3526,6 +3526,14 @@ def _play_to_targets(media_relpath: str, target: Optional[str] = None, audio_typ
             return
         _last_play_timestamp = now
 
+    # B-Belgium-42 (v1.9.5): _play_to_targets now writes play_history.jsonl
+    # for every call, covering play_twilight + play_takbeeraat_all + any test/
+    # manual playback that routes through here. Before this only the adhan
+    # path (play_adhan_all) recorded outcomes, leaving the dhikr/wakeup/
+    # warning/twilight/takbeeraat plays invisible in /api/play_history —
+    # making it impossible to audit "did the morning dhikr fire?" without
+    # diving into castadhan.log.
+    played = 0
     try:
         url = local_media_url(media_relpath)
 
@@ -3533,6 +3541,7 @@ def _play_to_targets(media_relpath: str, target: Optional[str] = None, audio_typ
             cast = _cast_by_name(target)
             if cast:
                 play_on_cast(cast, url, _speaker_volume(cast.name), audio_type, prayer_name)
+                played = 1
             else:
                 log.warning(f"Target {target} not found")
         else:
@@ -3540,12 +3549,21 @@ def _play_to_targets(media_relpath: str, target: Optional[str] = None, audio_typ
             casts = _all_casts()
             if not casts:
                 log.warning("No speakers available for playback")
+                if audio_type:
+                    _log_play(audio_type, prayer_name, "NO_SPEAKERS", speakers_count=0)
                 return
 
             for cast in casts:
                 play_on_cast(cast, url, _speaker_volume(cast.name), audio_type, prayer_name)
+                played += 1
+        if audio_type:
+            _log_play(audio_type, prayer_name,
+                      "PASS" if played else "NO_SPEAKERS",
+                      speakers_count=played)
     except Exception as e:
         log.error(f"Error playing media {media_relpath}: {e}")
+        if audio_type:
+            _log_play(audio_type, prayer_name, "FAIL", speakers_count=played, error=e)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # O21 + O25 FIX (v1.2.0, Tue 26 May 2026 — post-Belgium silent-Maghrib lesson):
@@ -3827,16 +3845,22 @@ def play_sunrise_warning():
 
     log.info("Playing fajr warning (5 min to sunrise) on all enabled speakers")
 
+    # B-Belgium-42 (v1.9.5): record outcome to play_history.jsonl.
+    played = 0
     try:
         url = local_media_url(AUDIO["fajr_warning"])
         for cast in _all_casts():
             if _should_play_on_speaker(cast.name, "fajr_warning"):
                 vol = _speaker_volume(cast.name)
                 play_on_cast(cast, url, vol, "fajr_warning")
+                played += 1
             else:
                 log.debug(f"Speaker {cast.name} routing disabled for fajr_warning, skipping")
+        _log_play("fajr_warning", None,
+                  "PASS" if played else "NO_SPEAKERS", speakers_count=played)
     except Exception as e:
         log.error(f"Error playing fajr warning: {e}")
+        _log_play("fajr_warning", None, "FAIL", speakers_count=played, error=e)
 
 def play_asr_warning():
     """Play Asr warning audio 5 minutes before Asr time"""
@@ -3845,16 +3869,22 @@ def play_asr_warning():
 
     log.info("Playing Asr warning (5 min to Asr) on all enabled speakers")
 
+    # B-Belgium-42 (v1.9.5): record outcome to play_history.jsonl.
+    played = 0
     try:
         url = local_media_url(AUDIO["asr_warning"])
         for cast in _all_casts():
             if _should_play_on_speaker(cast.name, "asr_warning"):
                 vol = _speaker_volume(cast.name)
                 play_on_cast(cast, url, vol, "asr_warning")
+                played += 1
             else:
                 log.debug(f"Speaker {cast.name} routing disabled for asr_warning, skipping")
+        _log_play("asr_warning", None,
+                  "PASS" if played else "NO_SPEAKERS", speakers_count=played)
     except Exception as e:
         log.error(f"Error playing Asr warning: {e}")
+        _log_play("asr_warning", None, "FAIL", speakers_count=played, error=e)
 
 def play_dhuhr_warning():
     """Play Dhuhr warning audio 10 minutes before Dhuhr time"""
@@ -3863,16 +3893,22 @@ def play_dhuhr_warning():
 
     log.info("Playing Dhuhr warning (10 min to Dhuhr) on all enabled speakers")
 
+    # B-Belgium-42 (v1.9.5): record outcome to play_history.jsonl.
+    played = 0
     try:
         url = local_media_url(AUDIO["dhuhr_warning"])
         for cast in _all_casts():
             if _should_play_on_speaker(cast.name, "dhuhr_warning"):
                 vol = _speaker_volume(cast.name)
                 play_on_cast(cast, url, vol, "dhuhr_warning")
+                played += 1
             else:
                 log.debug(f"Speaker {cast.name} routing disabled for dhuhr_warning, skipping")
+        _log_play("dhuhr_warning", None,
+                  "PASS" if played else "NO_SPEAKERS", speakers_count=played)
     except Exception as e:
         log.error(f"Error playing Dhuhr warning: {e}")
+        _log_play("dhuhr_warning", None, "FAIL", speakers_count=played, error=e)
 
 def play_maghrib_warning():
     """Play Maghrib warning audio 5 minutes before Maghrib time"""
@@ -3881,16 +3917,22 @@ def play_maghrib_warning():
 
     log.info("Playing Maghrib warning (5 min to Maghrib) on all enabled speakers")
 
+    # B-Belgium-42 (v1.9.5): record outcome to play_history.jsonl.
+    played = 0
     try:
         url = local_media_url(AUDIO["maghrib_warning"])
         for cast in _all_casts():
             if _should_play_on_speaker(cast.name, "maghrib_warning"):
                 vol = _speaker_volume(cast.name)
                 play_on_cast(cast, url, vol, "maghrib_warning")
+                played += 1
             else:
                 log.debug(f"Speaker {cast.name} routing disabled for maghrib_warning, skipping")
+        _log_play("maghrib_warning", None,
+                  "PASS" if played else "NO_SPEAKERS", speakers_count=played)
     except Exception as e:
         log.error(f"Error playing Maghrib warning: {e}")
+        _log_play("maghrib_warning", None, "FAIL", speakers_count=played, error=e)
 
 def play_morning_dhikr():
     """Play morning dhikr on all enabled speakers — Surah Kahf on Fridays"""
@@ -3905,6 +3947,8 @@ def play_morning_dhikr():
         log.info("Playing morning dhikr on all enabled speakers")
         audio_key = "morning_dhikr"
 
+    # B-Belgium-42 (v1.9.5): record outcome to play_history.jsonl.
+    played = 0
     try:
         url = local_media_url(AUDIO[audio_key])
 
@@ -3912,10 +3956,14 @@ def play_morning_dhikr():
             if _should_play_on_speaker(cast.name, audio_key):
                 vol = _speaker_volume(cast.name)
                 play_on_cast(cast, url, vol, audio_key)
+                played += 1
             else:
                 log.debug(f"Speaker {cast.name} routing disabled for {audio_key}, skipping")
+        _log_play(audio_key, None,
+                  "PASS" if played else "NO_SPEAKERS", speakers_count=played)
     except Exception as e:
         log.error(f"Error playing morning dhikr: {e}")
+        _log_play(audio_key, None, "FAIL", speakers_count=played, error=e)
 
 def play_evening_content():
     """Play evening content — evening dhikr every evening"""
@@ -3925,16 +3973,22 @@ def play_evening_content():
     log.info("Playing evening dhikr on all enabled speakers")
     audio_key = "evening_dhikr"
 
+    # B-Belgium-42 (v1.9.5): record outcome to play_history.jsonl.
+    played = 0
     try:
         url = local_media_url(AUDIO[audio_key])
         for cast in _all_casts():
             if _should_play_on_speaker(cast.name, audio_key):
                 vol = _speaker_volume(cast.name)
                 play_on_cast(cast, url, vol, audio_key)
+                played += 1
             else:
                 log.debug(f"Speaker {cast.name} routing disabled for {audio_key}, skipping")
+        _log_play(audio_key, None,
+                  "PASS" if played else "NO_SPEAKERS", speakers_count=played)
     except Exception as e:
         log.error(f"Error playing evening content: {e}")
+        _log_play(audio_key, None, "FAIL", speakers_count=played, error=e)
 
 def play_friday_prayer():
     """Play Friday prayer (Dua of the Soul) — scheduled to finish just before Maghrib adhan."""
@@ -3947,16 +4001,22 @@ def play_friday_prayer():
     log.info("Playing Friday prayer (Dua of the Soul) on all enabled speakers")
     audio_key = "friday_prayer"
 
+    # B-Belgium-42 (v1.9.5): record outcome to play_history.jsonl.
+    played = 0
     try:
         url = local_media_url(AUDIO[audio_key])
         for cast in _all_casts():
             if _should_play_on_speaker(cast.name, audio_key):
                 vol = _speaker_volume(cast.name)
                 play_on_cast(cast, url, vol, audio_key)
+                played += 1
             else:
                 log.debug(f"Speaker {cast.name} routing disabled for {audio_key}, skipping")
+        _log_play(audio_key, None,
+                  "PASS" if played else "NO_SPEAKERS", speakers_count=played)
     except Exception as e:
         log.error(f"Error playing Friday prayer: {e}")
+        _log_play(audio_key, None, "FAIL", speakers_count=played, error=e)
 
 def play_wakeup():
     """Play wakeup audio on all enabled speakers"""
@@ -3965,6 +4025,8 @@ def play_wakeup():
 
     log.info("Playing wakeup audio on all enabled speakers")
 
+    # B-Belgium-42 (v1.9.5): record outcome to play_history.jsonl.
+    played = 0
     try:
         url = local_media_url(AUDIO["wakeup"])
 
@@ -3972,10 +4034,14 @@ def play_wakeup():
             if _should_play_on_speaker(cast.name, "wakeup"):
                 vol = _speaker_volume(cast.name)
                 play_on_cast(cast, url, vol, "wakeup")
+                played += 1
             else:
                 log.debug(f"Speaker {cast.name} routing disabled for wakeup, skipping")
+        _log_play("wakeup", None,
+                  "PASS" if played else "NO_SPEAKERS", speakers_count=played)
     except Exception as e:
         log.error(f"Error playing wakeup: {e}")
+        _log_play("wakeup", None, "FAIL", speakers_count=played, error=e)
 
 def play_suhoor_alarm():
     """Play suhoor alarm on enabled speakers during Ramadan (with configurable exclusions and routing)."""
@@ -3984,6 +4050,8 @@ def play_suhoor_alarm():
 
     log.info("🌙 Playing Suhoor alarm on enabled speakers (configurable exclusions applied)")
 
+    # B-Belgium-42 (v1.9.5): record outcome to play_history.jsonl.
+    played = 0
     try:
         # Stop any currently playing audio
         stop_all_audio()
@@ -3999,10 +4067,14 @@ def play_suhoor_alarm():
             if _should_play_on_speaker(cast.name, "suhoor_alarm"):
                 vol = _speaker_volume(cast.name)
                 play_on_cast(cast, url, vol, "suhoor_alarm")
+                played += 1
             else:
                 log.debug(f"Speaker {cast.name} routing disabled for suhoor, skipping")
+        _log_play("suhoor_alarm", None,
+                  "PASS" if played else "NO_SPEAKERS", speakers_count=played)
     except Exception as e:
         log.error(f"Error playing suhoor alarm: {e}")
+        _log_play("suhoor_alarm", None, "FAIL", speakers_count=played, error=e)
 
 def _next_prayer_with_effective(nxt):
     """O32 (v1.2.0, Tue 26 May 2026): enrich next_prayer with the EFFECTIVE
