@@ -1743,9 +1743,11 @@ def discover_casts():
                     _speaker_playback_status[c.name] = False
             stale_to_drop = [c for c in old_casts if id(c) not in new_ids]
 
-        # Disconnect stale objects OUTSIDE the lock (disconnect can block briefly)
+        # Disconnect stale objects OUTSIDE the lock (B-Belgium-49 v1.9.7:
+        # each call hard-capped to 3 sec so a single stuck cast can't hold
+        # up the whole discovery cycle — that was the 9 Jun 2026 deadlock).
         for c in stale_to_drop:
-            _disconnect_cast_quietly(c)
+            _disconnect_cast_bounded(c, timeout_seconds=3.0)
         if stale_to_drop:
             log.info(f"Disconnected {len(stale_to_drop)} stale cast object(s) to prevent thread leak")
 
@@ -1755,6 +1757,26 @@ def discover_casts():
                     UI["enabled"]["speakers"][c.name] = True
                 if c and c.name not in UI["volumes"]:
                     UI["volumes"][c.name] = UI["volumes"].get("__default", _default_volume)
+            # B-Belgium-46 (v1.9.7): purge orphan IP-keyed entries that
+            # don't match any discovered cast name. Older add-by-IP code
+            # paths used to leave these behind; they're cosmetic for
+            # playback (lookup is by cast.name) but confuse operators
+            # diagnosing the state. Only delete keys that look like IPs
+            # AND aren't a current cast name — never touch the canonical
+            # name-keyed entries or __default.
+            import re as _re_b46
+            _IP_RE = _re_b46.compile(r'^\d{1,3}(\.\d{1,3}){3}$')
+            _names = {c.name for c in found_general}
+            for _k in list(UI["enabled"]["speakers"].keys()):
+                if _IP_RE.match(_k) and _k not in _names:
+                    del UI["enabled"]["speakers"][_k]
+                    log.info(f"B-46 cleanup: removed orphan enabled.speakers['{_k}']")
+            for _k in list(UI["volumes"].keys()):
+                if _k == "__default":
+                    continue
+                if _IP_RE.match(_k) and _k not in _names:
+                    del UI["volumes"][_k]
+                    log.info(f"B-46 cleanup: removed orphan volumes['{_k}']")
             _save_state(UI)
 
         log.info("Discovered speakers: %s", [c.name for c in found_general])
@@ -1861,6 +1883,47 @@ def _disconnect_cast_quietly(cast):
                 sc.disconnect()
         except Exception:
             pass
+
+
+def _disconnect_cast_bounded(cast, timeout_seconds: float = 3.0) -> bool:
+    """Disconnect a cast object with a hard wall-clock cap.
+
+    B-Belgium-49 (v1.9.7): _disconnect_cast_quietly() can block forever on a
+    half-open TCP socket after a network blip — observed on son-pi-haverfordwest
+    on 2026-06-09. A network glitch left six Cast sockets in a half-open state;
+    the next discover_casts() entered its stale-cast disconnect loop and never
+    returned, holding APScheduler's only discover_casts slot for HOURS. Every
+    subsequent rediscovery was skipped with "maximum number of running instances
+    reached (1)" and any other code path needing _cast_lock or _state_lock hung
+    too (the dashboard looked frozen).
+
+    Fix: run the disconnect in a daemon thread and join it for at most
+    `timeout_seconds`. If it doesn't complete we abandon the operation — the
+    daemon thread keeps running in the background (will either complete on its
+    own or die at process exit), and the discovery cycle moves on. Worst case
+    we orphan a handful of threads per network blip; restart clears them.
+
+    Returns True on clean disconnect, False on timeout."""
+    import threading
+    if cast is None:
+        return True
+    name = getattr(cast, "name", "?")
+    t = threading.Thread(
+        target=_disconnect_cast_quietly,
+        args=(cast,),
+        daemon=True,
+        name=f"disconnect-{name}",
+    )
+    t.start()
+    t.join(timeout=timeout_seconds)
+    if t.is_alive():
+        log.warning(
+            f"⚠️  Disconnect of cast '{name}' exceeded {timeout_seconds}s — "
+            f"abandoning. Background thread continues (will die at process "
+            f"exit). B-Belgium-49 mitigation."
+        )
+        return False
+    return True
 
 def local_media_url(relpath: str) -> str:
     """Get local media URL with better IP detection"""
@@ -3009,13 +3072,57 @@ def schedule_midnight_refresh():
     except Exception as e:
         log.error(f"Error scheduling midnight refresh: {e}")
 
+_DISCOVER_CASTS_MAX_SECONDS = 45  # 8s mDNS + 6×3s disconnects + iteration headroom
+
+
+def _scheduled_discover_casts():
+    """Cron entry point. Runs discover_casts() with a hard wall-clock cap.
+
+    B-Belgium-49 (v1.9.7): a single wedged discover_casts() with the cron job's
+    max_instances=1 used to silently swallow every subsequent rediscovery attempt
+    for HOURS. Now: if discover_casts() doesn't finish in _DISCOVER_CASTS_MAX_SECONDS
+    we log CRITICAL and let APScheduler fire the next one on schedule. The
+    orphaned worker thread continues in the background (daemon=True), so it
+    won't block process exit, but it may eventually complete or accumulate.
+    A handful of zombies per restart is acceptable; restart clears them.
+
+    Belt-and-braces with _disconnect_cast_bounded(): if the per-disconnect
+    timeout fails to bound things (e.g. the deadlock moves into start_discovery()
+    or get_chromecast_from_host()), this outer cap still releases the cron slot."""
+    import threading
+    t = threading.Thread(
+        target=discover_casts,
+        daemon=True,
+        name="discover_casts-bounded",
+    )
+    t.start()
+    t.join(timeout=_DISCOVER_CASTS_MAX_SECONDS)
+    if t.is_alive():
+        log.critical(
+            f"❌ discover_casts() exceeded {_DISCOVER_CASTS_MAX_SECONDS}s — "
+            f"abandoning this cycle. Orphan thread continues in background. "
+            f"B-Belgium-49 escape hatch. The next scheduled discover_casts "
+            f"WILL still fire."
+        )
+
+
 def schedule_cast_rediscovery():
-    """Schedule periodic cast rediscovery to handle network changes"""
+    """Schedule periodic cast rediscovery to handle network changes.
+
+    v1.9.7 (B-Belgium-48): cron shifted from minute='*/30' (which collides at
+    :00 and :30 with prayers that get capped to round half-hours — Isha tonight
+    on masood's Pi is at 22:30) to minute='2,32'. The +2-minute offset is
+    comfortably clear of any cap target and small enough that the prewarm
+    cadence stays useful.
+
+    v1.9.7 (B-Belgium-49): registers _scheduled_discover_casts (timeout-bounded
+    wrapper) instead of discover_casts directly, so a wedged discovery cannot
+    starve subsequent attempts via APScheduler's max_instances=1 gate."""
     try:
         existing = [job.id for job in sched.get_jobs()]
         if 'cast_rediscovery' not in existing:
-            sched.add_job(discover_casts, CronTrigger(minute="*/30"), id="cast_rediscovery")
-            log.info("Scheduled cast rediscovery every 30 minutes")
+            sched.add_job(_scheduled_discover_casts, CronTrigger(minute="2,32"), id="cast_rediscovery")
+            log.info("Scheduled cast rediscovery at :02 and :32 each hour (bounded to 45s)")
     except Exception as e:
         log.error(f"Error scheduling cast rediscovery: {e}")
 

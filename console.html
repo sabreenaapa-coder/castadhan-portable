@@ -1389,9 +1389,14 @@ function updateHands(){
 
   /* C-3 (v1.5.0): footer version was hardcoded "v3.2" — wrong since v1.0.0.
      Now populated from /api/version (endpoint exists in app.py). Fetched once
-     per page load; cached in window._footerVersionFetched to avoid hammering. */
+     per page load; cached in window._footerVersionFetched to avoid hammering.
+     B-Belgium-50 (v1.9.7): the cache flag used to be set BEFORE the fetch, so
+     a single failed call (e.g. /api/version returns 500 because the service
+     was deadlocked mid-discover_casts — exactly what happened on son's Pi
+     9 Jun 2026) cached "(version unknown)" forever and the user thought
+     the Pi had no version. Now the flag is set only on SUCCESS, so a
+     transient failure is retried on the next render tick. */
   if (!window._footerVersionFetched) {
-    window._footerVersionFetched = true;
     fetch('/api/version').then(r => r.json()).then(d => {
       const v = (d && (d.version || d.ok && d.version)) || '?';
       const el = document.getElementById('footer-version');
@@ -1401,9 +1406,13 @@ function updateHands(){
       const dev = d && d.device_id;
       const de = document.getElementById('footer-device');
       if (de && dev) de.textContent = ' • ' + dev;
+      /* B-Belgium-50: cache only on success — see comment above. */
+      window._footerVersionFetched = true;
     }).catch(() => {
       const el = document.getElementById('footer-version');
       if (el) el.textContent = '(version unknown)';
+      /* Deliberately NOT setting window._footerVersionFetched here, so the
+         next render tick retries. B-Belgium-50. */
     });
   }
   

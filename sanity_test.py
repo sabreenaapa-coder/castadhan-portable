@@ -603,6 +603,36 @@ def L9_autoupdate():
           f'{n} `rm -rf "$PREV_DIR"` found (expect exactly 1 — pre-backup only)')
     except Exception as e: err("MEDIUM", cat, "update-keeps-rollback-window", e)
 
+    # B-Belgium-43 (v1.9.7): the updater's staging path must have enough free
+    # space for the release tarball PLUS its extracted contents. Pi OS Lite
+    # mounts /tmp as tmpfs sized at half of RAM (453 MB on Pi 3B+, ~209 MB on
+    # smaller variants), and the release tarball is ~273 MB compressed / ~550 MB
+    # uncompressed. On 8 Jun 2026 masood-pi silently extract-failed every nightly
+    # update for THREE consecutive versions before this got diagnosed — the
+    # symptom was just a line in /var/log/castadhan-update.log. This check parses
+    # the staging path out of the deployed updater (currently /var/tmp/...) and
+    # warns if the underlying mount has under 700 MB free. HIGH (not CRITICAL):
+    # the running adhan service is fine; only future auto-updates would fail.
+    try:
+        upd_path = INSTALL_DIR + "/deploy/castadhan-update.sh"
+        upd = read(upd_path)
+        m = re.search(r'mktemp\s+-d\s+(/\S+)/castadhan-update', upd)
+        if not m:
+            t("HIGH", cat, "update-staging-space", False,
+              f"could not parse staging path from {upd_path}")
+        else:
+            staging_parent = m.group(1)
+            try:
+                st = os.statvfs(staging_parent)
+                free_mb = (st.f_bavail * st.f_frsize) // (1024 * 1024)
+                ok = free_mb >= 700
+                t("HIGH", cat, "update-staging-space", ok,
+                  f"{staging_parent} has {free_mb} MB free (need ≥700 for tarball+extract)")
+            except OSError as e:
+                t("HIGH", cat, "update-staging-space", False,
+                  f"could not statvfs({staging_parent}): {e}")
+    except Exception as e: err("HIGH", cat, "update-staging-space", e)
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Layer 10 — Tailscale (Lesson 20)
 # ─────────────────────────────────────────────────────────────────────────────
