@@ -27,7 +27,10 @@
   :root{
     --bg:#0d0d0d; --fg:#f0f0f0; --gold:#D4AF37; --silver:#b0b0b0;
     --card-bg:rgba(20,20,20,.6); --card-bd:rgba(212,175,55,.3); --card-hi:rgba(212,175,55,.15);
-    --clock:55vh;
+    /* v1.10: the clock must fit BOTH dimensions. The old 55vh sized by height
+       only — on phone portrait that meant a 440px dial in a ~150px grid
+       column, clipped half off-screen (Mustafa's 12-Jun iPhone screenshot). */
+    --clock:min(55vh, 88vw, 580px);
     --zone-night: #111111;
     --zone-dawn: #1a1a1a;
     --zone-morning: #2a2a2a;
@@ -41,18 +44,20 @@
   body{background:var(--bg);color:var(--fg);font-family:"Segoe UI",system-ui,-apple-system,sans-serif;height:100vh;display:flex;align-items:center;justify-content:center;overflow:hidden;transition:background 2s ease;}
   .container{width:95%;height:95%;display:grid;grid-template-rows:auto 1fr auto auto;position:relative;gap:10px;}
   .header{text-align:center}
-  .title{color:var(--gold);letter-spacing:.18em;text-transform:uppercase;font-weight:300;font-size:2.2rem}
-  .subtitle{color:var(--silver);opacity:.9;font-size:1rem;margin-top:.2rem}
+  /* v1.10: clamp() typography — one rule scales from a 375px phone to a 4K
+     TV instead of fixed sizes tuned for a single laptop. */
+  .title{color:var(--gold);letter-spacing:.18em;text-transform:uppercase;font-weight:300;font-size:clamp(1.2rem, 4.5vmin, 2.6rem)}
+  .subtitle{color:var(--silver);opacity:.9;font-size:clamp(.8rem, 2vmin, 1.1rem);margin-top:.2rem}
   .main{display:grid;grid-template-columns:1fr 1.5fr 1fr;gap:1.5vw;align-items:center}
   /* LAYOUT FIX (2026-05-23): align-self:end matches Home v4.5 — pushes Fajr/Asr cards to the
      BOTTOM of the grid row so they clear the absolutely-positioned Speakers + Quick Actions panels
      at the top. .center stays vertically centered. */
   .panel{display:flex;flex-direction:column;gap:1.5vh;align-self:end}
   .center{align-self:center}
-  .card{background:var(--card-bg);border:1px solid var(--card-bd);border-radius:8px;padding:1vh 1vw;display:flex;justify-content:space-between;align-items:center}
+  .card{background:var(--card-bg);border:1px solid var(--card-bd);border-radius:8px;padding:1vh 1vw;display:flex;justify-content:space-between;align-items:center;gap:.6em}
   .card.next{background:var(--card-hi);border-color:var(--gold);box-shadow:0 0 10px rgba(212,175,55,.35)}
-  .card .name{font-size:1.2rem}
-  .card .time{font-size:1.8rem;font-weight:800;color:var(--gold);letter-spacing:.02em}
+  .card .name{font-size:clamp(.95rem, 2.6vmin, 1.25rem)}
+  .card .time{font-size:clamp(1.25rem, 3.8vmin, 1.9rem);font-weight:800;color:var(--gold);letter-spacing:.02em;font-variant-numeric:tabular-nums}
   .center{position:relative;display:flex;flex-direction:column;align-items:center}
   .clock{width:var(--clock);height:var(--clock);border-radius:50%;border:4px solid var(--gold);position:relative;background:#1a1a1a;box-shadow:0 0 30px rgba(212,175,55,.2) inset, 0 0 25px rgba(212,175,55,.15)}
   .zones{position:absolute;inset:0;border-radius:50%;transition:background .5s ease}
@@ -76,12 +81,12 @@
     z-index: 1;
     pointer-events: none;
   }
-  .time-big{font-size:2rem;margin-top:2vh;color:var(--gold);font-weight:800;letter-spacing:.08em}
-  .date{margin-top:0.5vh;font-size:0.9rem;color:var(--silver)}
-  .hijri{margin-top:.2vh;font-size:0.8rem;color:var(--silver);opacity:.9}
+  .time-big{font-size:clamp(1.5rem, 5vmin, 2.6rem);margin-top:2vh;color:var(--gold);font-weight:800;letter-spacing:.08em;font-variant-numeric:tabular-nums}
+  .date{margin-top:0.5vh;font-size:clamp(.8rem, 2vmin, 1rem);color:var(--silver)}
+  .hijri{margin-top:.2vh;font-size:clamp(.7rem, 1.8vmin, .9rem);color:var(--silver);opacity:.9}
   /* D9-followup v2 (2026-05-23): make countdown flow inline (centered) so it doesn't
      overlap the Hijri date OR the Isha card. Sits between Hijri and footer naturally. */
-  .countdown{display:inline-block;margin:14px auto 6px auto;background: rgba(20, 20, 20, 0.85);border: 1px solid var(--gold);border-radius: 8px;padding: 6px 14px;font-size: 0.95rem;min-width: 180px;text-align: center;}
+  .countdown{display:inline-block;margin:14px auto 6px auto;background: rgba(20, 20, 20, 0.85);border: 1px solid var(--gold);border-radius: 8px;padding: 6px 14px;font-size: clamp(.85rem, 2.2vmin, 1.05rem);min-width: 180px;text-align: center;font-variant-numeric:tabular-nums;}
   .countdown-wrap{text-align:center; margin-top: 8px;}
   .footer {text-align: center;padding-top: 5px;font-size: 0.8rem;opacity: 0.6;}
   
@@ -231,36 +236,79 @@
   body.simple-mode .simple-mode-header { color: var(--gold); font-size: 1rem; text-align:center; padding: 12px; cursor: pointer; opacity: .8; }
   #simple-mode-pane { display: none; }
 
-  /* U-4 (v1.6.0): Responsive layout.
-     Three breakpoints addressing the audit's "zero @media queries — desktop
-     only" complaint. The dashboard must work on aunt's iPad and the
-     Snoozer's phone, not just a 1280px desktop. */
-  @media (max-width: 1024px) {
-    /* Tablet landscape: shrink the clock, tighten gaps, allow panel-stacking */
-    :root { --clock: 360px; }
-    .container { padding: 12px; }
-    .control-panel { padding: 10px; }
+  /* ═══ v1.10: Responsive reflow ═══════════════════════════════════════════
+     Replaces the v1.6.0 breakpoints, which left two fatal gaps confirmed by
+     Mustafa's 12-Jun screenshots:
+       1. body{overflow:hidden;height:100vh} was never lifted — on phones,
+          content that didn't fit was simply CLIPPED (no scrolling possible).
+       2. .main kept its 3-column grid at every width — a 280px clock in a
+          ~150px centre column hung half off-screen.
+     Strategy: ≥1200px keeps the designed desktop layout (floating corner
+     panels, 3-column grid). 900–1200px keeps the grid but moves the language
+     picker into the flow (it overlapped the title when zoomed). <900px is a
+     full single-column reflow: header → clock → countdown → prayer cards →
+     collapsed panels → footer, with a scrollable body. */
+
+  @media (max-width: 1200px) {
+    /* Zoomed laptop / small desktop: language picker joins the normal flow
+       so it can never sit on top of the PRAYER TIMES title. */
+    #lang-picker-wrapper {
+      position: static !important;
+      margin: 0 auto 4px auto;
+      width: fit-content;
+      order: -1;
+    }
   }
-  @media (max-width: 720px) {
-    /* Tablet portrait / large phone: stack the three top panels vertically;
-       prayer cards collapse to single column. */
-    :root { --clock: 280px; }
-    .container { padding: 8px; }
-    .top-bar { flex-direction: column !important; gap: 10px; }
-    .control-panel { position: static !important; width: 100% !important; max-width: 100% !important; }
-    .control-panel.speaker-controls, .control-panel.action-controls { max-height: 50vh; overflow-y: auto; }
-    .clock-container { transform: scale(.85); transform-origin: top center; margin-top: -20px; }
-    .panel { grid-template-columns: 1fr !important; gap: 6px !important; }
-    .card { padding: 8px !important; }
+
+  @media (max-width: 900px) {
+    /* Phone + portrait tablet: the page becomes a normal scrolling column. */
+    html, body { height: auto; min-height: 100svh; overflow-y: auto; display: block; }
+    body { padding: 8px 0; }
+    .container {
+      display: flex; flex-direction: column;
+      width: 96%; height: auto; margin: 0 auto; gap: 10px;
+    }
+    /* Order: language picker, header, clock, countdown, panels, footer.
+       (DOM order has panels first — flex order puts the family-facing
+       content above admin chrome.) */
+    #lang-picker-wrapper { order: 0; }
+    .header            { order: 1; }
+    .main              { order: 2; }
+    .countdown-wrap    { order: 3; }
+    .speaker-controls  { order: 4; }
+    .action-controls   { order: 5; }
+    .footer            { order: 6; }
+
+    .main { display: flex; flex-direction: column; align-items: center; gap: 12px; }
+    .center { width: 100%; }
+    /* Prayer cards: two-up wrap below the clock instead of side columns. */
+    .panel {
+      flex-direction: row; flex-wrap: wrap; justify-content: center;
+      gap: 8px; width: 100%; align-self: auto;
+    }
+    .panel .card { flex: 1 1 44%; min-width: 150px; padding: 8px 10px; }
+
+    /* Panels join the flow, full-width, collapsed by default (JS adds
+       .collapsed below 900px; tapping the heading toggles). */
+    .control-panel {
+      position: static !important; width: 100% !important;
+      max-width: 100% !important; max-height: none;
+    }
+    .control-panel h3 { cursor: pointer; user-select: none; }
+    .control-panel h3::after { content: '▾'; margin-left: auto; opacity: .6; font-size: .8em; }
+    .control-panel.collapsed h3::after { content: '▸'; }
+    .control-panel.collapsed > *:not(h3) { display: none; }
+
+    .below-clock { width: 100%; max-width: var(--clock); margin-left: auto; margin-right: auto; }
     .modal-content { max-width: 95vw !important; max-height: 90vh !important; }
     .routing-matrix table { font-size: .8em; }
     .routing-matrix th { white-space: normal !important; word-break: break-word; max-width: 80px; }
   }
+
   @media (max-width: 380px) {
     /* Small phone (iPhone SE / older Android): even tighter. */
-    :root { --clock: 240px; }
-    h1 { font-size: 1.1rem; }
     .control-btn { padding: 8px 10px !important; font-size: .85em !important; }
+    .panel .card { flex-basis: 100%; }
   }
 
   /* Misc */
@@ -483,6 +531,67 @@
   .qp-toggle input:checked + .qp-toggle-slider { background: var(--gold); }
   .qp-toggle input:checked + .qp-toggle-slider::before { transform: translateX(16px); background: white; }
   /* End Quran Programs styles */
+
+  /* ═══ v1.10 Clock Mode (?mode=clock) ════════════════════════════════════
+     The always-on, family-facing face of the product — TVs and wall tablets
+     viewed from metres away. Giant time + next-prayer countdown + compact
+     prayer cards; the analog dial becomes a subtle watermark; ALL admin
+     chrome (panels, language picker) is hidden. Bookmark on the TV:
+       http://<pi>:8786/?mode=clock
+     Triple-tap/click the PRAYER TIMES title to return to the dashboard.
+     Includes burn-in drift (layout shifts ±8px every 5 min) and a screen
+     wake-lock where the browser supports it. */
+  body.clock-mode { cursor: none; }
+  body.clock-mode .control-panel,
+  body.clock-mode #lang-picker-wrapper { display: none !important; }
+  body.clock-mode .container {
+    display: flex; flex-direction: column;
+    justify-content: center; align-items: center; gap: 1.5vmin;
+  }
+  body.clock-mode .container > * { order: 0; }
+  body.clock-mode .main {
+    display: flex; flex-direction: column; align-items: center;
+    width: 100%; gap: 1vmin;
+  }
+  body.clock-mode .center {
+    order: -1; position: relative;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    min-height: 56svh; width: 100%;
+  }
+  body.clock-mode .clock-container {
+    position: absolute; top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    --clock: min(80vmin, 880px);
+    width: var(--clock); height: var(--clock);
+    opacity: .14; pointer-events: none; z-index: 0;
+  }
+  body.clock-mode .below-clock {
+    position: relative; z-index: 1; width: auto;
+    gap: 3vmin; margin-top: 0;
+  }
+  body.clock-mode .time-big {
+    font-size: clamp(3.5rem, 16vmin, 11rem);
+    letter-spacing: .04em; margin-top: 0;
+    text-shadow: 0 0 40px rgba(212,175,55,.35);
+  }
+  body.clock-mode .date  { font-size: clamp(1rem, 3.2vmin, 2rem); }
+  body.clock-mode .hijri { font-size: clamp(.9rem, 2.6vmin, 1.6rem); }
+  body.clock-mode .moon-phase { font-size: clamp(2rem, 6vmin, 4rem); }
+  body.clock-mode .countdown {
+    font-size: clamp(1.2rem, 4.5vmin, 2.6rem);
+    padding: 1.2vmin 3vmin; border-width: 2px;
+    box-shadow: 0 0 25px rgba(212,175,55,.25);
+  }
+  body.clock-mode .panel {
+    flex-direction: row; flex-wrap: wrap; justify-content: center;
+    gap: 1vmin; align-self: auto; width: auto;
+  }
+  body.clock-mode .panel .card { padding: .8vmin 1.8vmin; }
+  body.clock-mode .panel .card .name { font-size: clamp(.8rem, 2.2vmin, 1.3rem); }
+  body.clock-mode .panel .card .time { font-size: clamp(1rem, 2.9vmin, 1.7rem); }
+  body.clock-mode .footer { opacity: .25; }
+  body.clock-mode .title { cursor: pointer; }
 </style>
 </head>
 <body>
@@ -1549,7 +1658,11 @@ function positionElementAtAngle(element, angleDeg, distanceFactor = 0.5) {
 function drawNumerals(){
   [...clockEl.querySelectorAll('.num')].forEach(n => n.remove());
   const r = clockEl.clientWidth/2 - 20;
-  for(let i=1; i<=24; i++){
+  /* v1.10: 8 numerals (every 3 hours) instead of all 24. The dial was the
+     single busiest element on the page — 24 numerals + ticks + hands + prayer
+     dots all competing. The dots and hands carry the information; numerals
+     are orientation hints, and 3/6/9/…/24 is plenty for that. */
+  for(let i=3; i<=24; i+=3){
     const standardAngle = (i/24)*360;
     const adjustedAngle = (standardAngle - sunriseOffset + 360) % 360;
     const rad = (adjustedAngle/180)*Math.PI - Math.PI/2;
@@ -3732,6 +3845,78 @@ function updateSimpleModeNextLine(data) {
     line.innerHTML = `Next prayer: <span class="name">${localName}</span> at ${t}`;
   }
 }
+
+/* ════════════════════════════════════════════════════════════════════════
+   v1.10 Clock Mode (?mode=clock) — TV / wall-tablet ambient display.
+   Also: mobile panel-collapse bootstrap (admin panels start collapsed on
+   <900px screens so the family-facing content leads).
+   ════════════════════════════════════════════════════════════════════════ */
+function _isClockMode() {
+  try { return new URLSearchParams(location.search).get('mode') === 'clock'; }
+  catch { return false; }
+}
+
+(function _initClockModeAndMobilePanels() {
+  const boot = () => {
+    /* — Mobile: collapse the two admin panels by default; tap heading to open — */
+    if (window.innerWidth < 900 && !_isClockMode() && !_isSimpleMode()) {
+      document.querySelectorAll('.control-panel').forEach(p => {
+        p.classList.add('collapsed');
+        const h3 = p.querySelector('h3');
+        if (h3) h3.addEventListener('click', () => p.classList.toggle('collapsed'));
+      });
+    }
+
+    if (!_isClockMode()) return;
+    document.body.classList.add('clock-mode');
+
+    /* — Triple-tap the title to escape back to the dashboard — */
+    let taps = 0, tapTimer = null;
+    const title = document.querySelector('.title');
+    if (title) {
+      title.addEventListener('click', () => {
+        taps++; clearTimeout(tapTimer);
+        tapTimer = setTimeout(() => { taps = 0; }, 700);
+        if (taps >= 3) {
+          const u = new URL(location.href);
+          u.searchParams.delete('mode');
+          location.href = u.toString();
+        }
+      });
+    }
+
+    /* — Burn-in protection: drift the layout ±8px every 5 minutes.
+         TVs and OLED tablets running this 24/7 need it. — */
+    const container = document.querySelector('.container');
+    if (container) {
+      container.style.transition = 'transform 2s ease';
+      setInterval(() => {
+        const dx = Math.round(Math.random() * 16 - 8);
+        const dy = Math.round(Math.random() * 16 - 8);
+        container.style.transform = `translate(${dx}px, ${dy}px)`;
+      }, 5 * 60 * 1000);
+    }
+
+    /* — Keep the screen awake where the browser allows it — */
+    let _wakeLock = null;
+    const acquireWakeLock = async () => {
+      try {
+        if ('wakeLock' in navigator) {
+          _wakeLock = await navigator.wakeLock.request('screen');
+        }
+      } catch (e) { /* unsupported / denied — fine */ }
+    };
+    acquireWakeLock();
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') acquireWakeLock();
+    });
+  };
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', boot);
+  } else {
+    boot();
+  }
+})();
 
 /* O25 / v1.8.0: render the "Today" strip — one chip per prayer showing whether
    today's adhan fired (✓ + time), failed (✗), is still pending (·), or was

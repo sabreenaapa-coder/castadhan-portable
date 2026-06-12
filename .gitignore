@@ -62,3 +62,4 @@ castadhan-telegram.env
 # B-Belgium-24: ephemeral manual-update request flag written at runtime by the
 # web app and consumed by castadhan-update.path. Never a source artifact.
 .update-requested
+.claude/
