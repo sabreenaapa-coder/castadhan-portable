@@ -69,6 +69,97 @@ rules:
   # UI language: en / nl / fr / ar. The wizard exposes a language picker.
   language: en
 
+# v1.9.8 Quran Programs framework. Six pre-shipped entries; all disabled by
+# default except surah_kahf (which preserves the existing Friday Kahf behaviour
+# bridged via the legacy code path — full migration in v1.9.9).
+#
+# Trigger types:
+#   - "fixed":              play at a specific HH:MM local time on selected days
+#   - "relative_to_prayer": play at (anchor prayer time) + offset_minutes
+#                           (offset can be negative for "before prayer")
+#
+# audio_url: pre-populated with v1.9.8 audio-pack-v1 release URLs. Use
+# file:///home/farley/staging/<name>.mp3 if you'd rather scp a file directly.
+#
+# target_speakers: empty list = no speakers selected. For multi-speaker homes,
+# the dashboard forces the user to explicitly tick speakers (no surprise
+# playback in bedrooms). Single-speaker homes auto-select the only speaker.
+scheduled_audio:
+  surah_baqarah:
+    name: Surah al-Baqarah
+    category: Quran
+    enabled: false
+    trigger_type: fixed
+    play_time: '10:00'
+    relative_prayer_anchor: none
+    offset_minutes: 0
+    days: [0, 1, 2, 3, 4, 5, 6]
+    audio_url: https://github.com/sabreenaapa-coder/castadhan-portable/releases/download/audio-pack-v1/surah_baqarah.mp3
+    target_speakers: []
+    max_duration_minutes: 150
+  surah_yasin:
+    name: Surah Yasin
+    category: Quran
+    enabled: false
+    trigger_type: relative_to_prayer
+    play_time: ''
+    relative_prayer_anchor: Maghrib
+    offset_minutes: 15
+    days: [3]
+    audio_url: https://github.com/sabreenaapa-coder/castadhan-portable/releases/download/audio-pack-v1/surah_yasin.mp3
+    target_speakers: []
+    max_duration_minutes: 60
+  surah_mulk:
+    name: Surah al-Mulk
+    category: Quran
+    enabled: false
+    trigger_type: fixed
+    play_time: '22:00'
+    relative_prayer_anchor: none
+    offset_minutes: 0
+    days: [0, 1, 2, 3, 4, 5, 6]
+    audio_url: https://github.com/sabreenaapa-coder/castadhan-portable/releases/download/audio-pack-v1/surah_mulk.mp3
+    target_speakers: []
+    max_duration_minutes: 35
+  surah_kahf:
+    name: Surah al-Kahf
+    category: Quran
+    enabled: true
+    trigger_type: relative_to_prayer
+    play_time: ''
+    relative_prayer_anchor: Dhuhr
+    offset_minutes: -60
+    days: [4]
+    audio_url: bundled
+    target_speakers: []
+    max_duration_minutes: 35
+    # BRIDGE: dual-write target. UI writes here AND to legacy rules.enable_kahf.
+    # Remove in v1.9.9 after migration to scheduled_audio.
+  surah_waqiah:
+    name: Surah al-Waqi'ah
+    category: Quran
+    enabled: false
+    trigger_type: fixed
+    play_time: '17:00'
+    relative_prayer_anchor: none
+    offset_minutes: 0
+    days: [0, 1, 2, 3, 4, 5, 6]
+    audio_url: https://github.com/sabreenaapa-coder/castadhan-portable/releases/download/audio-pack-v1/surah_waqiah.mp3
+    target_speakers: []
+    max_duration_minutes: 20
+  surah_sajdah:
+    name: Surah as-Sajdah
+    category: Quran
+    enabled: false
+    trigger_type: relative_to_prayer
+    play_time: ''
+    relative_prayer_anchor: Fajr
+    offset_minutes: 15
+    days: [4]
+    audio_url: https://github.com/sabreenaapa-coder/castadhan-portable/releases/download/audio-pack-v1/surah_sajdah.mp3
+    target_speakers: []
+    max_duration_minutes: 10
+
 speakers:
   audio_routing: {}
   # Exclude common Cast "displays" (Nest Hub etc.) which appear as Cast targets

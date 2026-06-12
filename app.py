@@ -17,8 +17,13 @@ import socket
 import traceback
 import math
 import fcntl
+import queue
+import shutil
+import tempfile
+import urllib.request
+import urllib.error
 from datetime import datetime, timedelta, date, timezone
-from urllib.parse import quote
+from urllib.parse import quote, urlparse
 from typing import List, Dict, Optional, Tuple, Any, Union
 from pathlib import Path
 
@@ -1388,6 +1393,25 @@ def media(rel):
     filename = os.path.basename(full)
     return send_from_directory(directory, filename, as_attachment=False)
 
+
+@app.route("/media/custom/<filename>")
+def media_custom(filename):
+    """v1.9.8: serve downloaded scheduled_audio files from /var/lib/castadhan/custom_audio/.
+    Cast devices fetch from here at play time. Path-traversal safe: filename is
+    validated against the safe character set and the resolved path must stay
+    under _CUSTOM_AUDIO_DIR."""
+    # Allow only [A-Za-z0-9_.-] in the filename — no slashes, no .., no nulls
+    if not filename or not all(c.isalnum() or c in "._-" for c in filename):
+        abort(400)
+    full = os.path.realpath(os.path.join(_CUSTOM_AUDIO_DIR, filename))
+    expected_root = os.path.realpath(_CUSTOM_AUDIO_DIR)
+    if not full.startswith(expected_root + os.sep):
+        abort(403)
+    if not os.path.isfile(full):
+        abort(404)
+    return send_from_directory(_CUSTOM_AUDIO_DIR, filename, as_attachment=False)
+
+
 @app.route("/health")
 def health():
     return jsonify({
@@ -1924,6 +1948,536 @@ def _disconnect_cast_bounded(cast, timeout_seconds: float = 3.0) -> bool:
         )
         return False
     return True
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# v1.9.8 — SCHEDULED AUDIO (QURAN PROGRAMS) FRAMEWORK
+# ─────────────────────────────────────────────────────────────────────────────
+# Adds a generic "play any audio at any time" capability on top of the existing
+# adhan scheduler. The first six entries (Baqarah, Yasin, Mulk, Kahf, Waaqi'ah,
+# Sajdah) ship in the default config. Mustafa can add more (Mulk-style daily,
+# Yasin-style weekly relative-to-prayer, etc.) by adding entries to the
+# `scheduled_audio` block in config.yaml — no code change needed.
+#
+# Architecture (per PLAN_CUSTOM_SCHEDULED_AUDIO.md Sections 13/14/16/17/18/19):
+#   - Persistent storage outside install dir (survives auto-update rm-and-replace)
+#   - Config (user intent) in config.yaml vs runtime state in separate JSON
+#   - Downloader supports HTTPS and validated file:// schemes
+#   - Sequential single-worker queue (~3 MB peak memory during downloads)
+#   - Atomic temp-file then rename pattern
+#   - Self-healing when files vanish (re-download, no failure-count bump)
+#   - Auto-disable after 3 consecutive download failures (with reset on toggle)
+#   - Plays through existing _play_to_targets pipeline (respects scheduler_hold,
+#     speaker enable/disable, writes play_history with structured audio_type
+#     "scheduled:<id>")
+#   - max_duration_minutes one-shot threading.Timer kills playback at the cap
+#   - Surah Kahf is dual-write bridged: UI writes to BOTH this new block AND
+#     the legacy surah_kahf hardcoded path. Full migration in v1.9.9.
+# ═════════════════════════════════════════════════════════════════════════════
+
+_CUSTOM_AUDIO_DIR = "/var/lib/castadhan/custom_audio"
+_CUSTOM_AUDIO_STATE_FILE = "/var/lib/castadhan/custom_audio_state.json"
+_CUSTOM_AUDIO_STAGING_DIRS = ("/home/farley/staging", "/var/lib/castadhan/custom_audio")
+_CUSTOM_AUDIO_DOWNLOAD_TIMEOUT_SEC = 600   # 10 min cap on any single download
+_CUSTOM_AUDIO_CATCHUP_POLL_SEC = 5         # how often to poll while waiting for catch-up
+_CUSTOM_AUDIO_CATCHUP_MAX_SEC = 120        # max total wait before skipping a fire
+_CUSTOM_AUDIO_FAIL_LIMIT = 3               # consecutive failures before auto-disable
+
+_custom_audio_state_lock = threading.RLock()
+_custom_audio_download_queue: queue.Queue = queue.Queue()
+_custom_audio_active_timers: Dict[str, threading.Timer] = {}  # id → max_duration timer
+
+# Tracks ongoing background downloads so multiple callers don't enqueue the same
+# entry twice. Holds the threading.Event a fire-time check can wait on.
+_custom_audio_download_events: Dict[str, threading.Event] = {}
+_custom_audio_download_events_lock = threading.Lock()
+
+
+def _ensure_custom_audio_dirs():
+    """Create /var/lib/castadhan/custom_audio + state JSON if they don't exist.
+    Defensive — setup-pi.sh and castadhan-update.sh both do this, but if either
+    missed (older Pi upgrading), this catches up at service start."""
+    try:
+        os.makedirs(_CUSTOM_AUDIO_DIR, exist_ok=True)
+        if not os.path.isfile(_CUSTOM_AUDIO_STATE_FILE):
+            with open(_CUSTOM_AUDIO_STATE_FILE, "w") as f:
+                f.write("{}\n")
+    except PermissionError as e:
+        log.warning(f"Could not create {_CUSTOM_AUDIO_DIR}: {e}. Will retry on next download.")
+    except Exception as e:
+        log.error(f"_ensure_custom_audio_dirs failed: {e}")
+
+
+def _load_custom_audio_state() -> dict:
+    """Read the state JSON, returning {} on any failure (file missing, invalid)."""
+    try:
+        with open(_CUSTOM_AUDIO_STATE_FILE) as f:
+            return json.load(f) or {}
+    except FileNotFoundError:
+        return {}
+    except (json.JSONDecodeError, OSError) as e:
+        log.warning(f"_load_custom_audio_state: corrupted state file ({e}), returning empty")
+        return {}
+
+
+def _save_custom_audio_state(state: dict):
+    """Atomic write of the state JSON: write to temp file, rename over the live file.
+    Held under a lock so concurrent updates (download worker + scheduler + dashboard
+    save) serialise instead of clobbering."""
+    with _custom_audio_state_lock:
+        try:
+            tmp_fd, tmp_path = tempfile.mkstemp(
+                prefix=".custom_audio_state.",
+                suffix=".tmp",
+                dir=os.path.dirname(_CUSTOM_AUDIO_STATE_FILE) or "."
+            )
+            try:
+                with os.fdopen(tmp_fd, "w") as f:
+                    json.dump(state, f, indent=2, sort_keys=True)
+                os.replace(tmp_path, _CUSTOM_AUDIO_STATE_FILE)
+            except Exception:
+                try: os.remove(tmp_path)
+                except Exception: pass
+                raise
+        except Exception as e:
+            log.error(f"_save_custom_audio_state failed: {e}")
+
+
+def _get_custom_audio_state_entry(audio_id: str) -> dict:
+    """Return the runtime state dict for one entry, with sensible defaults."""
+    defaults = {
+        "download_status": "NOT_STARTED",   # NOT_STARTED / IN_PROGRESS / COMPLETED / FAILED / FAILED_DISABLED
+        "consecutive_failures": 0,
+        "last_error": None,
+        "last_played_at": None,
+        "last_play_status": None,
+        "skip_until_date": None,            # ISO date string (YYYY-MM-DD)
+        "file_size_bytes": 0,
+    }
+    state = _load_custom_audio_state()
+    entry = state.get(audio_id) or {}
+    out = {**defaults, **entry}
+    return out
+
+
+def _update_custom_audio_state(audio_id: str, **updates):
+    """Partial update of one entry's runtime state. Writes atomically."""
+    with _custom_audio_state_lock:
+        state = _load_custom_audio_state()
+        entry = state.get(audio_id) or {}
+        entry.update(updates)
+        state[audio_id] = entry
+        _save_custom_audio_state(state)
+
+
+def _custom_audio_file_path(audio_id: str) -> str:
+    """Canonical local path for a scheduled_audio entry's downloaded mp3."""
+    return os.path.join(_CUSTOM_AUDIO_DIR, f"{audio_id}.mp3")
+
+
+def _classify_audio_url(url: str) -> Tuple[str, Optional[str]]:
+    """Return (kind, source) where kind is one of:
+       - "http"     : standard HTTP/HTTPS download
+       - "file"     : local-file copy from validated staging dir
+       - "bundled"  : Surah Kahf — use the shipped audio/surah_kahf.mp3
+       - "invalid"  : malformed or disallowed; source is the rejection reason
+       - "empty"    : empty URL (entry not yet configured)
+    source is the actual URL string (http kind), the resolved absolute path
+    (file kind), or the reason string (invalid kind)."""
+    if not url:
+        return ("empty", None)
+    if url == "bundled":
+        return ("bundled", None)
+    try:
+        parsed = urlparse(url)
+    except Exception as e:
+        return ("invalid", f"malformed URL: {e}")
+    if parsed.scheme in ("http", "https"):
+        return ("http", url)
+    if parsed.scheme == "file":
+        local_path = parsed.path
+        # Allow-list check — must live under one of the allowed staging dirs
+        abs_path = os.path.realpath(local_path)
+        for allowed in _CUSTOM_AUDIO_STAGING_DIRS:
+            allowed_real = os.path.realpath(allowed)
+            if abs_path.startswith(allowed_real + os.sep) or abs_path == allowed_real:
+                if not os.path.isfile(abs_path):
+                    return ("invalid", f"file:// path does not exist: {abs_path}")
+                if not abs_path.lower().endswith(".mp3"):
+                    return ("invalid", f"only .mp3 allowed, got: {abs_path}")
+                return ("file", abs_path)
+        return ("invalid",
+                f"file:// path not in allowed staging dir: {abs_path}. "
+                f"Allowed: {', '.join(_CUSTOM_AUDIO_STAGING_DIRS)}")
+    return ("invalid", f"unsupported scheme: {parsed.scheme!r}")
+
+
+def _custom_audio_download_worker():
+    """Single-threaded worker that processes the download queue serially.
+    Sequential to keep peak memory low on Pi 3B+ AND to avoid competing for
+    limited home-WiFi bandwidth. Runs as a daemon thread."""
+    log.info("Custom audio download worker started")
+    while not shutdown_event.is_set():
+        try:
+            try:
+                job = _custom_audio_download_queue.get(timeout=2.0)
+            except queue.Empty:
+                continue
+            audio_id, audio_url = job
+            try:
+                _do_custom_audio_download(audio_id, audio_url)
+            except Exception as e:
+                log.error(f"Download worker crashed on {audio_id}: {e}", exc_info=True)
+            finally:
+                _custom_audio_download_queue.task_done()
+                # Signal anyone waiting on this download
+                with _custom_audio_download_events_lock:
+                    ev = _custom_audio_download_events.pop(audio_id, None)
+                if ev is not None:
+                    ev.set()
+        except Exception as e:
+            log.error(f"Download worker loop error: {e}", exc_info=True)
+
+
+def _do_custom_audio_download(audio_id: str, audio_url: str):
+    """Perform one download/copy. Atomic via temp-file + rename. Updates
+    state JSON on every state transition. Never propagates exceptions —
+    failures are recorded as FAILED + consecutive_failures incremented."""
+    kind, source = _classify_audio_url(audio_url)
+    if kind == "empty":
+        log.info(f"_do_custom_audio_download({audio_id}): no URL configured, skipping")
+        return
+    if kind == "invalid":
+        log.warning(f"_do_custom_audio_download({audio_id}): invalid URL — {source}")
+        _bump_failure(audio_id, f"invalid URL: {source}")
+        return
+    if kind == "bundled":
+        # Bundled audio lives in the install dir under audio/<id>.mp3.
+        # Symlink or copy it into custom_audio so the standard playback
+        # path can find it without special-casing.
+        src = os.path.join(ROOT, "audio", f"{audio_id}.mp3")
+        if not os.path.isfile(src):
+            _bump_failure(audio_id, f"bundled audio missing: {src}")
+            return
+        dst = _custom_audio_file_path(audio_id)
+        try:
+            shutil.copy2(src, dst)
+            size = os.path.getsize(dst)
+            _update_custom_audio_state(
+                audio_id,
+                download_status="COMPLETED",
+                consecutive_failures=0,
+                last_error=None,
+                file_size_bytes=size,
+            )
+            log.info(f"Bundled audio ready: {audio_id} ({size:,} bytes)")
+        except Exception as e:
+            _bump_failure(audio_id, f"bundled copy failed: {e}")
+        return
+
+    # http or file — both end up as a copy into custom_audio dir
+    dst = _custom_audio_file_path(audio_id)
+    tmp = dst + ".tmp"
+    _update_custom_audio_state(audio_id, download_status="IN_PROGRESS", last_error=None)
+    try:
+        if kind == "file":
+            # Local file — straight copy + size verify
+            shutil.copy2(source, tmp)
+        else:
+            # HTTP/HTTPS — stream in 8 KB chunks (low peak memory on Pi 3B+)
+            req = urllib.request.Request(source, headers={"User-Agent": "castadhan/1.9.8"})
+            with urllib.request.urlopen(req, timeout=_CUSTOM_AUDIO_DOWNLOAD_TIMEOUT_SEC) as resp:
+                if resp.status != 200:
+                    raise IOError(f"HTTP {resp.status} from {source}")
+                with open(tmp, "wb") as f:
+                    while True:
+                        chunk = resp.read(8192)
+                        if not chunk:
+                            break
+                        f.write(chunk)
+                        if shutdown_event.is_set():
+                            raise IOError("shutdown during download")
+
+        # Verify what we got
+        size = os.path.getsize(tmp)
+        if size < 1024:
+            raise IOError(f"downloaded file suspiciously small ({size} bytes)")
+
+        # Atomic rename into place
+        os.replace(tmp, dst)
+        _update_custom_audio_state(
+            audio_id,
+            download_status="COMPLETED",
+            consecutive_failures=0,
+            last_error=None,
+            file_size_bytes=size,
+        )
+        log.info(f"Downloaded {audio_id}: {size:,} bytes from {source}")
+    except Exception as e:
+        try:
+            if os.path.exists(tmp):
+                os.remove(tmp)
+        except Exception:
+            pass
+        _bump_failure(audio_id, str(e))
+
+
+def _bump_failure(audio_id: str, error_msg: str):
+    """Record a download failure. Auto-disables the schedule after 3 strikes
+    (writes config.yaml back with enabled=false). The user must fix the URL
+    and toggle ON again to retry — which also resets the failure counter."""
+    log.error(f"Custom audio download failed for {audio_id}: {error_msg}")
+    state = _load_custom_audio_state()
+    entry = state.get(audio_id) or {}
+    fails = int(entry.get("consecutive_failures", 0)) + 1
+    auto_disable = fails >= _CUSTOM_AUDIO_FAIL_LIMIT
+    entry.update({
+        "consecutive_failures": fails,
+        "last_error": error_msg,
+        "download_status": "FAILED_DISABLED" if auto_disable else "FAILED",
+    })
+    state[audio_id] = entry
+    _save_custom_audio_state(state)
+    if auto_disable:
+        log.critical(
+            f"⚠️  Auto-disabling scheduled_audio.{audio_id} after "
+            f"{_CUSTOM_AUDIO_FAIL_LIMIT} consecutive download failures. "
+            f"Fix the audio_url and re-enable to retry."
+        )
+        try:
+            with _state_lock:
+                sa = CFG.setdefault("scheduled_audio", {})
+                if audio_id in sa:
+                    sa[audio_id]["enabled"] = False
+                    _save_config_yaml(CFG)
+        except Exception as e:
+            log.error(f"Could not auto-disable in config.yaml: {e}")
+
+
+def _enqueue_custom_audio_download(audio_id: str, audio_url: str) -> threading.Event:
+    """Add a download job to the queue. Returns an Event that callers can wait
+    on if they want to catch up on a missing-at-fire-time file. Idempotent —
+    if a download is already queued/running for this id, returns the existing
+    Event instead of enqueuing twice."""
+    with _custom_audio_download_events_lock:
+        ev = _custom_audio_download_events.get(audio_id)
+        if ev is not None:
+            return ev
+        ev = threading.Event()
+        _custom_audio_download_events[audio_id] = ev
+    _custom_audio_download_queue.put((audio_id, audio_url))
+    return ev
+
+
+def _save_config_yaml(config_dict):
+    """Re-serialise config dict back to config.yaml. Used by the auto-disable
+    path and by dashboard save operations. Atomic via temp + rename."""
+    try:
+        import yaml as _yaml
+        cfg_path = os.path.join(ROOT, "config.yaml")
+        tmp_path = cfg_path + ".tmp"
+        with open(tmp_path, "w") as f:
+            _yaml.safe_dump(config_dict, f, default_flow_style=False, sort_keys=False)
+        os.replace(tmp_path, cfg_path)
+    except Exception as e:
+        log.error(f"_save_config_yaml failed: {e}")
+
+
+def _start_custom_audio_download_worker():
+    """Start the single-threaded download worker. Called once at app startup."""
+    _ensure_custom_audio_dirs()
+    t = threading.Thread(
+        target=_custom_audio_download_worker,
+        name="custom_audio_download_worker",
+        daemon=True,
+    )
+    t.start()
+
+
+def _play_custom_audio(audio_id: str, force: bool = False):
+    """Fire one scheduled_audio entry. Called by APScheduler at the computed
+    absolute time, OR by the dashboard's "Play Now" button (force=True).
+    force=True ignores skip_until_date but still respects scheduler_hold."""
+    if shutdown_event.is_set():
+        return
+
+    # Look up the entry's config
+    with _state_lock:
+        entry = (CFG.get("scheduled_audio") or {}).get(audio_id)
+    if not entry:
+        log.warning(f"_play_custom_audio({audio_id}): entry not found in config")
+        return
+
+    name = entry.get("name", audio_id)
+    structured_type = f"scheduled:{audio_id}"
+
+    # Honour scheduler_hold (Emergency Stop)
+    if _scheduler_held():
+        log.warning(f"⏸️  {name} skipped: scheduler is on hold")
+        _log_play(structured_type, audio_id, "SKIPPED_HOLD", speakers_count=0)
+        return
+
+    # Honour skip_until_date unless forced
+    state = _get_custom_audio_state_entry(audio_id)
+    if not force and state.get("skip_until_date"):
+        try:
+            skip_until = date.fromisoformat(state["skip_until_date"])
+            if date.today() <= skip_until:
+                log.info(f"{name} skipped: skip_until_date={state['skip_until_date']}")
+                _log_play(structured_type, audio_id, "SKIPPED_USER", speakers_count=0)
+                # Clear the skip flag once the date passes
+                if date.today() == skip_until:
+                    _update_custom_audio_state(audio_id, skip_until_date=None)
+                return
+        except ValueError:
+            pass  # bad date string — ignore and play anyway
+
+    # File check + self-healing re-download if missing
+    local_path = _custom_audio_file_path(audio_id)
+    if not os.path.isfile(local_path):
+        audio_url = entry.get("audio_url") or ""
+        if not audio_url:
+            log.warning(f"{name}: no audio_url configured, cannot play")
+            _log_play(structured_type, audio_id, "FAIL", speakers_count=0, error="no audio_url")
+            return
+        log.warning(f"{name}: file missing at fire time, kicking off catch-up download")
+        ev = _enqueue_custom_audio_download(audio_id, audio_url)
+        # Poll up to CATCHUP_MAX_SEC for the download to complete
+        waited = 0
+        while waited < _CUSTOM_AUDIO_CATCHUP_MAX_SEC:
+            if ev.wait(_CUSTOM_AUDIO_CATCHUP_POLL_SEC):
+                break
+            waited += _CUSTOM_AUDIO_CATCHUP_POLL_SEC
+        if not os.path.isfile(local_path):
+            log.warning(f"{name}: download did not complete within {_CUSTOM_AUDIO_CATCHUP_MAX_SEC}s, skipping")
+            _log_play(structured_type, audio_id, "DOWNLOAD_IN_PROGRESS", speakers_count=0)
+            return
+        log.info(f"{name}: catch-up download completed in {waited}s, playing now")
+
+    # Play through the normal pipeline so routing + volume policy + history all apply
+    log.info(f"🕌 Playing {name} (audio_id={audio_id})")
+    rel_path = os.path.relpath(local_path, ROOT) if local_path.startswith(ROOT) \
+        else f"_custom_audio/{audio_id}.mp3"
+
+    # _play_to_targets via the standard pipeline; the URL it builds is served
+    # by our new /media/custom/<id>.mp3 route (or /media/<rel> if under ROOT)
+    casts = _ensure_speakers(structured_type, audio_id)
+    if not casts:
+        return  # _ensure_speakers already logged
+
+    try:
+        url = _custom_audio_local_url(audio_id)
+        played = 0
+        for cast in casts:
+            try:
+                play_on_cast(cast, url, _speaker_volume(cast.name),
+                             structured_type, audio_id)
+                played += 1
+            except Exception as e:
+                log.error(f"play_on_cast failed for {cast.name}: {e}")
+        _log_play(structured_type, audio_id,
+                  "PASS" if played else "NO_SPEAKERS",
+                  speakers_count=played)
+        if played:
+            _update_custom_audio_state(
+                audio_id,
+                last_played_at=datetime.now(timezone.utc).isoformat(),
+                last_play_status="PASS",
+            )
+            # Arm the max-duration safety timer
+            max_min = int(entry.get("max_duration_minutes", 60))
+            _arm_max_duration_timer(audio_id, max_min, casts)
+    except Exception as e:
+        log.error(f"_play_custom_audio({audio_id}) error: {e}", exc_info=True)
+        _log_play(structured_type, audio_id, "FAIL", speakers_count=0, error=e)
+
+
+def _custom_audio_local_url(audio_id: str) -> str:
+    """Build the URL the Cast device will fetch — served by /media/custom/<id>.mp3."""
+    ip = "127.0.0.1"
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        ip = s.getsockname()[0]
+        s.close()
+    except Exception:
+        pass
+    return f"http://{ip}:{PORT}/media/custom/{audio_id}.mp3"
+
+
+def _arm_max_duration_timer(audio_id: str, max_minutes: int, casts: list):
+    """Schedule a one-shot stop of these casts after max_minutes. Used as a
+    safety net against stream-drop-leaving-cast-in-zombie-playing state."""
+    # Cancel any existing timer for this id (overlapping fire)
+    existing = _custom_audio_active_timers.pop(audio_id, None)
+    if existing is not None:
+        try: existing.cancel()
+        except Exception: pass
+
+    def stop_callback():
+        log.info(f"Max duration ({max_minutes} min) reached for {audio_id} — stopping casts")
+        for cast in casts:
+            try:
+                cast.media_controller.stop()
+            except Exception as e:
+                log.debug(f"Stop {cast.name} on max-duration: {e}")
+        _custom_audio_active_timers.pop(audio_id, None)
+
+    timer = threading.Timer(max_minutes * 60, stop_callback)
+    timer.daemon = True
+    timer.start()
+    _custom_audio_active_timers[audio_id] = timer
+
+
+def _quiet_test_custom_audio(audio_id: str):
+    """10-second test — plays then stops cleanly. Triggered by the dashboard's
+    "Quiet test 10s" button. Avoids the volume-restoration mistake from
+    9 Jun by using stop() rather than vol=0."""
+    if shutdown_event.is_set():
+        return
+    with _state_lock:
+        entry = (CFG.get("scheduled_audio") or {}).get(audio_id)
+    if not entry:
+        return
+    local_path = _custom_audio_file_path(audio_id)
+    if not os.path.isfile(local_path):
+        log.warning(f"quiet_test: {audio_id} not downloaded yet")
+        _log_play(f"quiet_test:{audio_id}", audio_id, "FAIL",
+                  speakers_count=0, error="file not downloaded")
+        return
+    casts = _ensure_speakers(f"quiet_test:{audio_id}", audio_id)
+    if not casts:
+        return
+
+    url = _custom_audio_local_url(audio_id)
+    played = 0
+    for cast in casts:
+        try:
+            play_on_cast(cast, url, _speaker_volume(cast.name),
+                         f"quiet_test:{audio_id}", audio_id)
+            played += 1
+        except Exception as e:
+            log.error(f"quiet_test play failed for {cast.name}: {e}")
+
+    def stop_after_10s():
+        log.info(f"Quiet test 10s elapsed for {audio_id}, stopping")
+        for cast in casts:
+            try: cast.media_controller.stop()
+            except Exception: pass
+        _log_play(f"quiet_test:{audio_id}", audio_id, "QUIET_TEST_COMPLETED",
+                  speakers_count=played)
+
+    t = threading.Timer(10.0, stop_after_10s)
+    t.daemon = True
+    t.start()
+    log.info(f"Quiet test started for {audio_id}, will stop in 10s")
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# End v1.9.8 scheduled_audio backend (continued in scheduler integration
+# section near schedule_today() and API endpoints near other @app.routes)
+# ═════════════════════════════════════════════════════════════════════════════
+
 
 def local_media_url(relpath: str) -> str:
     """Get local media URL with better IP detection"""
@@ -3573,9 +4127,124 @@ def schedule_today():
         schedule_twilight_scan()
         schedule_daily_summary()  # v1.8.0: Telegram daily digest
 
+        # v1.9.8: register today's scheduled_audio (Quran Programs) jobs.
+        # Reads config.yaml `scheduled_audio` map, computes absolute fire
+        # times for today (handles both fixed_time AND relative_to_prayer
+        # via today's prayer-time table), registers DateTriggers.
+        _schedule_custom_audio_jobs(times)
+
     except Exception as e:
         log.error(f"Error scheduling today's activities: {e}")
         log.error(traceback.format_exc())
+
+
+def _compute_custom_audio_run_time(entry: dict, prayer_times: dict, target_date: date) -> Optional[datetime]:
+    """Compute today's absolute fire time for one scheduled_audio entry.
+    Returns None if entry not enabled / doesn't fire on this day / has no
+    valid time. Handles fixed and relative_to_prayer trigger types."""
+    if not entry.get("enabled"):
+        return None
+
+    # Day filter — days list uses Mon=0..Sun=6 (Python weekday convention)
+    days = entry.get("days") or []
+    if target_date.weekday() not in days:
+        return None
+
+    trigger_type = (entry.get("trigger_type") or "fixed").lower()
+
+    if trigger_type == "fixed":
+        play_time = entry.get("play_time") or ""
+        try:
+            hh, mm = play_time.split(":")
+            return datetime.combine(target_date, datetime.min.time(),
+                                    tzinfo=now_local().tzinfo) \
+                .replace(hour=int(hh), minute=int(mm), second=0, microsecond=0)
+        except (ValueError, AttributeError) as e:
+            log.warning(f"Bad play_time in scheduled_audio: {play_time!r} ({e})")
+            return None
+
+    if trigger_type == "relative_to_prayer":
+        anchor_name = (entry.get("relative_prayer_anchor") or "").capitalize()
+        offset_min = int(entry.get("offset_minutes") or 0)
+        prayer_str = prayer_times.get(anchor_name)
+        if not prayer_str:
+            log.warning(f"relative_to_prayer entry references unknown anchor {anchor_name!r}")
+            return None
+        try:
+            hh, mm = prayer_str.split(":")
+            anchor_dt = datetime.combine(target_date, datetime.min.time(),
+                                         tzinfo=now_local().tzinfo) \
+                .replace(hour=int(hh), minute=int(mm), second=0, microsecond=0)
+            return anchor_dt + timedelta(minutes=offset_min)
+        except (ValueError, AttributeError) as e:
+            log.warning(f"Bad anchor time for {anchor_name}: {prayer_str!r} ({e})")
+            return None
+
+    log.warning(f"Unknown trigger_type: {trigger_type!r}")
+    return None
+
+
+def _schedule_custom_audio_jobs(prayer_times: dict):
+    """Register today's scheduled_audio entries as one-shot DateTrigger jobs.
+    Called from schedule_today() each time prayer schedule is rebuilt.
+
+    Conflict detection: warn if two entries land within ±60s of each other.
+    No blocking — Cast device's load_media will pick whichever fires second
+    and the operator will see the warning in the log.
+    """
+    with _state_lock:
+        sa_map = (CFG.get("scheduled_audio") or {}).copy()
+    if not sa_map:
+        return
+
+    # Pre-download any enabled-but-not-yet-downloaded entries (idempotent)
+    for audio_id, entry in sa_map.items():
+        if not entry.get("enabled"):
+            continue
+        local_path = _custom_audio_file_path(audio_id)
+        if not os.path.isfile(local_path):
+            url = entry.get("audio_url") or ""
+            if url:
+                _enqueue_custom_audio_download(audio_id, url)
+
+    # Compute fire times + collect for conflict detection
+    today = date.today()
+    today_jobs = []  # list of (audio_id, fire_time, entry)
+    for audio_id, entry in sa_map.items():
+        fire_dt = _compute_custom_audio_run_time(entry, prayer_times, today)
+        if fire_dt is None:
+            continue
+        if fire_dt <= now_local():
+            log.info(f"scheduled_audio.{audio_id}: today's slot ({fire_dt:%H:%M}) already passed, skipping")
+            continue
+        today_jobs.append((audio_id, fire_dt, entry))
+
+    # Conflict warning: ±60s overlap
+    sorted_jobs = sorted(today_jobs, key=lambda x: x[1])
+    for i in range(len(sorted_jobs) - 1):
+        a_id, a_dt, _ = sorted_jobs[i]
+        b_id, b_dt, _ = sorted_jobs[i + 1]
+        if abs((b_dt - a_dt).total_seconds()) <= 60:
+            log.warning(
+                f"⚠️  scheduled_audio collision: {a_id} @ {a_dt:%H:%M:%S} "
+                f"and {b_id} @ {b_dt:%H:%M:%S} fire within 60 sec — "
+                f"second will interrupt first via Cast load_media."
+            )
+
+    # Register the jobs
+    for audio_id, fire_dt, entry in today_jobs:
+        try:
+            sched.add_job(
+                _play_custom_audio,
+                DateTrigger(run_date=fire_dt),
+                args=[audio_id],
+                id=f"scheduled_audio_{audio_id}",
+                replace_existing=True,
+            )
+            log.info(f"Scheduled {entry.get('name', audio_id)} @ {fire_dt:%H:%M:%S} "
+                     f"({entry.get('trigger_type', 'fixed')})")
+        except Exception as e:
+            log.error(f"Failed to register scheduled_audio.{audio_id}: {e}")
 
 def job_listener(event):
     """Listen to job execution events"""
@@ -5315,6 +5984,149 @@ def api_play():
         log.error(f"API /api/play error: {e}")
         return jsonify({"ok": False, "error": str(e)}), 500
 
+
+# ─────────────────────────────────────────────────────────────────────────────
+# v1.9.8 — scheduled_audio (Quran Programs) API
+# ─────────────────────────────────────────────────────────────────────────────
+@app.route("/api/scheduled_audio", methods=["GET"])
+def api_scheduled_audio_list():
+    """Return all scheduled_audio entries with merged config + runtime state.
+    The dashboard polls this to render the cards."""
+    try:
+        with _state_lock:
+            sa = (CFG.get("scheduled_audio") or {}).copy()
+        runtime = _load_custom_audio_state()
+        out = []
+        for audio_id, entry in sa.items():
+            merged = {
+                "id": audio_id,
+                "config": entry,
+                "state": {**_get_custom_audio_state_entry(audio_id), **(runtime.get(audio_id) or {})},
+                "file_exists": os.path.isfile(_custom_audio_file_path(audio_id)),
+            }
+            out.append(merged)
+        # Stable order: by audio_id for now (v1.9.9 will add display_order)
+        out.sort(key=lambda x: x["id"])
+        return jsonify({"ok": True, "entries": out})
+    except Exception as e:
+        log.error(f"/api/scheduled_audio error: {e}", exc_info=True)
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route("/api/scheduled_audio/<audio_id>", methods=["POST"])
+def api_scheduled_audio_update(audio_id):
+    """Update one entry's config fields. Body is a partial dict of fields to
+    change (e.g. {"enabled": true, "play_time": "09:30"}).
+
+    Triggers download if 'enabled' transitions to true and file missing.
+    Re-runs schedule_today() so the change takes effect today.
+
+    Kahf bridge: when audio_id == "surah_kahf", dual-writes to the legacy
+    rules block too so the old code path picks up the change. Remove in v1.9.9.
+    """
+    try:
+        body = request.get_json(force=True, silent=True) or {}
+        if not isinstance(body, dict):
+            return jsonify({"ok": False, "error": "body must be a JSON object"}), 400
+
+        ALLOWED_FIELDS = {
+            "enabled", "play_time", "days", "audio_url", "target_speakers",
+            "max_duration_minutes", "trigger_type", "relative_prayer_anchor",
+            "offset_minutes", "name", "category",
+        }
+        invalid = set(body.keys()) - ALLOWED_FIELDS
+        if invalid:
+            return jsonify({"ok": False, "error": f"unknown fields: {sorted(invalid)}"}), 400
+
+        with _state_lock:
+            sa = CFG.setdefault("scheduled_audio", {})
+            entry = sa.get(audio_id)
+            if entry is None:
+                return jsonify({"ok": False, "error": f"unknown audio_id: {audio_id}"}), 404
+            was_enabled = bool(entry.get("enabled"))
+            entry.update(body)
+            now_enabled = bool(entry.get("enabled"))
+
+            # If user re-enabled after auto-disable, reset failure counter
+            if now_enabled and not was_enabled:
+                _update_custom_audio_state(audio_id, consecutive_failures=0, last_error=None,
+                                           download_status="NOT_STARTED")
+
+            # BRIDGE: dual-write Kahf changes to legacy rules block.
+            # Remove this block in v1.9.9 after full Kahf migration.
+            if audio_id == "surah_kahf":
+                rules = CFG.setdefault("rules", {})
+                if "enabled" in body:
+                    rules["enable_kahf"] = bool(body["enabled"])
+
+            _save_config_yaml(CFG)
+
+        # If just enabled and file missing, kick off the download
+        if now_enabled and not os.path.isfile(_custom_audio_file_path(audio_id)):
+            url = entry.get("audio_url") or ""
+            if url:
+                _enqueue_custom_audio_download(audio_id, url)
+
+        # Re-run schedule_today() so today's slot reflects the change
+        try:
+            schedule_today()
+        except Exception as e:
+            log.error(f"schedule_today() after scheduled_audio update failed: {e}")
+
+        return jsonify({"ok": True, "id": audio_id, "config": entry})
+    except Exception as e:
+        log.error(f"/api/scheduled_audio/{audio_id} error: {e}", exc_info=True)
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route("/api/scheduled_audio/<audio_id>/skip_today", methods=["POST"])
+def api_scheduled_audio_skip_today(audio_id):
+    """Set skip_until_date to today — the schedule fires but the audio
+    doesn't play this once. Cleared automatically tomorrow."""
+    try:
+        with _state_lock:
+            if audio_id not in (CFG.get("scheduled_audio") or {}):
+                return jsonify({"ok": False, "error": f"unknown audio_id: {audio_id}"}), 404
+        today_iso = date.today().isoformat()
+        _update_custom_audio_state(audio_id, skip_until_date=today_iso)
+        return jsonify({"ok": True, "id": audio_id, "skip_until_date": today_iso})
+    except Exception as e:
+        log.error(f"/api/scheduled_audio/{audio_id}/skip_today error: {e}")
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route("/api/scheduled_audio/<audio_id>/play_now", methods=["POST"])
+def api_scheduled_audio_play_now(audio_id):
+    """Fire the audio immediately, regardless of schedule. Ignores skip_until_date.
+    Useful when the user wants to hear it now (testing, missed the slot, etc.)."""
+    try:
+        with _state_lock:
+            if audio_id not in (CFG.get("scheduled_audio") or {}):
+                return jsonify({"ok": False, "error": f"unknown audio_id: {audio_id}"}), 404
+        threading.Thread(target=_play_custom_audio, args=(audio_id,),
+                         kwargs={"force": True}, daemon=True).start()
+        return jsonify({"ok": True, "id": audio_id, "status": "playback started"})
+    except Exception as e:
+        log.error(f"/api/scheduled_audio/{audio_id}/play_now error: {e}")
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route("/api/scheduled_audio/<audio_id>/quiet_test", methods=["POST"])
+def api_scheduled_audio_quiet_test(audio_id):
+    """10-second test play. Plays the audio file then stops cleanly after 10s.
+    Used during setup to confirm playback works without blasting the full surah."""
+    try:
+        with _state_lock:
+            if audio_id not in (CFG.get("scheduled_audio") or {}):
+                return jsonify({"ok": False, "error": f"unknown audio_id: {audio_id}"}), 404
+        threading.Thread(target=_quiet_test_custom_audio, args=(audio_id,),
+                         daemon=True).start()
+        return jsonify({"ok": True, "id": audio_id, "status": "quiet test started"})
+    except Exception as e:
+        log.error(f"/api/scheduled_audio/{audio_id}/quiet_test error: {e}")
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
 # ---------------- Bootstrap Initialization (COMPLETE with Kernel Lock) ----------------
 _initialized = False
 
@@ -5397,12 +6209,20 @@ def ensure_initialized():
     except Exception as e:
         log.error(f"Could not load scheduler hold: {e}")
 
+    # v1.9.8: kick off the scheduled_audio (Quran Programs) download worker
+    # before the scheduler starts, so any enabled-but-not-yet-downloaded
+    # entries can begin fetching while the rest of the system boots.
+    try:
+        _start_custom_audio_download_worker()
+    except Exception as e:
+        log.error(f"Could not start custom audio download worker: {e}")
+
     # Set up scheduler (only once)
     if not _scheduler_started:
         sched.add_listener(job_listener, EVENT_JOB_EXECUTED | EVENT_JOB_ERROR)
         schedule_today()
         schedule_midnight_refresh()
-        
+
         sched.start()
         _scheduler_started = True
         log.info("Scheduler started successfully")
