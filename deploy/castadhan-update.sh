@@ -103,15 +103,38 @@ log "Update available: $CURRENT → $LATEST_VERSION. Beginning atomic update."
 STAGE=$(mktemp -d /var/tmp/castadhan-update.XXXXXX)
 trap 'rm -rf "$STAGE"' EXIT
 
+# v1.9.9: Telegram alert helper for update failures. Reads the same root-only
+# config the app uses. No-op when unconfigured. Never fails the script.
+telegram_alert() {
+  local text="$1" token="" chat=""
+  if [ -f /etc/default/castadhan-telegram ]; then
+    token=$(sed -n 's/^TELEGRAM_BOT_TOKEN=//p' /etc/default/castadhan-telegram | tr -d '"' | tr -d "'")
+    chat=$(sed -n 's/^TELEGRAM_CHAT_ID=//p' /etc/default/castadhan-telegram | tr -d '"' | tr -d "'")
+  fi
+  [ -n "$token" ] && [ -n "$chat" ] || return 0
+  curl -s --max-time 15 "https://api.telegram.org/bot${token}/sendMessage" \
+    -d chat_id="$chat" --data-urlencode text="$text" >/dev/null 2>&1 || true
+}
+
 log "Downloading $TARBALL_URL"
-if ! curl -sfL --max-time 300 "$TARBALL_URL" -o "$STAGE/release.tgz"; then
-  log "Download failed. Skipping."
+# B-Belgium-44 (v1.9.9): son-pi's nightly downloads failed silently for two
+# days (curl -s swallowed the error; "Download failed. Skipping." was all we
+# had — no exit code, no retry). Now: curl's built-in retry (3 attempts, 30s
+# apart, retrying ALL transient errors), -S to surface error text into the
+# log even with -s, and the exit code recorded on final failure so we can
+# distinguish HTTP 4xx (22) from mid-stream resets (18/56) from DNS (6).
+if ! curl -sSfL --max-time 300 --retry 3 --retry-delay 30 --retry-all-errors \
+     "$TARBALL_URL" -o "$STAGE/release.tgz"; then
+  rc=$?
+  log "Download failed after 3 retries (curl exit $rc). Skipping."
+  telegram_alert "⚠️ CastAdhan ($(hostname)): nightly update download failed (curl exit $rc, 3 retries). Still on $CURRENT."
   exit 1
 fi
 
 mkdir -p "$STAGE/unpack"
 if ! tar -xzf "$STAGE/release.tgz" -C "$STAGE/unpack" --strip-components=1; then
   log "Extract failed. Aborting."
+  telegram_alert "⚠️ CastAdhan ($(hostname)): nightly update EXTRACT failed (the B-Belgium-43 class). Still on $CURRENT."
   exit 1
 fi
 
@@ -212,6 +235,9 @@ rollback() {
   mv "$PREV_DIR" "$INSTALL_DIR"
   systemctl start "$SERVICE"
   log "Rollback complete. Still on $CURRENT."
+  # v1.9.9: a rollback is exactly the "silent failure" the operator must hear
+  # about — Lesson 53: a silent rollback hides the very state it protects.
+  telegram_alert "⚠️ CastAdhan ($(hostname)): update to $LATEST_VERSION ROLLED BACK ($reason). Still on $CURRENT."
   exit 1
 }
 

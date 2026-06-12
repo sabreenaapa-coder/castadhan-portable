@@ -4128,6 +4128,66 @@ def run_daily_summary():
                 any_problem = True
                 lines.append(f"⚠️ {p} — no record")
 
+        # v1.9.9 (B-Belgium-45): version-drift line. The silent-update
+        # graveyard of 8 Jun (masood 5 versions behind, son 8) was only found
+        # because the operator happened to ask. Now every digest carries the
+        # installed-vs-latest comparison, and a Pi that has MISSED an update
+        # window (latest release older than 36h yet still not installed)
+        # upgrades the digest to a problem report so it actually sends.
+        ops_lines = []
+        try:
+            installed = "?"
+            try:
+                with open(os.path.join(ROOT, "VERSION")) as f:
+                    installed = f.read().strip()
+            except Exception:
+                pass
+            repo = "sabreenaapa-coder/castadhan-portable"
+            try:
+                with open("/etc/default/castadhan-update") as f:
+                    for ln in f:
+                        if ln.strip().startswith("GITHUB_REPO="):
+                            repo = ln.split("=", 1)[1].strip().strip('"').strip("'")
+            except Exception:
+                pass
+            r = requests.get(f"https://api.github.com/repos/{repo}/releases/latest",
+                             timeout=10)
+            if r.status_code == 200:
+                rel = r.json()
+                latest = (rel.get("tag_name") or "").lstrip("v")
+                published = rel.get("published_at") or ""
+                if latest and latest != installed:
+                    ops_lines.append(f"📦 Version: {installed} installed, "
+                                     f"{latest} available")
+                    try:
+                        pub_dt = datetime.strptime(published, "%Y-%m-%dT%H:%M:%SZ")
+                        age_h = (datetime.utcnow() - pub_dt).total_seconds() / 3600
+                        if age_h > 36:
+                            any_problem = True
+                            ops_lines[-1] += (f" — released {age_h/24:.0f}d ago, "
+                                              f"update window MISSED")
+                    except Exception:
+                        pass
+        except Exception as e:
+            log.debug(f"digest version check skipped: {e}")
+        try:
+            with open("/proc/uptime") as f:
+                up_h = float(f.read().split()[0]) / 3600
+            ops_lines.append(f"⏱ Uptime: {up_h/24:.1f}d" if up_h > 48
+                             else f"⏱ Uptime: {up_h:.0f}h")
+        except Exception:
+            pass
+        try:
+            import shutil as _sh
+            du = _sh.disk_usage("/")
+            free_gb = du.free / 1e9
+            ops_lines.append(f"💾 Disk: {free_gb:.1f} GB free")
+            if free_gb < 2:
+                any_problem = True
+                ops_lines[-1] += " — LOW"
+        except Exception:
+            pass
+
         # v1.8.14: when telegram_only_on_failure is True (new global default),
         # skip the digest entirely on all-green days. Instant failure alerts
         # continue regardless; this only suppresses the once-a-day "everything
@@ -4135,6 +4195,8 @@ def run_daily_summary():
         if (RULES.get("telegram_only_on_failure", True) and not any_problem):
             log.info("Daily Telegram summary: no problems today, suppressed by telegram_only_on_failure")
             return
+        if ops_lines:
+            lines.extend([""] + ops_lines)
 
         header = (f"⚠️ CastAdhan ({_site_label()}) — a prayer may not have played today:"
                   if any_problem else
@@ -4179,11 +4241,44 @@ def run_health_check():
     # Check speaker availability
     with _cast_lock:
         num_speakers = len(_general_casts)
-    
+
     log.info(f"Speakers available: {num_speakers}")
-    
+
     if num_speakers == 0:
         log.warning("⚠ No speakers available - check network connectivity")
+
+    # v1.9.9: SD-card early warning. masood's card logged mmc/I-O errors in
+    # dmesg HOURS before it fully died on 9 Jun — nobody saw them. Scan the
+    # kernel log for storage-failure signatures; alert on anything new since
+    # the last scan (hash-deduped via watchdog_state.json so one bad block
+    # doesn't re-alert every day). Fail-quiet if dmesg is restricted.
+    try:
+        import hashlib
+        out = subprocess.run(["dmesg"], capture_output=True, text=True, timeout=20)
+        if out.returncode == 0:
+            bad = [ln for ln in out.stdout.splitlines()
+                   if any(sig in ln for sig in
+                          ("mmc0: error", "mmcblk0: error", "I/O error",
+                           "EXT4-fs error", "Remounting filesystem read-only",
+                           "Buffer I/O error"))]
+            if bad:
+                digest_hash = hashlib.sha256("\n".join(bad[-20:]).encode()).hexdigest()
+                state = _read_watchdog_state()
+                if state.get("last_dmesg_hash") != digest_hash:
+                    state["last_dmesg_hash"] = digest_hash
+                    _write_watchdog_state(state)
+                    log.critical(f"💾 Storage errors in dmesg ({len(bad)} lines). "
+                                 f"Most recent: {bad[-1][:200]}")
+                    _telegram_send(
+                        f"💾 CastAdhan ({_site_label()}): {len(bad)} storage "
+                        f"error(s) in the kernel log. The SD card may be "
+                        f"failing — this is the signal that preceded masood's "
+                        f"card death by hours. Most recent:\n{bad[-1][:200]}\n"
+                        f"Tailscale: http://{_get_tailscale_ip() or '?'}:8786")
+        else:
+            log.debug("dmesg scan skipped (restricted or unavailable)")
+    except Exception as e:
+        log.debug(f"dmesg scan skipped: {e}")
 
 def refresh_daily():
     """Daily refresh of prayer times and schedule"""
