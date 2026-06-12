@@ -2446,14 +2446,25 @@ def _play_custom_audio(audio_id: str, force: bool = False):
 
     # Play through the normal pipeline so routing + volume policy + history all apply
     log.info(f"🕌 Playing {name} (audio_id={audio_id})")
-    rel_path = os.path.relpath(local_path, ROOT) if local_path.startswith(ROOT) \
-        else f"_custom_audio/{audio_id}.mp3"
 
-    # _play_to_targets via the standard pipeline; the URL it builds is served
-    # by our new /media/custom/<id>.mp3 route (or /media/<rel> if under ROOT)
     casts = _ensure_speakers(structured_type, audio_id)
     if not casts:
         return  # _ensure_speakers already logged
+
+    # v1.9.9 (B-Belgium-61): honour target_speakers. v1.9.8 shipped the
+    # per-card speaker checkboxes in the UI but the backend ignored them —
+    # on a multi-speaker Pi an enabled surah would play EVERYWHERE including
+    # children's bedrooms, defeating the safe-defaults design entirely.
+    # Semantics: [] = nothing selected = don't play (matches the UI warning
+    # banner); ["__all__"] = play on every discovered speaker (used by the
+    # Kahf migration to preserve legacy fleet behaviour).
+    targets = entry.get("target_speakers") or []
+    if "__all__" not in targets:
+        casts = [c for c in casts if c.name in targets]
+    if not casts:
+        log.warning(f"{name}: no target speakers selected/online — not playing")
+        _log_play(structured_type, audio_id, "NO_SPEAKERS_SELECTED", speakers_count=0)
+        return
 
     play_logged = False
     try:
@@ -2469,6 +2480,9 @@ def _play_custom_audio(audio_id: str, force: bool = False):
         _log_play(structured_type, audio_id,
                   "PASS" if played else "NO_SPEAKERS",
                   speakers_count=played)
+        if played:
+            # v1.9.9: async verification (10s) — scheduled:* types qualify
+            _verify_playback_async(casts, structured_type, audio_id)
         play_logged = True   # v1.9.8.2: gate the outer except so we don't
                               # write a duplicate FAIL entry if the play
                               # itself succeeded and a later side-effect
@@ -2551,6 +2565,17 @@ def _quiet_test_custom_audio(audio_id: str):
         return
     casts = _ensure_speakers(f"quiet_test:{audio_id}", audio_id)
     if not casts:
+        return
+
+    # v1.9.9 (B-Belgium-61): quiet test targets the same speakers the real
+    # schedule would — so the test actually tests the configured behaviour.
+    targets = entry.get("target_speakers") or []
+    if "__all__" not in targets:
+        casts = [c for c in casts if c.name in targets]
+    if not casts:
+        log.warning(f"quiet_test {audio_id}: no target speakers selected")
+        _log_play(f"quiet_test:{audio_id}", audio_id, "NO_SPEAKERS_SELECTED",
+                  speakers_count=0)
         return
 
     url = _custom_audio_local_url(audio_id)
@@ -4094,7 +4119,7 @@ def run_daily_summary():
                 # Second condition handles historical NO_SPEAKERS entries written
                 # before v1.8.14 added the SILENT_EXPECTED downgrade in _log_play.
                 lines.append(f"🔕 {p} — silent by design")
-            elif status in ("FAIL", "NO_SPEAKERS"):
+            elif status in ("FAIL", "NO_SPEAKERS", "FAIL_VERIFIED"):
                 any_problem = True
                 lines.append(f"❌ {p} FAILED ({status})")
             elif p == "Isha" and not isha_expected:
@@ -4635,6 +4660,7 @@ def _play_to_targets(media_relpath: str, target: Optional[str] = None, audio_typ
     # making it impossible to audit "did the morning dhikr fire?" without
     # diving into castadhan.log.
     played = 0
+    casts_played = []   # v1.9.9: track actual cast objects for verification
     try:
         url = local_media_url(media_relpath)
 
@@ -4643,6 +4669,7 @@ def _play_to_targets(media_relpath: str, target: Optional[str] = None, audio_typ
             if cast:
                 play_on_cast(cast, url, _speaker_volume(cast.name), audio_type, prayer_name)
                 played = 1
+                casts_played = [cast]
             else:
                 log.warning(f"Target {target} not found")
         else:
@@ -4657,10 +4684,14 @@ def _play_to_targets(media_relpath: str, target: Optional[str] = None, audio_typ
             for cast in casts:
                 play_on_cast(cast, url, _speaker_volume(cast.name), audio_type, prayer_name)
                 played += 1
+            casts_played = list(casts)
         if audio_type:
             _log_play(audio_type, prayer_name,
                       "PASS" if played else "NO_SPEAKERS",
                       speakers_count=played)
+            # v1.9.9: async verification — confirms a speaker is actually
+            # playing 10s from now (adhan + scheduled:* only; fail-open).
+            _verify_playback_async(casts_played, audio_type, prayer_name)
     except Exception as e:
         log.error(f"Error playing media {media_relpath}: {e}")
         if audio_type:
@@ -4778,7 +4809,9 @@ def _log_play(audio_type: str, prayer_name: Optional[str], status: str, speakers
         # Outside the lock so the network send can't block other plays.
         # SKIPPED_HOLD (Emergency Stop), DISCOVERY_RECOVERED, SUPPRESSED (quiet
         # hours policy) and SILENT_EXPECTED (v1.8.14 whitelist) are not failures.
-        if status in ("FAIL", "NO_SPEAKERS"):
+        # v1.9.9: FAIL_VERIFIED = play command was sent but no speaker was
+        # actually playing 10s later (the masood-SD-failure blind spot).
+        if status in ("FAIL", "NO_SPEAKERS", "FAIL_VERIFIED"):
             try:
                 label = prayer_name or audio_type or "audio"
                 # v1.8.14: include the Pi's Tailscale IP so the owner can SSH /
@@ -4796,6 +4829,65 @@ def _log_play(audio_type: str, prayer_name: Optional[str], status: str, speakers
     except Exception as e:
         # Logging must never break playback. Swallow.
         log.error(f"_log_play internal error: {e}")
+
+def _verify_playback_async(casts: list, audio_type: str, prayer_name: Optional[str] = None):
+    """v1.9.9: confirm audio is ACTUALLY playing ~10s after the play command.
+
+    Until now PASS meant "command sent". During masood's SD-card failure
+    (9 Jun) the speaker fetched a 404 and played silence while history said
+    PASS — the audit trail lied exactly when it mattered. This poller closes
+    that gap: 10s after the play, read each cast's media status; if NONE of
+    the targeted speakers is PLAYING/BUFFERING, append a FAIL_VERIFIED entry
+    (which also fires the immediate Telegram alert via _log_play).
+
+    Scope: only adhan and scheduled:* audio — the prayer-critical types.
+    Warnings/dhikr can be legitimately routed off per-speaker, which would
+    make a blanket verifier cry wolf.
+
+    Fail-open: any exception in the poller degrades to "no verification",
+    never to a false FAIL. Success is logged at INFO, not appended to history
+    (keeps the JSONL lean; absence of FAIL_VERIFIED == verified-or-unverifiable)."""
+    if not casts:
+        return
+    if not (audio_type == "adhan" or (audio_type or "").startswith("scheduled:")):
+        return
+
+    def _poll():
+        try:
+            time.sleep(10)
+            if shutdown_event.is_set():
+                return
+            playing = []
+            for cast in casts:
+                try:
+                    mc = cast.media_controller
+                    try:
+                        mc.update_status()
+                        time.sleep(1)
+                    except Exception:
+                        pass   # cached status is still usable
+                    state = getattr(getattr(mc, "status", None), "player_state", None)
+                    if state in ("PLAYING", "BUFFERING"):
+                        playing.append(cast.name)
+                except Exception as e:
+                    log.debug(f"verify: status read failed for "
+                              f"{getattr(cast, 'name', '?')}: {e}")
+            if playing:
+                log.info(f"✓ Playback verified for {audio_type} "
+                         f"{prayer_name or ''}: {playing}")
+            else:
+                log.critical(f"❌ Playback NOT verified for {audio_type} "
+                             f"{prayer_name or ''} — no targeted speaker is "
+                             f"playing 10s after the play command")
+                _log_play(audio_type, prayer_name, "FAIL_VERIFIED",
+                          speakers_count=0,
+                          error=Exception("no speaker playing 10s after play command"))
+        except Exception as e:
+            log.error(f"verify poller error (degrading to unverified): {e}")
+
+    threading.Thread(target=_poll, daemon=True,
+                     name=f"verify-{audio_type}").start()
+
 
 def _ensure_speakers(audio_type: str, prayer_name: Optional[str] = None):
     """Return list of casts; if empty, auto-retry discovery ONCE; if still empty,
