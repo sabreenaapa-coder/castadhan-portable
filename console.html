@@ -285,6 +285,204 @@
   .weather-temp {font-size: 1em;color: var(--gold);}
   .weather-condition {font-size: 0.7em;color: var(--silver);text-align: center;max-width: 80px;}
   .clock-container {position: relative;width: var(--clock);height: var(--clock);}
+
+  /* ═══ v1.9.8 Quran Programs cards ═══════════════════════════════════════ */
+  .qp-card {
+    border: 1px solid var(--card-bd);
+    border-radius: 6px;
+    margin-bottom: 8px;
+    background: rgba(255,255,255,.02);
+    overflow: hidden;
+  }
+  .qp-header {
+    padding: 10px 12px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    user-select: none;
+  }
+  .qp-header:hover { background: rgba(255,215,0,.06); }
+  .qp-chevron { transition: transform .15s ease; opacity: .55; font-size: .8em; }
+  .qp-card.open .qp-chevron { transform: rotate(90deg); }
+  .qp-name { flex: 1; font-weight: 500; }
+  .qp-pill {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-size: .72em;
+    font-weight: 500;
+    letter-spacing: .02em;
+  }
+  .qp-pill.on  { background: rgba(50,200,80,.18); color: #5bde6c; border: 1px solid #5bde6c44; }
+  .qp-pill.off { background: rgba(160,160,160,.12); color: #888; border: 1px solid #555; }
+  .qp-pill.err { background: rgba(220,80,80,.18); color: #ff7777; border: 1px solid #ff777744; }
+  .qp-pill.dl  { background: rgba(80,160,255,.18); color: #6cb0ff; border: 1px solid #6cb0ff44; }
+  .qp-next    { font-size: .75em; opacity: .6; margin-left: 4px; }
+  .qp-body {
+    display: none;
+    padding: 0 12px 12px;
+    border-top: 1px solid var(--card-bd);
+    background: rgba(0,0,0,.15);
+  }
+  .qp-card.open .qp-body { display: block; }
+  .qp-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 12px;
+    align-items: center;
+    margin: 10px 0;
+    font-size: .88em;
+  }
+  .qp-row label { min-width: 100px; opacity: .8; }
+  .qp-row input[type="time"],
+  .qp-row input[type="number"],
+  .qp-row select {
+    background: rgba(0,0,0,.4);
+    color: var(--silver);
+    border: 1px solid var(--card-bd);
+    border-radius: 4px;
+    padding: 4px 6px;
+    font-size: .9em;
+  }
+  .qp-days {
+    display: flex;
+    gap: 4px;
+    flex-wrap: wrap;
+  }
+  .qp-day {
+    padding: 4px 10px;
+    border: 1px solid var(--card-bd);
+    border-radius: 14px;
+    background: rgba(0,0,0,.3);
+    cursor: pointer;
+    font-size: .82em;
+    user-select: none;
+    transition: all .12s;
+  }
+  .qp-day.on { background: rgba(255,215,0,.22); border-color: var(--gold); color: var(--gold); }
+  .qp-speakers {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    flex: 1;
+    min-width: 200px;
+  }
+  .qp-speakers label {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    cursor: pointer;
+    min-width: auto;
+    opacity: 1;
+  }
+  .qp-speakers .qp-warn {
+    font-size: .78em;
+    color: #ffaa55;
+    margin-top: 4px;
+    padding: 4px 8px;
+    background: rgba(255,170,85,.1);
+    border-radius: 3px;
+    border-left: 2px solid #ffaa55;
+  }
+  .qp-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 12px;
+    padding-top: 10px;
+    border-top: 1px solid var(--card-bd);
+  }
+  .qp-btn {
+    padding: 6px 12px;
+    background: rgba(0,0,0,.5);
+    color: var(--silver);
+    border: 1px solid var(--card-bd);
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: .82em;
+    transition: all .12s;
+  }
+  .qp-btn:hover { background: rgba(255,215,0,.1); border-color: var(--gold); color: var(--gold); }
+  .qp-btn.danger:hover { background: rgba(220,80,80,.15); border-color: #ff7777; color: #ff7777; }
+  .qp-banner {
+    margin: 8px 0;
+    padding: 8px 12px;
+    border-radius: 4px;
+    font-size: .85em;
+    line-height: 1.4;
+  }
+  .qp-banner.err {
+    background: rgba(220,80,80,.12);
+    border: 1px solid #ff777744;
+    color: #ff9999;
+  }
+  .qp-banner.info {
+    background: rgba(80,160,255,.1);
+    border: 1px solid #6cb0ff44;
+    color: #aacfff;
+  }
+  .qp-banner.success {
+    background: rgba(50,200,80,.12);
+    border: 1px solid #5bde6c44;
+    color: #99e9a8;
+  }
+  .qp-toast {
+    margin: 4px 0 8px;
+    padding: 6px 10px;
+    border-radius: 4px;
+    font-size: .8em;
+    background: rgba(50,200,80,.12);
+    color: #99e9a8;
+    transition: opacity .4s;
+  }
+  .qp-advanced {
+    margin-top: 10px;
+    padding: 8px 10px;
+    background: rgba(0,0,0,.2);
+    border-radius: 4px;
+    font-size: .78em;
+    opacity: .75;
+  }
+  .qp-advanced summary { cursor: pointer; user-select: none; }
+  .qp-advanced code {
+    display: block;
+    word-break: break-all;
+    padding: 4px 6px;
+    margin-top: 4px;
+    background: rgba(0,0,0,.4);
+    border-radius: 3px;
+    font-family: monospace;
+    font-size: .9em;
+    color: #aaa;
+  }
+  .qp-toggle {
+    position: relative;
+    display: inline-block;
+    width: 36px;
+    height: 20px;
+    flex-shrink: 0;
+  }
+  .qp-toggle input { display: none; }
+  .qp-toggle-slider {
+    position: absolute; inset: 0;
+    background: #444;
+    border-radius: 12px;
+    cursor: pointer;
+    transition: background .15s;
+  }
+  .qp-toggle-slider::before {
+    content: '';
+    position: absolute;
+    top: 2px; left: 2px;
+    width: 16px; height: 16px;
+    background: #ddd;
+    border-radius: 50%;
+    transition: transform .15s;
+  }
+  .qp-toggle input:checked + .qp-toggle-slider { background: var(--gold); }
+  .qp-toggle input:checked + .qp-toggle-slider::before { transform: translateX(16px); background: white; }
+  /* End Quran Programs styles */
 </style>
 </head>
 <body>
@@ -935,6 +1133,19 @@
             <!-- Filled by JavaScript -->
           </tbody>
         </table>
+      </div>
+
+      <!-- ═══ v1.9.8 Quran & Programs (scheduled_audio framework) ═══ -->
+      <div class="control-group" id="quran-programs-section">
+        <h4>🕌 Quran &amp; Programs</h4>
+        <p style="margin:5px 0 12px;font-size:.85em;opacity:.75;line-height:1.4;">
+          Schedule recitations to play automatically. Each item can be set to a fixed time
+          (e.g. 10:00) or relative to a prayer (e.g. 15 minutes after Maghrib). All times
+          are user-adjustable.
+        </p>
+        <div id="quran-cards">
+          <!-- Filled by JavaScript: renderQuranPrograms() -->
+        </div>
       </div>
     </div>
 
@@ -1971,6 +2182,373 @@ async function renderAudioFiles() {
   }
 }
 
+
+/* ════════════════════════════════════════════════════════════════════════
+   v1.9.8 Quran Programs — scheduled_audio dashboard
+   Render up to N cards from /api/scheduled_audio, each with toggle, time
+   picker / prayer-anchor selector, day-of-week pills, per-card speaker
+   checkboxes, Quiet Test / Play Now / Skip Today buttons.
+   ════════════════════════════════════════════════════════════════════════ */
+const DAY_LABELS = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+const PRAYER_ANCHORS = ['Fajr','Sunrise','Dhuhr','Asr','Maghrib','Isha'];
+
+let _qpExpanded = new Set();   // which cards are open (preserved across re-renders)
+let _qpSaveTimers = {};         // per-card debounce timers
+let _qpCachedSpeakers = [];     // last seen speakers list (for the picker)
+
+async function renderQuranPrograms() {
+  const box = $('quran-cards');
+  if (!box) return;
+  if (!box.innerHTML.trim()) {
+    box.innerHTML = '<div style="opacity:.6; padding:8px; font-size:.85em;"><span class="spinner"></span>Loading…</div>';
+  }
+  try {
+    /* Pull both the schedule list and current speaker list in parallel.
+       Speakers come from /api/state so we know how many to render per card. */
+    const [saRes, stRes] = await Promise.all([
+      fetch('/api/scheduled_audio'),
+      fetch('/api/state')
+    ]);
+    const saData = await saRes.json();
+    const stData = await stRes.json();
+    if (!saData.ok) {
+      box.innerHTML = `<div class="qp-banner err">Failed to load: ${saData.error || 'unknown'}</div>`;
+      return;
+    }
+    _qpCachedSpeakers = (stData?.devices?.speakers || []).map(s => s.name);
+
+    const entries = saData.entries || [];
+    if (entries.length === 0) {
+      box.innerHTML = '<div style="opacity:.6; padding:8px;">No Quran programs configured.</div>';
+      return;
+    }
+
+    box.innerHTML = entries.map(renderQuranCard).join('');
+  } catch (e) {
+    box.innerHTML = `<div class="qp-banner err">Failed to load Quran programs: ${e.message}</div>`;
+  }
+}
+
+function renderQuranCard(entry) {
+  const c = entry.config || {};
+  const s = entry.state || {};
+  const id = entry.id;
+  const isOpen = _qpExpanded.has(id);
+  const enabled = !!c.enabled;
+  const downloaded = !!entry.file_exists;
+  const trigger = c.trigger_type || 'fixed';
+  const days = Array.isArray(c.days) ? c.days : [];
+  const speakers = Array.isArray(c.target_speakers) ? c.target_speakers : [];
+
+  /* Status pill */
+  let statusPill;
+  if (s.download_status === 'FAILED_DISABLED') {
+    statusPill = '<span class="qp-pill err">Auto-disabled</span>';
+  } else if (!enabled) {
+    statusPill = '<span class="qp-pill off">Off</span>';
+  } else if (!downloaded && s.download_status === 'IN_PROGRESS') {
+    statusPill = '<span class="qp-pill dl">Downloading…</span>';
+  } else if (!downloaded) {
+    statusPill = '<span class="qp-pill dl">Pending download</span>';
+  } else {
+    statusPill = '<span class="qp-pill on">On</span>';
+  }
+
+  /* Schedule summary line */
+  let schedSummary;
+  if (trigger === 'fixed') {
+    schedSummary = `${c.play_time || '—:—'} · ${daysSummary(days)}`;
+  } else {
+    const sign = (c.offset_minutes || 0) >= 0 ? '+' : '';
+    schedSummary = `${c.relative_prayer_anchor || '?'} ${sign}${c.offset_minutes || 0}m · ${daysSummary(days)}`;
+  }
+
+  /* Banner for auto-disable */
+  let banner = '';
+  if (s.download_status === 'FAILED_DISABLED' || (s.consecutive_failures || 0) >= 3) {
+    banner = `<div class="qp-banner err">
+      ⚠️ Auto-disabled after ${s.consecutive_failures} consecutive download failures.
+      Last error: <code style="background:rgba(0,0,0,.3);padding:1px 4px;border-radius:2px;">${escapeHtml(s.last_error || 'unknown')}</code><br>
+      Update the audio URL in config.yaml then toggle ON to retry.
+    </div>`;
+  } else if (s.skip_until_date) {
+    banner = `<div class="qp-banner info">⏭ Skipping today (set ${s.skip_until_date}). Will resume tomorrow.</div>`;
+  }
+
+  /* Body content (only shown when expanded) */
+  const body = `
+    <div class="qp-body">
+      ${banner}
+      <div class="qp-row">
+        <label>Schedule type</label>
+        <label style="display:inline-flex; gap:4px; align-items:center; cursor:pointer; min-width:auto;">
+          <input type="radio" name="qp-sched-${id}" ${trigger==='fixed'?'checked':''}
+                 onchange="qpSetTriggerType('${id}','fixed')"> Fixed time
+        </label>
+        <label style="display:inline-flex; gap:4px; align-items:center; cursor:pointer; min-width:auto;">
+          <input type="radio" name="qp-sched-${id}" ${trigger==='relative_to_prayer'?'checked':''}
+                 onchange="qpSetTriggerType('${id}','relative_to_prayer')"> Relative to prayer
+        </label>
+      </div>
+
+      ${trigger==='fixed' ? `
+        <div class="qp-row">
+          <label>Play at</label>
+          <input type="time" value="${c.play_time || '10:00'}"
+                 onchange="qpUpdate('${id}',{play_time:this.value})">
+        </div>
+      ` : `
+        <div class="qp-row">
+          <label>Anchor prayer</label>
+          <select onchange="qpUpdate('${id}',{relative_prayer_anchor:this.value})">
+            ${PRAYER_ANCHORS.map(p => `<option value="${p}" ${c.relative_prayer_anchor===p?'selected':''}>${p}</option>`).join('')}
+          </select>
+          <label style="min-width:auto;">Offset</label>
+          <input type="number" value="${c.offset_minutes || 0}" min="-180" max="180" step="5"
+                 style="width:70px;"
+                 onchange="qpUpdate('${id}',{offset_minutes:parseInt(this.value)||0})">
+          <span style="font-size:.8em; opacity:.6;">minutes (negative = before)</span>
+        </div>
+      `}
+
+      <div class="qp-row">
+        <label>Days</label>
+        <div class="qp-days">
+          ${DAY_LABELS.map((label,i) => `
+            <span class="qp-day ${days.includes(i)?'on':''}" onclick="qpToggleDay('${id}',${i})">${label}</span>
+          `).join('')}
+        </div>
+      </div>
+
+      <div class="qp-row">
+        <label>Speakers</label>
+        <div class="qp-speakers">
+          ${_qpCachedSpeakers.length === 0
+            ? '<span style="opacity:.6; font-size:.85em;">No speakers discovered yet.</span>'
+            : _qpCachedSpeakers.map(spName => `
+                <label>
+                  <input type="checkbox" ${speakers.includes(spName)?'checked':''}
+                         onchange="qpToggleSpeaker('${id}','${escapeHtml(spName)}',this.checked)">
+                  <span>${escapeHtml(spName)}</span>
+                </label>
+              `).join('')}
+          ${enabled && _qpCachedSpeakers.length > 0 && speakers.length === 0 ? `
+            <div class="qp-warn">⚠️ No speakers selected — this won't play. Pick at least one above.</div>
+          ` : ''}
+        </div>
+      </div>
+
+      <div class="qp-row" style="opacity:.75; font-size:.82em;">
+        <span>📥 ${downloaded
+          ? `Downloaded (${formatBytes(s.file_size_bytes||0)})`
+          : (s.download_status === 'IN_PROGRESS' ? 'Downloading…' : 'Not downloaded yet')}</span>
+        ${s.last_played_at ? `<span style="margin-left:auto;">Last played: ${formatRelTime(s.last_played_at)}</span>` : ''}
+      </div>
+
+      <div class="qp-actions">
+        <button class="qp-btn" onclick="qpQuietTest('${id}')" title="Plays the audio for 10 seconds then stops">▶ Quiet test 10s</button>
+        <button class="qp-btn" onclick="qpPlayNow('${id}')" title="Play the full recitation right now, ignoring the schedule">▶ Play now</button>
+        <button class="qp-btn" onclick="qpSkipToday('${id}')" title="Skip the next scheduled play. Resumes tomorrow.">⏭ Skip today</button>
+      </div>
+
+      <details class="qp-advanced">
+        <summary>Advanced details</summary>
+        <div style="margin-top:6px;">
+          <div>Audio URL:</div>
+          <code>${escapeHtml(c.audio_url || '(not set)')}</code>
+          <div style="margin-top:4px;">Download status: <code style="display:inline;padding:0 4px;">${s.download_status || 'NOT_STARTED'}</code></div>
+          ${s.last_error ? `<div style="margin-top:4px;">Last error: <code style="display:inline;padding:0 4px;">${escapeHtml(s.last_error)}</code></div>` : ''}
+          <div style="margin-top:4px;">Consecutive failures: ${s.consecutive_failures || 0}</div>
+        </div>
+      </details>
+    </div>
+  `;
+
+  return `
+    <div class="qp-card ${isOpen?'open':''}" data-id="${id}">
+      <div class="qp-header" onclick="qpToggleExpand('${id}')">
+        <span class="qp-chevron">▶</span>
+        <span class="qp-name">${escapeHtml(c.name || id)}</span>
+        ${statusPill}
+        <label class="qp-toggle" onclick="event.stopPropagation();">
+          <input type="checkbox" ${enabled?'checked':''}
+                 onchange="qpToggleEnabled('${id}',this.checked)">
+          <span class="qp-toggle-slider"></span>
+        </label>
+      </div>
+      <div style="padding:0 12px 4px;display:${isOpen?'none':'block'};font-size:.78em;opacity:.55;">
+        ${schedSummary}
+      </div>
+      ${body}
+    </div>
+  `;
+}
+
+function daysSummary(days) {
+  if (!Array.isArray(days) || days.length === 0) return 'No days';
+  if (days.length === 7) return 'Every day';
+  return days.map(i => DAY_LABELS[i]).join(' ');
+}
+
+function formatBytes(n) {
+  if (!n) return '0 B';
+  if (n < 1024) return n + ' B';
+  if (n < 1024*1024) return (n/1024).toFixed(1) + ' KB';
+  return (n/1024/1024).toFixed(1) + ' MB';
+}
+
+function formatRelTime(iso) {
+  try {
+    const d = new Date(iso);
+    const diff = (Date.now() - d.getTime()) / 1000;
+    if (diff < 60) return 'just now';
+    if (diff < 3600) return Math.floor(diff/60) + 'm ago';
+    if (diff < 86400) return Math.floor(diff/3600) + 'h ago';
+    return Math.floor(diff/86400) + 'd ago';
+  } catch (e) { return iso; }
+}
+
+function escapeHtml(s) {
+  if (s == null) return '';
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+
+function qpToggleExpand(id) {
+  if (_qpExpanded.has(id)) _qpExpanded.delete(id);
+  else _qpExpanded.add(id);
+  /* Update DOM in place — keeps inputs from losing focus */
+  const card = document.querySelector(`.qp-card[data-id="${CSS.escape(id)}"]`);
+  if (card) card.classList.toggle('open');
+}
+
+function qpToggleDay(id, dayIdx) {
+  const card = document.querySelector(`.qp-card[data-id="${CSS.escape(id)}"]`);
+  if (!card) return;
+  /* Read current days from the DOM */
+  const pills = card.querySelectorAll('.qp-day');
+  const days = [];
+  pills.forEach((p, i) => {
+    if (i === dayIdx) {
+      if (!p.classList.contains('on')) days.push(i);
+    } else if (p.classList.contains('on')) {
+      days.push(i);
+    }
+  });
+  /* Toggle the visual immediately */
+  pills[dayIdx].classList.toggle('on');
+  qpUpdate(id, {days});
+}
+
+function qpSetTriggerType(id, newType) {
+  qpUpdate(id, {trigger_type: newType}, true);  /* re-render after this */
+}
+
+function qpToggleSpeaker(id, speakerName, checked) {
+  const card = document.querySelector(`.qp-card[data-id="${CSS.escape(id)}"]`);
+  if (!card) return;
+  const inputs = card.querySelectorAll('.qp-speakers input[type="checkbox"]');
+  const speakers = [];
+  inputs.forEach(inp => {
+    if (inp.checked) {
+      const span = inp.nextElementSibling;
+      if (span) speakers.push(span.textContent);
+    }
+  });
+  qpUpdate(id, {target_speakers: speakers});
+}
+
+async function qpToggleEnabled(id, newState) {
+  /* Auto-pick the only speaker if this is a single-speaker Pi and they're enabling */
+  let updates = {enabled: newState};
+  if (newState && _qpCachedSpeakers.length === 1) {
+    /* Fetch current target_speakers; if empty, set to the one speaker */
+    const r = await fetch('/api/scheduled_audio');
+    const d = await r.json();
+    const e = d.entries.find(x => x.id === id);
+    if (e && (!e.config.target_speakers || e.config.target_speakers.length === 0)) {
+      updates.target_speakers = [_qpCachedSpeakers[0]];
+    }
+  }
+  qpUpdate(id, updates, true);
+}
+
+function qpUpdate(id, fields, reRender = false) {
+  /* Debounce per-card so rapid clicks/keystrokes don't hammer the server */
+  if (_qpSaveTimers[id]) clearTimeout(_qpSaveTimers[id]);
+  _qpSaveTimers[id] = setTimeout(async () => {
+    delete _qpSaveTimers[id];
+    try {
+      const r = await fetch(`/api/scheduled_audio/${encodeURIComponent(id)}`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(fields)
+      });
+      const d = await r.json();
+      if (d.ok) {
+        qpShowToast(id, 'Saved');
+        if (reRender) renderQuranPrograms();
+      } else {
+        qpShowToast(id, 'Save failed: ' + (d.error || 'unknown'), true);
+      }
+    } catch (e) {
+      qpShowToast(id, 'Save failed: ' + e.message, true);
+    }
+  }, 400);
+}
+
+function qpShowToast(id, msg, isError) {
+  const card = document.querySelector(`.qp-card[data-id="${CSS.escape(id)}"]`);
+  if (!card) return;
+  let toast = card.querySelector('.qp-toast');
+  if (!toast) {
+    toast = document.createElement('div');
+    toast.className = 'qp-toast';
+    const body = card.querySelector('.qp-body');
+    if (body) body.insertBefore(toast, body.firstChild);
+  }
+  toast.style.background = isError ? 'rgba(220,80,80,.15)' : 'rgba(50,200,80,.12)';
+  toast.style.color = isError ? '#ff9999' : '#99e9a8';
+  toast.textContent = msg;
+  toast.style.opacity = '1';
+  setTimeout(() => {
+    toast.style.opacity = '0';
+    setTimeout(() => { if (toast.parentNode) toast.parentNode.removeChild(toast); }, 400);
+  }, 2500);
+}
+
+async function qpQuietTest(id) {
+  qpShowToast(id, 'Quiet test starting (10s)…');
+  try {
+    const r = await fetch(`/api/scheduled_audio/${encodeURIComponent(id)}/quiet_test`, {method: 'POST'});
+    const d = await r.json();
+    if (!d.ok) qpShowToast(id, 'Test failed: ' + (d.error || 'unknown'), true);
+  } catch (e) { qpShowToast(id, 'Test failed: ' + e.message, true); }
+}
+
+async function qpPlayNow(id) {
+  if (!confirm('Play this recitation NOW on the selected speaker(s)? (Will play full length unless you hit Emergency Stop.)')) return;
+  qpShowToast(id, 'Starting playback…');
+  try {
+    const r = await fetch(`/api/scheduled_audio/${encodeURIComponent(id)}/play_now`, {method: 'POST'});
+    const d = await r.json();
+    if (!d.ok) qpShowToast(id, 'Play failed: ' + (d.error || 'unknown'), true);
+  } catch (e) { qpShowToast(id, 'Play failed: ' + e.message, true); }
+}
+
+async function qpSkipToday(id) {
+  try {
+    const r = await fetch(`/api/scheduled_audio/${encodeURIComponent(id)}/skip_today`, {method: 'POST'});
+    const d = await r.json();
+    if (d.ok) {
+      qpShowToast(id, 'Will skip the next scheduled play');
+      setTimeout(renderQuranPrograms, 600);
+    } else {
+      qpShowToast(id, 'Skip failed: ' + (d.error || 'unknown'), true);
+    }
+  } catch (e) { qpShowToast(id, 'Skip failed: ' + e.message, true); }
+}
+
+
 async function testAudio(audioKey) {
   if (!confirm(`Play test "${audioKey}" on ALL enabled speakers right now?`)) return;
   try {
@@ -2770,6 +3348,7 @@ function openSettingsModal(tab = 'basic') {
   loadUpdateStatus();
   renderRoutingMatrix();
   renderAudioFiles();   // D7 FIX (2026-05-23): populate Audio Files tab on every open
+  renderQuranPrograms(); // v1.9.8: Quran Programs cards on every open
   renderWakeupTab();    // NEW Wakeup tab (2026-05-23): populate on open too
   refreshWifiStatus();  // v1.9.0: show current WiFi/Ethernet state on modal open
 }
