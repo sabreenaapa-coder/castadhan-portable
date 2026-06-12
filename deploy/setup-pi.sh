@@ -89,6 +89,21 @@ rsync -a --delete \
 chown -R "$SERVICE_USER:$SERVICE_USER" "$INSTALL_DIR"
 ok "files copied to $INSTALL_DIR"
 
+# v1.9.8 (B-Belgium-52): persistent state dirs for Quran Programs feature.
+# These live OUTSIDE the install dir so they survive auto-update's
+# rm-and-replace swap. Created here on fresh install; the updater script
+# also creates them defensively when upgrading from a pre-v1.9.8 version.
+say "Creating persistent state dirs for Quran Programs"
+mkdir -p /var/lib/castadhan/custom_audio
+chown -R "$SERVICE_USER:$SERVICE_USER" /var/lib/castadhan
+chmod 755 /var/lib/castadhan /var/lib/castadhan/custom_audio
+if [ ! -f /var/lib/castadhan/custom_audio_state.json ]; then
+  echo "{}" > /var/lib/castadhan/custom_audio_state.json
+  chown "$SERVICE_USER:$SERVICE_USER" /var/lib/castadhan/custom_audio_state.json
+  chmod 644 /var/lib/castadhan/custom_audio_state.json
+fi
+ok "/var/lib/castadhan/custom_audio/ ready"
+
 # ---- 4. python venv --------------------------------------------------------
 say "Building Python virtualenv (this takes a couple of minutes)"
 sudo -u "$SERVICE_USER" "$PYTHON_BIN" -m venv "$INSTALL_DIR/venv"

@@ -152,6 +152,20 @@ if [ -d "$PREV_DIR/audio" ]; then
   cp -a "$PREV_DIR/audio" "$INSTALL_DIR/audio"
 fi
 
+# B-Belgium-52 (v1.9.8): ensure persistent state directories used by the
+# scheduled_audio Quran Programs feature exist with correct ownership. These
+# live OUTSIDE /opt so they survive the rm-and-replace install dir swap, but
+# they must be CREATED on first install or first update from a pre-v1.9.8
+# version. Idempotent — re-running is safe.
+mkdir -p /var/lib/castadhan/custom_audio
+chown -R castadhan:castadhan /var/lib/castadhan
+chmod 755 /var/lib/castadhan /var/lib/castadhan/custom_audio
+if [ ! -f /var/lib/castadhan/custom_audio_state.json ]; then
+  echo "{}" > /var/lib/castadhan/custom_audio_state.json
+  chown castadhan:castadhan /var/lib/castadhan/custom_audio_state.json
+  chmod 644 /var/lib/castadhan/custom_audio_state.json
+fi
+
 chown -R castadhan:castadhan "$INSTALL_DIR"
 
 # v1.9.0: keep system-side install artefacts in sync with the new release.

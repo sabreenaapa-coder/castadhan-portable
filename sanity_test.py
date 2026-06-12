@@ -633,6 +633,35 @@ def L9_autoupdate():
                   f"could not statvfs({staging_parent}): {e}")
     except Exception as e: err("HIGH", cat, "update-staging-space", e)
 
+    # B-Belgium-52 (v1.9.8): persistent state for the Quran Programs feature
+    # lives in /var/lib/castadhan/ — OUTSIDE the install dir so it survives
+    # the atomic rm-and-replace update swap. The directory + the state JSON
+    # must exist on first install AND on every update from a pre-v1.9.8
+    # version. setup-pi.sh + castadhan-update.sh create them defensively,
+    # but if either misses (older Pis upgrading), audio downloads fail
+    # silently with "permission denied" until the dir is manually mkdir'd.
+    try:
+        custom_audio_dir = "/var/lib/castadhan/custom_audio"
+        ok = os.path.isdir(custom_audio_dir)
+        t("HIGH", cat, "custom-audio-dir-exists", ok,
+          f"{custom_audio_dir} " + ("exists" if ok else "MISSING — Quran downloads will fail"))
+    except Exception as e: err("HIGH", cat, "custom-audio-dir-exists", e)
+
+    try:
+        state_file = "/var/lib/castadhan/custom_audio_state.json"
+        ok = os.path.isfile(state_file)
+        msg = f"{state_file} " + ("exists" if ok else "MISSING — will be created on next service start")
+        if ok:
+            # also verify it parses as JSON
+            try:
+                with open(state_file) as f:
+                    json.load(f)
+            except Exception as parse_err:
+                ok = False
+                msg = f"{state_file} exists but is invalid JSON: {parse_err}"
+        t("MEDIUM", cat, "custom-audio-state-readable", ok, msg)
+    except Exception as e: err("MEDIUM", cat, "custom-audio-state-readable", e)
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Layer 10 — Tailscale (Lesson 20)
 # ─────────────────────────────────────────────────────────────────────────────
