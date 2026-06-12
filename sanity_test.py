@@ -454,6 +454,83 @@ def L7_audio():
     except Exception as e: err("HIGH", cat, "audio-config-load", e)
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Layer 7b — Scheduled Audio (Quran Programs) — v1.9.8
+#
+# Verifies that the scheduled_audio feature shipped end-to-end and the system
+# can recover gracefully from common breakages: corrupted state file, missing
+# storage dir (covered separately in L9), audio_url validation working.
+# ─────────────────────────────────────────────────────────────────────────────
+def L7b_scheduled_audio():
+    cat = "L7b scheduled_audio"
+
+    # B-Belgium-52 (v1.9.8): the /api/scheduled_audio endpoint should always
+    # respond, even with zero configured entries. The dashboard polls this
+    # on every Settings open; a 500 would silently break the new tab.
+    try:
+        _, data = http_json("/api/scheduled_audio")
+        ok = bool(data.get("ok"))
+        entries = data.get("entries", []) if ok else []
+        t("HIGH", cat, "scheduled-audio-endpoint", ok,
+          f"endpoint returned ok={ok} with {len(entries)} entries")
+    except Exception as e: err("HIGH", cat, "scheduled-audio-endpoint", e)
+
+    # The six default surahs should all be present in a fresh config. If any
+    # are missing it means config.yaml's scheduled_audio block was deleted or
+    # the user's config has fully overridden the shipping default — masood
+    # would notice as missing cards. MEDIUM (not HIGH): masood may have
+    # deliberately removed an entry he doesn't want.
+    EXPECTED_DEFAULTS = ['surah_baqarah', 'surah_yasin', 'surah_mulk',
+                        'surah_kahf', 'surah_waqiah', 'surah_sajdah']
+    try:
+        _, data = http_json("/api/scheduled_audio")
+        ids = {e["id"] for e in data.get("entries", [])}
+        missing = [s for s in EXPECTED_DEFAULTS if s not in ids]
+        ok = len(missing) == 0
+        t("MEDIUM", cat, "scheduled-audio-default-entries", ok,
+          "all 6 default surahs present" if ok else f"missing: {missing}")
+    except Exception as e: err("MEDIUM", cat, "scheduled-audio-default-entries", e)
+
+    # Kahf bridge sanity: surah_kahf must be enabled by default (preserves
+    # the v1.9.7 behaviour) AND have the bundled audio source. If either
+    # changes, aunt-pi-ghent / son-pi-haverfordwest who today get Kahf on
+    # Friday automatically might stop getting it. HIGH.
+    try:
+        _, data = http_json("/api/scheduled_audio")
+        kahf = next((e for e in data.get("entries", []) if e["id"] == "surah_kahf"), None)
+        if kahf is None:
+            t("HIGH", cat, "scheduled-audio-kahf-bridge-preserved", False,
+              "surah_kahf entry missing — Friday Kahf will not fire")
+        else:
+            cfg = kahf.get("config", {})
+            enabled = bool(cfg.get("enabled"))
+            bundled = cfg.get("audio_url") == "bundled"
+            ok = enabled and bundled
+            parts = []
+            if not enabled: parts.append("not enabled")
+            if not bundled: parts.append(f"audio_url={cfg.get('audio_url')!r} (expected 'bundled')")
+            t("HIGH", cat, "scheduled-audio-kahf-bridge-preserved", ok,
+              "OK" if ok else "; ".join(parts))
+    except Exception as e: err("HIGH", cat, "scheduled-audio-kahf-bridge-preserved", e)
+
+    # State file readable + valid JSON. Already covered in L9 but checked
+    # here too since the scheduled_audio engine fails closed if state can't
+    # be read (every download is a fresh attempt with consecutive_failures=0).
+    try:
+        state_path = "/var/lib/castadhan/custom_audio_state.json"
+        ok = True
+        msg = "OK"
+        if not os.path.isfile(state_path):
+            ok = False; msg = f"{state_path} not present"
+        else:
+            try:
+                with open(state_path) as f:
+                    json.load(f)
+            except Exception as e:
+                ok = False; msg = f"invalid JSON: {e}"
+        t("MEDIUM", cat, "scheduled-audio-state-file", ok, msg)
+    except Exception as e: err("MEDIUM", cat, "scheduled-audio-state-file", e)
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Layer 8 — Religious correctness (C-1 + C-2 verified through real API)
 # ─────────────────────────────────────────────────────────────────────────────
 def L8_religion():
@@ -873,7 +950,8 @@ def L13_volume_policy():
 # Run everything
 # ─────────────────────────────────────────────────────────────────────────────
 for fn in [L1_system, L2_config, L3_discovery, L4_scheduler, L5_api,
-           L6_ui, L7_audio, L8_religion, L9_autoupdate, L9b_wifi_wizard, L10_tailscale, L11_history,
+           L6_ui, L7_audio, L7b_scheduled_audio,
+           L8_religion, L9_autoupdate, L9b_wifi_wizard, L10_tailscale, L11_history,
            L12_connectivity, L13_volume_policy]:
     try:
         fn()
