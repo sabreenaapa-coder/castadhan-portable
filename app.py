@@ -3733,6 +3733,203 @@ def schedule_midnight_refresh():
 _DISCOVER_CASTS_MAX_SECONDS = 45  # 8s mDNS + 6×3s disconnects + iteration headroom
 
 
+# ═════════════════════════════════════════════════════════════════════════════
+# v1.9.9 — WATCHDOG & SELF-HEALING
+# ─────────────────────────────────────────────────────────────────────────────
+# Written the day after aunt-pi missed Dhuhr, Asr AND Maghrib (12 Jun 2026)
+# while logging "discover_casts() exceeded 45s" CRITICAL every 30 minutes for
+# 6+ hours. The system KNEW it was sick and did nothing but log. Two layers:
+#
+#   Layer 1 — systemd hardware watchdog. The unit file sets WatchdogSec=180;
+#   _watchdog_health_loop() pings sd_notify(WATCHDOG=1) every 60s, but ONLY
+#   after verifying the Flask thread answers a localhost /api/state probe and
+#   APScheduler is alive. Wedged process → no ping → systemd kills + restarts
+#   within 3 min (Restart=on-failure already in the unit).
+#
+#   Layer 2 — application recovery rules:
+#     • 3 consecutive discover_casts timeouts (the exact aunt-pi signature)
+#       → Telegram alert + WATCHDOG_RESTART history entry + self-restart
+#     • zero speakers for >2h while the network is demonstrably up → same
+#   Self-restarts are rate-limited to one per 6 hours via a tiny state file
+#   in /var/lib/castadhan/ so a restart that doesn't fix the problem can't
+#   become a restart loop.
+# ═════════════════════════════════════════════════════════════════════════════
+
+_WATCHDOG_STATE_FILE = "/var/lib/castadhan/watchdog_state.json"
+_WATCHDOG_PING_INTERVAL_SEC = 60
+_WATCHDOG_WARMUP_SEC = 300          # pings unconditional for first 5 min of uptime
+_WATCHDOG_SELF_RESTART_COOLDOWN_SEC = 6 * 3600
+_DISCOVERY_TIMEOUT_RESTART_STREAK = 3
+_ZERO_SPEAKERS_RESTART_AFTER_SEC = 2 * 3600
+
+_discovery_timeout_streak = 0       # consecutive discover_casts timeouts
+_zero_speakers_since: Optional[float] = None   # time.monotonic() when count hit 0
+_process_started_monotonic = time.monotonic()
+
+
+def _sd_notify(message: str):
+    """Minimal sd_notify(3) — no dependency on python-systemd. No-op when not
+    running under systemd (NOTIFY_SOCKET unset) so dev runs are unaffected."""
+    addr = os.environ.get("NOTIFY_SOCKET")
+    if not addr:
+        return
+    try:
+        s = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
+        try:
+            if addr.startswith("@"):          # abstract namespace socket
+                addr = "\0" + addr[1:]
+            s.connect(addr)
+            s.send(message.encode())
+        finally:
+            s.close()
+    except Exception:
+        pass    # notification must never break the app
+
+
+def _read_watchdog_state() -> dict:
+    try:
+        with open(_WATCHDOG_STATE_FILE) as f:
+            return json.load(f) or {}
+    except Exception:
+        return {}
+
+
+def _write_watchdog_state(state: dict):
+    try:
+        tmp = _WATCHDOG_STATE_FILE + ".tmp"
+        with open(tmp, "w") as f:
+            json.dump(state, f)
+        os.replace(tmp, _WATCHDOG_STATE_FILE)
+    except Exception as e:
+        log.error(f"watchdog state write failed: {e}")
+
+
+def _self_restart(reason: str):
+    """Deliberate self-restart: alert → audit entry → exit(1) → systemd
+    restarts us (Restart=on-failure). Rate-limited to one per 6h so a restart
+    that doesn't cure the underlying problem can't loop."""
+    state = _read_watchdog_state()
+    last = float(state.get("last_self_restart_epoch") or 0)
+    if time.time() - last < _WATCHDOG_SELF_RESTART_COOLDOWN_SEC:
+        log.critical(
+            f"Self-restart wanted ({reason}) but last one was "
+            f"{(time.time()-last)/3600:.1f}h ago (< 6h cooldown). Holding on, "
+            f"alerting instead."
+        )
+        _telegram_send(f"🤒 CastAdhan ({_site_label()}): still unhealthy after a "
+                       f"recent self-restart — {reason}. Manual look needed.\n"
+                       f"Tailscale: http://{_get_tailscale_ip() or '?'}:8786")
+        return
+    state["last_self_restart_epoch"] = time.time()
+    state["last_self_restart_reason"] = reason
+    _write_watchdog_state(state)
+    try:
+        _log_play("watchdog", None, "WATCHDOG_RESTART", speakers_count=0,
+                  error=Exception(reason))
+    except Exception:
+        pass
+    _telegram_send(f"🔄 CastAdhan ({_site_label()}): self-restarting — {reason}. "
+                   f"Back in ~30 seconds.")
+    log.critical(f"🔄 SELF-RESTART: {reason}")
+    # Give the Telegram POST a moment to flush, then die. systemd revives us.
+    time.sleep(2)
+    os._exit(1)
+
+
+def _probe_self_api() -> bool:
+    """True if our own /api/state answers within 15s. Probing /api/state (not
+    /health) on purpose: it takes the same locks the 12-Jun deadlock wedged,
+    so a lock-wedge fails the probe while a healthy-but-busy server passes."""
+    try:
+        import urllib.request as _ur
+        req = _ur.Request(f"http://127.0.0.1:{PORT}/api/state")
+        with _ur.urlopen(req, timeout=15) as resp:
+            return resp.status == 200
+    except Exception:
+        return False
+
+
+def _network_is_up() -> bool:
+    """Cheap reachability check so the zero-speakers rule can't fire during a
+    genuine internet/LAN outage (restarting won't fix an unplugged router)."""
+    try:
+        s = socket.create_connection(("8.8.8.8", 53), timeout=3)
+        s.close()
+        return True
+    except Exception:
+        return False
+
+
+def _watchdog_health_loop():
+    """Daemon loop, every 60s:
+       1. Probe own API + scheduler; ping systemd watchdog only when healthy
+          (unconditional during the 5-min startup warmup).
+       2. Zero-speakers-for-2h-with-network-up → self-restart.
+       3. Every 6h: filesystem write probe (EROFS/EIO = dying SD card → alert).
+    """
+    global _zero_speakers_since
+    last_fs_probe = 0.0
+    log.info("Watchdog health loop started (ping interval %ss)", _WATCHDOG_PING_INTERVAL_SEC)
+    while not shutdown_event.is_set():
+        try:
+            uptime = time.monotonic() - _process_started_monotonic
+            in_warmup = uptime < _WATCHDOG_WARMUP_SEC
+
+            # ---- 1. systemd watchdog ping (conditional on health) ----------
+            healthy = True
+            if not in_warmup:
+                if not _probe_self_api():
+                    healthy = False
+                    log.critical("Watchdog: /api/state self-probe FAILED — "
+                                 "withholding systemd ping (restart in <3 min "
+                                 "if this persists)")
+                elif not getattr(sched, "running", True):
+                    healthy = False
+                    log.critical("Watchdog: APScheduler not running — withholding ping")
+            if in_warmup or healthy:
+                _sd_notify("WATCHDOG=1")
+
+            # ---- 2. zero-speakers rule -------------------------------------
+            with _cast_lock:
+                n_speakers = len(_general_casts)
+            if n_speakers > 0:
+                _zero_speakers_since = None
+            else:
+                if _zero_speakers_since is None:
+                    _zero_speakers_since = time.monotonic()
+                elif (time.monotonic() - _zero_speakers_since
+                      > _ZERO_SPEAKERS_RESTART_AFTER_SEC) and _network_is_up():
+                    _zero_speakers_since = None   # reset before the restart call
+                    _self_restart("zero speakers discovered for over 2 hours "
+                                  "while network is up")
+
+            # ---- 3. six-hourly filesystem probe (SD-card early warning) ----
+            if time.monotonic() - last_fs_probe > 6 * 3600:
+                last_fs_probe = time.monotonic()
+                for probe_dir in (ROOT, "/var/lib/castadhan"):
+                    try:
+                        p = os.path.join(probe_dir, ".fs_probe")
+                        with open(p, "w") as f:
+                            f.write("ok")
+                        os.remove(p)
+                    except OSError as e:
+                        log.critical(f"Filesystem probe FAILED in {probe_dir}: {e}")
+                        _telegram_send(
+                            f"💾 CastAdhan ({_site_label()}): cannot write to "
+                            f"{probe_dir} ({e}). SD card may be failing — this is "
+                            f"how masood's card died on 9 June. Replace the card "
+                            f"soon.\nTailscale: http://{_get_tailscale_ip() or '?'}:8786")
+        except Exception as e:
+            log.error(f"Watchdog loop error: {e}")
+        shutdown_event.wait(_WATCHDOG_PING_INTERVAL_SEC)
+
+
+def _start_watchdog_loop():
+    t = threading.Thread(target=_watchdog_health_loop, daemon=True,
+                         name="watchdog_health_loop")
+    t.start()
+
+
 def _scheduled_discover_casts():
     """Cron entry point. Runs discover_casts() with a hard wall-clock cap.
 
@@ -3744,10 +3941,11 @@ def _scheduled_discover_casts():
     won't block process exit, but it may eventually complete or accumulate.
     A handful of zombies per restart is acceptable; restart clears them.
 
-    Belt-and-braces with _disconnect_cast_bounded(): if the per-disconnect
-    timeout fails to bound things (e.g. the deadlock moves into start_discovery()
-    or get_chromecast_from_host()), this outer cap still releases the cron slot."""
-    import threading
+    v1.9.9 (B-Belgium-60 mitigation): tracks CONSECUTIVE timeouts. On the 12 Jun
+    aunt-pi incident the escape hatch fired every 30 min for 6+ hours and the
+    system never recovered until a manual restart (which fixed it instantly).
+    Now: 3 consecutive timeouts → _self_restart(). A success resets the streak."""
+    global _discovery_timeout_streak
     t = threading.Thread(
         target=discover_casts,
         daemon=True,
@@ -3756,12 +3954,23 @@ def _scheduled_discover_casts():
     t.start()
     t.join(timeout=_DISCOVER_CASTS_MAX_SECONDS)
     if t.is_alive():
+        _discovery_timeout_streak += 1
         log.critical(
             f"❌ discover_casts() exceeded {_DISCOVER_CASTS_MAX_SECONDS}s — "
-            f"abandoning this cycle. Orphan thread continues in background. "
-            f"B-Belgium-49 escape hatch. The next scheduled discover_casts "
-            f"WILL still fire."
+            f"abandoning this cycle (consecutive timeouts: "
+            f"{_discovery_timeout_streak}/{_DISCOVERY_TIMEOUT_RESTART_STREAK}). "
+            f"B-Belgium-49 escape hatch."
         )
+        if _discovery_timeout_streak >= _DISCOVERY_TIMEOUT_RESTART_STREAK:
+            _self_restart(
+                f"{_discovery_timeout_streak} consecutive discover_casts "
+                f"timeouts (B-Belgium-60 pattern — a restart fixed aunt-pi "
+                f"instantly on 12 Jun)")
+    else:
+        if _discovery_timeout_streak:
+            log.info(f"discover_casts recovered after "
+                     f"{_discovery_timeout_streak} timeout(s) — streak reset")
+        _discovery_timeout_streak = 0
 
 
 def schedule_cast_rediscovery():
@@ -6324,6 +6533,15 @@ def ensure_initialized():
         _load_scheduler_hold()
     except Exception as e:
         log.error(f"Could not load scheduler hold: {e}")
+
+    # v1.9.9: start the watchdog health loop FIRST — systemd's WatchdogSec=180
+    # expects the first WATCHDOG=1 ping within 3 minutes of start, and pings
+    # are unconditional during the 5-minute warmup so a slow startup (twilight
+    # scan, discovery) can never be mistaken for a hang.
+    try:
+        _start_watchdog_loop()
+    except Exception as e:
+        log.error(f"Could not start watchdog loop: {e}")
 
     # v1.9.8: kick off the scheduled_audio (Quran Programs) download worker
     # before the scheduler starts, so any enabled-but-not-yet-downloaded

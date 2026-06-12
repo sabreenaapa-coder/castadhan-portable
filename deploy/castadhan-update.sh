@@ -178,6 +178,20 @@ if [ -d /etc/polkit-1/rules.d ] \
   log "polkit rule for NetworkManager refreshed (WiFi wizard)"
 fi
 
+# v1.9.9: install the systemd unit shipped with the release if it changed.
+# Done here — INSIDE the stopped window, before the restart below — so the
+# unit and the code it expects always land together. (Critical for the
+# WatchdogSec= watchdog: a new unit with an old non-pinging app would be
+# killed every 3 minutes; shipping both atomically makes that impossible.)
+if [ -f "$INSTALL_DIR/deploy/castadhan-portable.service" ] \
+   && ! cmp -s "$INSTALL_DIR/deploy/castadhan-portable.service" \
+               /etc/systemd/system/castadhan-portable.service; then
+  install -m 0644 "$INSTALL_DIR/deploy/castadhan-portable.service" \
+                  /etc/systemd/system/castadhan-portable.service
+  systemctl daemon-reload
+  log "systemd unit refreshed from release + daemon-reload"
+fi
+
 # ---- 4. Update Python dependencies if requirements changed ------------------
 if [ -f "$INSTALL_DIR/requirements.txt" ]; then
   log "Refreshing Python dependencies"

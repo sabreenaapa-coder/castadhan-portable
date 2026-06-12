@@ -23,17 +23,32 @@ ExecStart=/opt/castadhan-portable/venv/bin/python3 /opt/castadhan-portable/app.p
 Restart=on-failure
 RestartSec=10
 
+# v1.9.9 (Appliance Reliability): hardware watchdog. The app pings
+# sd_notify(WATCHDOG=1) every 60s from a health loop that first verifies
+# (a) the Flask thread answers a localhost /api/state self-probe and
+# (b) APScheduler is alive. If either wedges (the 12 Jun aunt-pi deadlock
+# pattern: /api/state hung for hours while the process looked "active"),
+# pings stop and systemd kills + restarts the service within 3 minutes —
+# converting hours of missed prayers into a 3-minute blip.
+# NotifyAccess=main is implied by WatchdogSec= but stated for clarity.
+# SAFETY: this unit MUST ship in the same update as the app code that pings
+# (v1.9.9+). The updater installs unit + code in the same stopped window.
+WatchdogSec=180
+NotifyAccess=main
+
 # Log to journald (queryable via `journalctl -u castadhan-portable`).
 StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=castadhan
 
 # Modest hardening — service writes only to its own directory and /tmp.
+# v1.9.9: /var/lib/castadhan added (Quran Programs audio + runtime state;
+# writable under ProtectSystem=full anyway, listed for future-proofing).
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=full
 ProtectHome=true
-ReadWritePaths=/opt/castadhan-portable
+ReadWritePaths=/opt/castadhan-portable /var/lib/castadhan
 # Allow binding port 8786 as non-root user (Linux >= 4.3).
 AmbientCapabilities=
 CapabilityBoundingSet=
