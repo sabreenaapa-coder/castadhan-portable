@@ -530,6 +530,40 @@ def L7b_scheduled_audio():
         t("MEDIUM", cat, "scheduled-audio-state-file", ok, msg)
     except Exception as e: err("MEDIUM", cat, "scheduled-audio-state-file", e)
 
+    # v1.9.9: Kahf must be MIGRATED — fixed 07:00 Friday with speakers set.
+    # The legacy Friday substitution is gone, so a Kahf entry still on the
+    # broken v1.9.8 default (Dhuhr-60) or with empty target_speakers means
+    # Friday Kahf will fire at the wrong time or not at all.
+    try:
+        _, data = http_json("/api/scheduled_audio")
+        kahf = next((e for e in data.get("entries", []) if e["id"] == "surah_kahf"), None)
+        if kahf is None:
+            t("HIGH", cat, "kahf-migrated", False, "surah_kahf entry missing")
+        else:
+            cfg = kahf.get("config", {})
+            problems = []
+            if cfg.get("trigger_type") != "fixed":
+                problems.append(f"trigger_type={cfg.get('trigger_type')!r} (expected fixed)")
+            if cfg.get("play_time") != "07:00":
+                problems.append(f"play_time={cfg.get('play_time')!r} (expected 07:00)")
+            if not cfg.get("target_speakers"):
+                problems.append("target_speakers empty — B-61 enforcement will silence Kahf")
+            t("HIGH", cat, "kahf-migrated", not problems,
+              "fixed 07:00 with speakers set" if not problems else "; ".join(problems))
+    except Exception as e: err("HIGH", cat, "kahf-migrated", e)
+
+    # v1.9.9: systemd watchdog configured. Without WatchdogSec in the
+    # INSTALLED unit (not just the repo copy), a wedged process runs forever —
+    # the 12-Jun aunt-pi failure mode.
+    try:
+        unit_path = "/etc/systemd/system/castadhan-portable.service"
+        unit = read(unit_path)
+        ok = "WatchdogSec=" in unit
+        t("HIGH", cat, "watchdog-unit-configured", ok,
+          "WatchdogSec present in installed unit" if ok
+          else f"WatchdogSec MISSING from {unit_path} — updater should have installed it")
+    except Exception as e: err("HIGH", cat, "watchdog-unit-configured", e)
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Layer 8 — Religious correctness (C-1 + C-2 verified through real API)
 # ─────────────────────────────────────────────────────────────────────────────
