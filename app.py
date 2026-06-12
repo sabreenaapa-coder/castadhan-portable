@@ -2455,6 +2455,7 @@ def _play_custom_audio(audio_id: str, force: bool = False):
     if not casts:
         return  # _ensure_speakers already logged
 
+    play_logged = False
     try:
         url = _custom_audio_local_url(audio_id)
         played = 0
@@ -2468,18 +2469,31 @@ def _play_custom_audio(audio_id: str, force: bool = False):
         _log_play(structured_type, audio_id,
                   "PASS" if played else "NO_SPEAKERS",
                   speakers_count=played)
+        play_logged = True   # v1.9.8.2: gate the outer except so we don't
+                              # write a duplicate FAIL entry if the play
+                              # itself succeeded and a later side-effect
+                              # (_update_custom_audio_state / _arm_max_duration_timer)
+                              # raises. Without this, every successful play got
+                              # a phantom FAIL speakers=0 partner in play_history.
         if played:
-            _update_custom_audio_state(
-                audio_id,
-                last_played_at=datetime.now(timezone.utc).isoformat(),
-                last_play_status="PASS",
-            )
-            # Arm the max-duration safety timer
-            max_min = int(entry.get("max_duration_minutes", 60))
-            _arm_max_duration_timer(audio_id, max_min, casts)
+            try:
+                _update_custom_audio_state(
+                    audio_id,
+                    last_played_at=datetime.now(timezone.utc).isoformat(),
+                    last_play_status="PASS",
+                )
+            except Exception as e:
+                log.error(f"_update_custom_audio_state({audio_id}) post-play error: {e}")
+            try:
+                # Arm the max-duration safety timer
+                max_min = int(entry.get("max_duration_minutes", 60))
+                _arm_max_duration_timer(audio_id, max_min, casts)
+            except Exception as e:
+                log.error(f"_arm_max_duration_timer({audio_id}) error: {e}")
     except Exception as e:
         log.error(f"_play_custom_audio({audio_id}) error: {e}", exc_info=True)
-        _log_play(structured_type, audio_id, "FAIL", speakers_count=0, error=e)
+        if not play_logged:
+            _log_play(structured_type, audio_id, "FAIL", speakers_count=0, error=e)
 
 
 def _custom_audio_local_url(audio_id: str) -> str:
@@ -4301,6 +4315,18 @@ def _schedule_custom_audio_jobs(prayer_times: dict):
     today = date.today()
     today_jobs = []  # list of (audio_id, fire_time, entry)
     for audio_id, entry in sa_map.items():
+        # v1.9.8.2 hotfix: SKIP surah_kahf — the LEGACY Friday-morning Kahf code
+        # path (look for "Playing Surah Kahf (Friday morning)" in journal) is
+        # still active and fires Kahf at ~07:00. If we also register a
+        # scheduled_audio job for Kahf, masood gets Kahf TWICE (once at 07:00
+        # legacy, once at Dhuhr-60 from scheduled_audio). The dashboard card
+        # for Surah al-Kahf still shows + writes to its own block, but actual
+        # playback comes from the existing legacy path. Remove this skip in
+        # v1.9.9 when the legacy code is fully removed and Kahf migrates to
+        # scheduled_audio fully (planned per PLAN_CUSTOM_SCHEDULED_AUDIO.md
+        # Section 16.6 "Bridge in v1.9.8, full migration v1.9.9").
+        if audio_id == "surah_kahf":
+            continue
         fire_dt = _compute_custom_audio_run_time(entry, prayer_times, today)
         if fire_dt is None:
             continue
