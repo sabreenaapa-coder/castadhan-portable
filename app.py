@@ -285,6 +285,96 @@ DEFAULT_CONFIG = {
         'isha_method_always_apply': False,
         'fajr_at_start_when_isha_capped': True,  # When Isha cap fires today, play Fajr at raw API time
         'twilight_scan_frequency_days': 7
+    },
+    # v1.9.8.1: Quran Programs defaults. _deep_merge_defaults() will inject this
+    # block on any existing install where config.yaml was preserved across the
+    # v1.9.7 → v1.9.8 update (which is every fleet Pi — the updater preserves
+    # user config so they don't lose customisations). Without this hot-fix, the
+    # dashboard's new Quran cards would show "no entries" on every existing Pi
+    # until the operator hand-edited config.yaml.
+    #
+    # The merge is non-destructive: if a user has manually disabled or retimed
+    # any of these entries, those edits are preserved across future restarts.
+    # The defaults only fill MISSING keys.
+    'scheduled_audio': {
+        'surah_baqarah': {
+            'name': 'Surah al-Baqarah',
+            'category': 'Quran',
+            'enabled': False,
+            'trigger_type': 'fixed',
+            'play_time': '10:00',
+            'relative_prayer_anchor': 'none',
+            'offset_minutes': 0,
+            'days': [0, 1, 2, 3, 4, 5, 6],
+            'audio_url': 'https://github.com/sabreenaapa-coder/castadhan-portable/releases/download/audio-pack-v1/surah_baqarah.mp3',
+            'target_speakers': [],
+            'max_duration_minutes': 150,
+        },
+        'surah_yasin': {
+            'name': 'Surah Yasin',
+            'category': 'Quran',
+            'enabled': False,
+            'trigger_type': 'relative_to_prayer',
+            'play_time': '',
+            'relative_prayer_anchor': 'Maghrib',
+            'offset_minutes': 15,
+            'days': [3],   # Thursday
+            'audio_url': 'https://github.com/sabreenaapa-coder/castadhan-portable/releases/download/audio-pack-v1/surah_yasin.mp3',
+            'target_speakers': [],
+            'max_duration_minutes': 60,
+        },
+        'surah_mulk': {
+            'name': 'Surah al-Mulk',
+            'category': 'Quran',
+            'enabled': False,
+            'trigger_type': 'fixed',
+            'play_time': '22:00',
+            'relative_prayer_anchor': 'none',
+            'offset_minutes': 0,
+            'days': [0, 1, 2, 3, 4, 5, 6],
+            'audio_url': 'https://github.com/sabreenaapa-coder/castadhan-portable/releases/download/audio-pack-v1/surah_mulk.mp3',
+            'target_speakers': [],
+            'max_duration_minutes': 35,
+        },
+        'surah_kahf': {
+            'name': 'Surah al-Kahf',
+            'category': 'Quran',
+            'enabled': True,   # preserves current behaviour fleet-wide
+            'trigger_type': 'relative_to_prayer',
+            'play_time': '',
+            'relative_prayer_anchor': 'Dhuhr',
+            'offset_minutes': -60,
+            'days': [4],   # Friday
+            'audio_url': 'bundled',
+            'target_speakers': [],
+            'max_duration_minutes': 35,
+        },
+        'surah_waqiah': {
+            'name': "Surah al-Waqi'ah",
+            'category': 'Quran',
+            'enabled': False,
+            'trigger_type': 'fixed',
+            'play_time': '17:00',
+            'relative_prayer_anchor': 'none',
+            'offset_minutes': 0,
+            'days': [0, 1, 2, 3, 4, 5, 6],
+            'audio_url': 'https://github.com/sabreenaapa-coder/castadhan-portable/releases/download/audio-pack-v1/surah_waqiah.mp3',
+            'target_speakers': [],
+            'max_duration_minutes': 20,
+        },
+        'surah_sajdah': {
+            'name': 'Surah as-Sajdah',
+            'category': 'Quran',
+            'enabled': False,
+            'trigger_type': 'relative_to_prayer',
+            'play_time': '',
+            'relative_prayer_anchor': 'Fajr',
+            'offset_minutes': 15,
+            'days': [4],   # Friday
+            'audio_url': 'https://github.com/sabreenaapa-coder/castadhan-portable/releases/download/audio-pack-v1/surah_sajdah.mp3',
+            'target_speakers': [],
+            'max_duration_minutes': 10,
+        },
     }
 }
 
