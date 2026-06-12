@@ -340,13 +340,17 @@ DEFAULT_CONFIG = {
             'name': 'Surah al-Kahf',
             'category': 'Quran',
             'enabled': True,   # preserves current behaviour fleet-wide
-            'trigger_type': 'relative_to_prayer',
-            'play_time': '',
-            'relative_prayer_anchor': 'Dhuhr',
-            'offset_minutes': -60,
+            # v1.9.9: fixed 07:00 Friday — the time the legacy substitution
+            # actually used (the v1.9.8 Dhuhr-60 default was wrong and caused
+            # masood's 12-Jun dual-fire). ["__all__"] = all speakers, matching
+            # the legacy play-everywhere behaviour.
+            'trigger_type': 'fixed',
+            'play_time': '07:00',
+            'relative_prayer_anchor': 'none',
+            'offset_minutes': 0,
             'days': [4],   # Friday
             'audio_url': 'bundled',
-            'target_speakers': [],
+            'target_speakers': ['__all__'],
             'max_duration_minutes': 35,
         },
         'surah_waqiah': {
@@ -2382,6 +2386,86 @@ def _start_custom_audio_download_worker():
         daemon=True,
     )
     t.start()
+
+
+def _reschedule_one_custom_audio(audio_id: str):
+    """v1.9.9 (schedule-churn fix): re-register ONE scheduled_audio job after a
+    dashboard edit, instead of re-running the entire schedule_today() rebuild.
+    masood's journal on 12 Jun showed 8 full scheduler rebuilds in 17 minutes
+    of card-clicking — harmless (replace_existing=True) but each rebuild also
+    re-ran discover_casts and removed/re-added every prayer job. This touches
+    only the edited entry."""
+    job_id = f"scheduled_audio_{audio_id}"
+    try:
+        sched.remove_job(job_id)
+    except Exception:
+        pass
+    with _state_lock:
+        entry = (CFG.get("scheduled_audio") or {}).get(audio_id)
+    if not entry or not entry.get("enabled"):
+        return
+    try:
+        times = get_times_for(date.today())
+        fire_dt = _compute_custom_audio_run_time(entry, times, date.today())
+        if fire_dt and fire_dt > now_local():
+            sched.add_job(_play_custom_audio, DateTrigger(run_date=fire_dt),
+                          args=[audio_id], id=job_id, replace_existing=True)
+            log.info(f"Rescheduled {entry.get('name', audio_id)} @ {fire_dt:%H:%M:%S}")
+    except Exception as e:
+        log.error(f"_reschedule_one_custom_audio({audio_id}): {e}")
+
+
+def _migrate_kahf_to_scheduled_audio():
+    """v1.9.9: complete the Kahf bridge migration promised in the v1.9.8 plan.
+
+    History: legacy Kahf was a Friday SUBSTITUTION inside play_morning_dhikr
+    (07:00, instead of dhikr). v1.9.8 shipped scheduled_audio.surah_kahf with
+    a WRONG default (Dhuhr-60) which dual-fired alongside the legacy path —
+    masood heard Kahf 3 times on 12 Jun (hotfixed in v1.9.8.2 by skipping the
+    new path). v1.9.9 removes the legacy path entirely, so this migration:
+
+      1. Rewrites any surah_kahf entry still carrying the bad v1.9.8 default
+         (relative_to_prayer / Dhuhr / -60) to fixed 07:00 Friday — the time
+         every fleet family is actually used to. User-customised entries are
+         left alone.
+      2. Populates target_speakers from known_speakers.json (legacy played on
+         all speakers; B-61 enforcement would otherwise silence Kahf because
+         the shipped default was []). Falls back to the ["__all__"] sentinel
+         when no speakers are known yet.
+
+    Idempotent; persists to config.yaml only when something changed."""
+    try:
+        with _state_lock:
+            kahf = (CFG.get("scheduled_audio") or {}).get("surah_kahf")
+            if not kahf:
+                return
+            changed = False
+            if (kahf.get("trigger_type") == "relative_to_prayer"
+                    and str(kahf.get("relative_prayer_anchor", "")).lower() == "dhuhr"
+                    and int(kahf.get("offset_minutes") or 0) == -60):
+                kahf["trigger_type"] = "fixed"
+                kahf["play_time"] = "07:00"
+                kahf["relative_prayer_anchor"] = "none"
+                kahf["offset_minutes"] = 0
+                kahf["days"] = [4]
+                changed = True
+                log.info("Kahf migration: rewrote v1.9.8 default (Dhuhr-60) "
+                         "to legacy-equivalent fixed 07:00 Friday")
+            if not kahf.get("target_speakers"):
+                names = []
+                try:
+                    with open(os.path.join(ROOT, "known_speakers.json")) as f:
+                        names = list((json.load(f) or {}).keys())
+                except Exception:
+                    pass
+                kahf["target_speakers"] = names if names else ["__all__"]
+                changed = True
+                log.info(f"Kahf migration: target_speakers ← "
+                         f"{kahf['target_speakers']}")
+            if changed:
+                _save_config_yaml(CFG)
+    except Exception as e:
+        log.error(f"Kahf migration failed (legacy behaviour may be affected): {e}")
 
 
 def _play_custom_audio(audio_id: str, force: bool = False):
@@ -4644,18 +4728,10 @@ def _schedule_custom_audio_jobs(prayer_times: dict):
     today = date.today()
     today_jobs = []  # list of (audio_id, fire_time, entry)
     for audio_id, entry in sa_map.items():
-        # v1.9.8.2 hotfix: SKIP surah_kahf — the LEGACY Friday-morning Kahf code
-        # path (look for "Playing Surah Kahf (Friday morning)" in journal) is
-        # still active and fires Kahf at ~07:00. If we also register a
-        # scheduled_audio job for Kahf, masood gets Kahf TWICE (once at 07:00
-        # legacy, once at Dhuhr-60 from scheduled_audio). The dashboard card
-        # for Surah al-Kahf still shows + writes to its own block, but actual
-        # playback comes from the existing legacy path. Remove this skip in
-        # v1.9.9 when the legacy code is fully removed and Kahf migrates to
-        # scheduled_audio fully (planned per PLAN_CUSTOM_SCHEDULED_AUDIO.md
-        # Section 16.6 "Bridge in v1.9.8, full migration v1.9.9").
-        if audio_id == "surah_kahf":
-            continue
+        # v1.9.9: the v1.9.8.2 surah_kahf skip is GONE — the legacy Friday
+        # substitution in play_morning_dhikr was removed and Kahf now fires
+        # solely through this path (migrated to fixed 07:00 Friday by
+        # _migrate_kahf_to_scheduled_audio at startup).
         fire_dt = _compute_custom_audio_run_time(entry, prayer_times, today)
         if fire_dt is None:
             continue
@@ -5223,17 +5299,32 @@ def play_maghrib_warning():
         _log_play("maghrib_warning", None, "FAIL", speakers_count=played, error=e)
 
 def play_morning_dhikr():
-    """Play morning dhikr on all enabled speakers — Surah Kahf on Fridays"""
+    """Play morning dhikr on all enabled speakers.
+
+    v1.9.9 (Kahf migration): the Friday SUBSTITUTION (Kahf instead of dhikr)
+    that lived here since the early releases is gone — Surah al-Kahf now fires
+    exclusively through the scheduled_audio engine (default: fixed 07:00
+    Friday, migrated per-Pi by _migrate_kahf_to_scheduled_audio). To preserve
+    the historical "Kahf replaces dhikr on Friday" behaviour and avoid both
+    firing into the same speakers at 07:00, dhikr YIELDS on Fridays whenever
+    the Kahf schedule is enabled. Disable the Kahf card and Friday dhikr
+    returns automatically."""
     if shutdown_event.is_set():
         return
 
-    is_friday = now_local().weekday() == 4
-    if is_friday and "surah_kahf" in AUDIO:
-        log.info("Playing Surah Kahf (Friday morning) on all enabled speakers")
-        audio_key = "surah_kahf"
-    else:
-        log.info("Playing morning dhikr on all enabled speakers")
-        audio_key = "morning_dhikr"
+    if now_local().weekday() == 4:
+        try:
+            with _state_lock:
+                kahf_enabled = bool((CFG.get("scheduled_audio") or {})
+                                    .get("surah_kahf", {}).get("enabled"))
+        except Exception:
+            kahf_enabled = False
+        if kahf_enabled:
+            log.info("Morning dhikr yielded: Friday + Surah al-Kahf schedule enabled")
+            return
+
+    log.info("Playing morning dhikr on all enabled speakers")
+    audio_key = "morning_dhikr"
 
     # B-Belgium-42 (v1.9.5): record outcome to play_history.jsonl.
     played = 0
@@ -6564,12 +6655,9 @@ def api_scheduled_audio_update(audio_id):
                 _update_custom_audio_state(audio_id, consecutive_failures=0, last_error=None,
                                            download_status="NOT_STARTED")
 
-            # BRIDGE: dual-write Kahf changes to legacy rules block.
-            # Remove this block in v1.9.9 after full Kahf migration.
-            if audio_id == "surah_kahf":
-                rules = CFG.setdefault("rules", {})
-                if "enabled" in body:
-                    rules["enable_kahf"] = bool(body["enabled"])
+            # v1.9.9: Kahf bridge dual-write removed — the legacy Friday
+            # substitution in play_morning_dhikr is gone; scheduled_audio is
+            # now the sole Kahf path.
 
             _save_config_yaml(CFG)
 
@@ -6579,11 +6667,12 @@ def api_scheduled_audio_update(audio_id):
             if url:
                 _enqueue_custom_audio_download(audio_id, url)
 
-        # Re-run schedule_today() so today's slot reflects the change
+        # v1.9.9: re-register only the edited entry's job (was a full
+        # schedule_today() rebuild per click — 8 rebuilds in 17 min observed)
         try:
-            schedule_today()
+            _reschedule_one_custom_audio(audio_id)
         except Exception as e:
-            log.error(f"schedule_today() after scheduled_audio update failed: {e}")
+            log.error(f"reschedule after scheduled_audio update failed: {e}")
 
         return jsonify({"ok": True, "id": audio_id, "config": entry})
     except Exception as e:
@@ -6737,6 +6826,13 @@ def ensure_initialized():
         _start_custom_audio_download_worker()
     except Exception as e:
         log.error(f"Could not start custom audio download worker: {e}")
+
+    # v1.9.9: Kahf bridge → full migration (must run BEFORE schedule_today
+    # so today's Kahf job is registered with the migrated 07:00 trigger).
+    try:
+        _migrate_kahf_to_scheduled_audio()
+    except Exception as e:
+        log.error(f"Kahf migration error: {e}")
 
     # Set up scheduler (only once)
     if not _scheduler_started:

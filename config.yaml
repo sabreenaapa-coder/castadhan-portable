@@ -125,16 +125,17 @@ scheduled_audio:
     name: Surah al-Kahf
     category: Quran
     enabled: true
-    trigger_type: relative_to_prayer
-    play_time: ''
-    relative_prayer_anchor: Dhuhr
-    offset_minutes: -60
+    # v1.9.9: Kahf fires solely via scheduled_audio (legacy Friday
+    # substitution in play_morning_dhikr removed). Fixed 07:00 Friday is
+    # the historical time; __all__ = every speaker (legacy behaviour).
+    trigger_type: fixed
+    play_time: '07:00'
+    relative_prayer_anchor: none
+    offset_minutes: 0
     days: [4]
     audio_url: bundled
-    target_speakers: []
+    target_speakers: ['__all__']
     max_duration_minutes: 35
-    # BRIDGE: dual-write target. UI writes here AND to legacy rules.enable_kahf.
-    # Remove in v1.9.9 after migration to scheduled_audio.
   surah_waqiah:
     name: Surah al-Waqi'ah
     category: Quran
