@@ -2577,7 +2577,7 @@ def _play_custom_audio(audio_id: str, force: bool = False):
             try:
                 _update_custom_audio_state(
                     audio_id,
-                    last_played_at=datetime.now(timezone.utc).isoformat(),
+                    last_played_at=datetime.now(utc).isoformat(),
                     last_play_status="PASS",
                 )
             except Exception as e:

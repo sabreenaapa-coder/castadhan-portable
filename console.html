@@ -557,27 +557,37 @@
     order: -1; position: relative;
     display: flex; flex-direction: column;
     align-items: center; justify-content: center;
-    min-height: 56svh; width: 100%;
+    width: 100%;
   }
+  /* v1.10.1: the analog clock is the readable centerpiece (was a 14%
+     watermark, which the user couldn't read). Sized to leave room for the
+     digital readout + prayer chips below. */
   body.clock-mode .clock-container {
-    position: absolute; top: 50%; left: 50%;
-    transform: translate(-50%, -50%);
-    --clock: min(80vmin, 880px);
+    --clock: min(62vmin, 620px);
     width: var(--clock); height: var(--clock);
-    opacity: .14; pointer-events: none; z-index: 0;
+    opacity: 1; z-index: 1; margin: 0 auto;
   }
+  body.clock-mode .clock { border-width: 6px; }
+  /* Bigger, brighter 12-hour numerals than the dashboard's tiny silver ones. */
+  body.clock-mode .num12 {
+    font-size: clamp(1.1rem, 3.4vmin, 2.4rem);
+    color: var(--gold); font-weight: 600; opacity: .95;
+  }
+  body.clock-mode .hub { width: clamp(14px, 1.8vmin, 26px); height: clamp(14px, 1.8vmin, 26px); }
+  /* Digital time becomes a secondary readout under the clock, not a
+     screen-dominating block. */
   body.clock-mode .below-clock {
     position: relative; z-index: 1; width: auto;
-    gap: 3vmin; margin-top: 0;
+    gap: 2.5vmin; margin-top: 1.5vmin;
   }
   body.clock-mode .time-big {
-    font-size: clamp(3.5rem, 16vmin, 11rem);
-    letter-spacing: .04em; margin-top: 0;
-    text-shadow: 0 0 40px rgba(212,175,55,.35);
+    font-size: clamp(2rem, 6.5vmin, 4.5rem);
+    letter-spacing: .06em; margin-top: 0;
+    text-shadow: 0 0 30px rgba(212,175,55,.3);
   }
-  body.clock-mode .date  { font-size: clamp(1rem, 3.2vmin, 2rem); }
-  body.clock-mode .hijri { font-size: clamp(.9rem, 2.6vmin, 1.6rem); }
-  body.clock-mode .moon-phase { font-size: clamp(2rem, 6vmin, 4rem); }
+  body.clock-mode .date  { font-size: clamp(.9rem, 2.6vmin, 1.6rem); }
+  body.clock-mode .hijri { font-size: clamp(.8rem, 2.2vmin, 1.3rem); }
+  body.clock-mode .moon-phase { font-size: clamp(1.6rem, 4.5vmin, 3rem); }
   body.clock-mode .countdown {
     font-size: clamp(1.2rem, 4.5vmin, 2.6rem);
     padding: 1.2vmin 3vmin; border-width: 2px;
@@ -1564,6 +1574,16 @@ function pad2(n){ return String(n).padStart(2,'0'); }
 let sunriseHours = 0;
 let sunriseMinutes = 0;
 let sunriseOffset = 0;
+
+/* v1.10.1: clock-mode 12-hour flag. When the page is opened as ?mode=clock
+   (the TV / wall-tablet ambient face), the analog dial renders as a STANDARD
+   12-hour clock — 12 numerals, hour hand at 12h rate, day/night face tint —
+   because the 24-hour prayer dial is hard to read at a glance from across a
+   room. The dashboard (no ?mode) keeps the 24-hour prayer dial. */
+const CLOCK12 = (function(){
+  try { return new URLSearchParams(location.search).get('mode') === 'clock'; }
+  catch { return false; }
+})();
 let currentSpeakers = [];
 let currentAudioTypes = [];
 let currentRouting = {};
@@ -1639,6 +1659,12 @@ function guessTimezoneFromLatLon(lat, lon) {
 
 // Calculate angle for a time, adjusted so sunrise is at top
 function angleFor(date){
+  if (CLOCK12) {
+    /* Standard 12-hour: hour hand does 2 full turns/day, 12 at top, no
+       sunrise rotation. */
+    const h = date.getHours() % 12;
+    return ((h + date.getMinutes()/60 + date.getSeconds()/3600)/12)*360;
+  }
   const standardAngle = ((date.getHours() + date.getMinutes()/60 + date.getSeconds()/3600)/24)*360;
   return (standardAngle - sunriseOffset + 360) % 360;
 }
@@ -1658,11 +1684,28 @@ function positionElementAtAngle(element, angleDeg, distanceFactor = 0.5) {
 function drawNumerals(){
   [...clockEl.querySelectorAll('.num')].forEach(n => n.remove());
   const r = clockEl.clientWidth/2 - 20;
-  /* v1.10: 8 numerals (every 3 hours) instead of all 24. The dial was the
-     single busiest element on the page — 24 numerals + ticks + hands + prayer
-     dots all competing. The dots and hands carry the information; numerals
-     are orientation hints, and 3/6/9/…/24 is plenty for that. */
-  for(let i=3; i<=24; i+=3){
+  if (CLOCK12) {
+    /* Clock mode: a standard, instantly-readable 12-hour face. 12 numerals
+       at the familiar positions (12 at top), no sunrise rotation. */
+    for(let i=1; i<=12; i++){
+      const angle = (i/12)*360;
+      const rad = (angle/180)*Math.PI - Math.PI/2;
+      const x = r*Math.cos(rad) + clockEl.clientWidth/2;
+      const y = r*Math.sin(rad) + clockEl.clientHeight/2;
+      const n = document.createElement('div');
+      n.className = 'num num12';
+      n.style.left = `${x}px`;
+      n.style.top = `${y}px`;
+      n.textContent = i;
+      clockEl.appendChild(n);
+    }
+    return;
+  }
+  /* Dashboard 24-hour prayer dial: v1.10.1 restores numerals to every 2
+     hours (12 labels) — 24 was cluttered, the v1.10 cut to 8 (every 3h) was
+     too sparse to read ("too difficult to read as 24 hour clock"). Every-2h
+     is the readable middle. */
+  for(let i=2; i<=24; i+=2){
     const standardAngle = (i/24)*360;
     const adjustedAngle = (standardAngle - sunriseOffset + 360) % 360;
     const rad = (adjustedAngle/180)*Math.PI - Math.PI/2;
@@ -1777,15 +1820,29 @@ function drawDaylightArc(times){
   }
   
   const maghrib = parseTime(times.Maghrib);
-  
-  if(!sunrise || !maghrib){ 
-    $('zones').style.background='transparent'; 
-    return; 
+
+  if(!sunrise || !maghrib){
+    $('zones').style.background='transparent';
+    return;
   }
 
   sunriseHours = sunrise.getHours();
   sunriseMinutes = sunrise.getMinutes();
   sunriseOffset = ((sunriseHours + sunriseMinutes/60)/24)*360;
+
+  if (CLOCK12) {
+    /* v1.10.1: day/night shading on the 12-hour face. A sunrise→maghrib arc
+       can't be drawn on a 12-hour dial (6am and 6pm share a position), so
+       instead tint the WHOLE face: a warm lighter grey while the sun is up,
+       deep night-blue-black after maghrib / before sunrise. Keeps the
+       "night day different shade" the user asked for, updated each render. */
+    const now = new Date();
+    const isDay = now >= sunrise && now < maghrib;
+    $('zones').style.background = isDay
+      ? 'radial-gradient(circle at 50% 38%, #3a3a32 0%, #2a2a26 70%, #232320 100%)'
+      : 'radial-gradient(circle at 50% 38%, #15161c 0%, #101015 70%, #0c0c10 100%)';
+    return;
+  }
   
   const sunriseDeg = angleFor(sunrise);
   const maghribDeg = angleFor(maghrib);
@@ -1800,6 +1857,11 @@ function drawDaylightArc(times){
 function drawPins(times){
   [...clockEl.querySelectorAll(".pin")].forEach(p => p.remove());
   [...clockEl.querySelectorAll(".prayer-line")].forEach(l => l.remove());
+
+  /* v1.10.1: no prayer dots on the 12-hour clock-mode face — a 4am Fajr and
+     a 4pm Asr would land on the same spot. Clock mode shows prayer times in
+     the chip row beneath the clock instead. */
+  if (CLOCK12) return;
 
   const prayers = ["Fajr","Sunrise","Dhuhr","Asr","Maghrib","Isha"];
 
