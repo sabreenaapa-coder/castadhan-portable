@@ -669,7 +669,9 @@ body.cp-active{overflow:hidden;}
 .cp-center{display:flex;flex-direction:column;align-items:center;}
 /* Dial = 24h day-ring (cp-ring) behind, Ottoman 12h face (img) over it,
    live hands (cp-hands) on top in the transparent centre. */
-.cp-dial{position:relative;width:clamp(220px,46vmin,470px);aspect-ratio:1/1;}
+/* explicit square size (NOT aspect-ratio — older TV browsers don't support it,
+   which collapsed the dial to zero height) */
+.cp-dial{position:relative;width:clamp(220px,46vmin,470px);height:clamp(220px,46vmin,470px);}
 .cp-dial svg,.cp-ottoman{position:absolute;inset:0;width:100%;height:100%;}
 /* aurora glow: 128px canvas upscaled + blurred → cheap soft colour halo.
    Sized to 135% of the dial so the bloom can spill out past the bezel. */
@@ -678,10 +680,14 @@ body.cp-active{overflow:hidden;}
 .cp-ottoman{inset:auto;top:50%;left:50%;width:84%;height:84%;
   transform:translate(-50%,-50%);object-fit:contain;pointer-events:none;
   filter:drop-shadow(0 14px 34px rgba(0,0,0,.7));}
-/* clock-style toggle: 24-hour prayer dial replaces the Ottoman 12h face */
-.cp-face24{display:none;}
+/* clock-style toggle: the relocated original 24-hour clock replaces the Ottoman
+   face. The slot holds the moved .clock-container, centred at 92% of the dial. */
+.cp-orig-slot{display:none;position:absolute;top:0;left:0;width:100%;height:100%;}
+body.cp-mode24 .cp-orig-slot{display:block;}
 body.cp-mode24 .cp-ottoman,body.cp-mode24 .cp-hands{display:none;}
-body.cp-mode24 .cp-face24{display:block;}
+.cp-orig-slot .clock-container{position:absolute;top:50%;left:50%;
+  width:92% !important;height:92% !important;transform:translate(-50%,-50%);}
+.cp-orig-slot .clock{width:100% !important;height:100% !important;}
 /* display-settings gear + popover */
 #cp-gear{position:fixed;bottom:14px;right:14px;z-index:4500;width:34px;height:34px;
   border-radius:50%;background:#161616;border:.5px solid #2d2d2d;color:#8a8a8a;
@@ -812,18 +818,10 @@ body.cp-playing .cp-now{display:flex;}
             <circle cx="100" cy="100" r="2.4" fill="#D4AF37" stroke="#2a241a" stroke-width="0.4"/>
             <circle cx="100" cy="100" r="0.9" fill="#15110a"/>
           </svg>
-          <!-- 24-hour prayer-dial face (shown when the user picks 24-hour) -->
-          <svg class="cp-face24" viewBox="0 0 200 200" aria-hidden="true">
-            <circle cx="100" cy="100" r="80" fill="none" stroke="#D4AF37" stroke-width="1.4" opacity="0.8"/>
-            <g id="cp-f24-ticks" stroke="#7d7350" stroke-width="0.6" opacity="0.6"></g>
-            <g id="cp-f24-num" fill="#cdbf90" font-size="7" text-anchor="middle" font-family="sans-serif"></g>
-            <g id="cp-f24-dots"></g>
-            <line id="cp-h24" x1="100" y1="108" x2="100" y2="58" stroke="#efe6cf" stroke-width="2.6" stroke-linecap="round"/>
-            <line id="cp-m24" x1="100" y1="110" x2="100" y2="40" stroke="#efe6cf" stroke-width="1.7" stroke-linecap="round"/>
-            <line id="cp-s24" x1="100" y1="114" x2="100" y2="34" stroke="#c0392b" stroke-width="0.9" stroke-linecap="round"/>
-            <circle cx="100" cy="100" r="2.4" fill="#D4AF37"/>
-            <circle cx="100" cy="100" r="0.9" fill="#15110a"/>
-          </svg>
+          <!-- 24-hour mode: the ORIGINAL dashboard clock is relocated in here
+               (gold ring + day/night zones + prayer pins), so it's identical to
+               the original. The aurora + petals still frame it. -->
+          <div id="cp-orig-slot" class="cp-orig-slot" aria-hidden="true"></div>
         </div>
         <div class="cp-time" id="cp-time">--:--</div>
         <div class="cp-date" id="cp-date">—</div>
@@ -4536,14 +4534,25 @@ window.addEventListener('load', () => {
     setRot('cp-m24', (m / 60) * 360);
     setRot('cp-s24', (s / 60) * 360);
   }
+  /* Redraw the relocated ORIGINAL dashboard clock at its current size (the
+     dashboard's own setInterval(updateHands,100) keeps the hands ticking; this
+     just repositions the size-dependent numerals/pins/zones after a resize). */
+  function redrawOrigClock(){
+    try {
+      const times = window.currentPrayers || _lastTimes || {};
+      if (typeof drawDaylightArc === 'function') drawDaylightArc(times);
+      if (typeof drawNumerals === 'function') drawNumerals();
+      if (typeof drawPins === 'function') drawPins(times);
+      if (typeof updateHands === 'function') updateHands();
+    } catch (e) {}
+  }
   function applyClockMode(mode){
     _mode24 = (mode === '24');
     document.body.classList.toggle('cp-mode24', _mode24);
     document.querySelectorAll('.cp-set-opt').forEach(b =>
       b.classList.toggle('active', b.dataset.mode === (_mode24 ? '24' : '12')));
-    const now = new Date();
-    if (_mode24) setHands24(now); else setHands(now);
-    if (_lastTimes) drawF24(_lastTimes, _lastNext, _lastHist, now);
+    if (_mode24) requestAnimationFrame(redrawOrigClock);  // size correctly once visible
+    else setHands(new Date());                            // 12h Ottoman hands
   }
   function initSettings(){
     const gear = $cp('cp-gear'), panel = $cp('cp-settings');
@@ -4564,7 +4573,7 @@ window.addEventListener('load', () => {
     if (_spin0 == null) _spin0 = ts;
     const t = (ts - _spin0) / 1000;
     const now = new Date();
-    if (_mode24) setHands24(now); else setHands(now);     // every frame → smooth second hand
+    if (!_mode24) setHands(now);    // 12h Ottoman hands; the original 24h clock self-ticks
     if (t - _mandalaT >= 0.033) {                          // mandala ~30fps
       _mandalaT = t;
       for (const m of mandalaEls) m.el.setAttribute('d', ringPath(m.cfg.baseR, m.cfg.petals, t));
@@ -4588,7 +4597,7 @@ window.addEventListener('load', () => {
       { hour: 'numeric', minute: '2-digit', hour12: true }).toLowerCase();
     updateDateLine(now);
     tickCountdown(now);
-    if (_reduce) { if (_mode24) setHands24(now); else setHands(now); }
+    if (_reduce && !_mode24) setHands(now);   // 24h original clock self-ticks
   }
 
   let cpHijriFull = '';
@@ -4793,7 +4802,7 @@ window.addEventListener('load', () => {
 
     _lastTimes = times; _lastNext = nextName; _lastHist = hist;
     renderCards(times, nextName, hist, now);
-    drawF24(times, nextName, hist, now);
+    if (_mode24) redrawOrigClock();
     tickCountdown(now);
 
     // playing? — show Now-playing / Stop
@@ -4830,8 +4839,12 @@ window.addEventListener('load', () => {
   function boot(){
     buildMandala();
     initAurora();
-    buildFace24();
     initSettings();
+    /* Relocate the ORIGINAL dashboard clock into the Clock page so 24-hour mode
+       shows the real clock. It keeps ticking via the dashboard's own intervals. */
+    const cpSlot = $cp('cp-orig-slot');
+    const cpOrigClock = document.querySelector('.clock-container');
+    if (cpSlot && cpOrigClock) cpSlot.appendChild(cpOrigClock);
     let savedMode = '12';
     try { savedMode = localStorage.getItem('cp_clockmode') || '12'; } catch (e) {}
     applyClockMode(savedMode);
