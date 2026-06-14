@@ -603,6 +603,123 @@
   body.clock-mode .footer { opacity: .25; }
   body.clock-mode .title { cursor: pointer; }
 </style>
+<style id="cp-styles">
+/* ════════════════════════════════════════════════════════════════════════
+   Clock Page (family-facing) — v1.11. Opened with ?view=clock.
+   Fully self-contained + scoped under #cp-root so the Admin console (the
+   existing dashboard) is untouched. Implements CLOCK_PAGE_BRIEF §8/§9/§10:
+   frozen composition + adopted craft (recessed dial, gold rim rings,
+   glass-lens, vignette, next-card lift). All effects are STATIC paints —
+   no per-frame GPU cost (see §10.5 rejections: no backdrop-blur, no noise,
+   no progress bar, no rAF sweep). Admin reachable via the flip pill.
+   ════════════════════════════════════════════════════════════════════════ */
+#cp-root{position:fixed;inset:0;z-index:5000;display:none;overflow:auto;
+  background:#0c0c0c;color:#e7e0cf;
+  font-family:"Segoe UI",system-ui,-apple-system,Roboto,sans-serif;}
+body.cp-active #cp-root{display:block;}
+body.cp-active .container,body.cp-active #simple-mode-pane{display:none !important;}
+body.cp-active{overflow:hidden;}
+#cp-root .cp-vignette{position:fixed;inset:0;pointer-events:none;
+  background:radial-gradient(circle at center,transparent 56%,rgba(0,0,0,.5) 100%);}
+#cp-wrap{position:relative;max-width:1080px;margin:0 auto;min-height:100%;
+  display:flex;flex-direction:column;box-sizing:border-box;
+  padding:clamp(10px,2vmin,26px) clamp(12px,3vw,40px);}
+
+/* — top band: weather | flip | moon — */
+.cp-top{display:grid;grid-template-columns:1fr auto 1fr;align-items:start;gap:10px;}
+.cp-flip{display:inline-flex;background:#161616;border:.5px solid #2d2d2d;
+  border-radius:18px;padding:3px;box-shadow:0 2px 8px rgba(0,0,0,.4);}
+.cp-flip a{padding:5px clamp(14px,2vw,18px);font-size:clamp(11px,1.4vw,13px);
+  border-radius:14px;text-decoration:none;color:#8a8a8a;transition:transform .1s;
+  font-weight:400;}
+.cp-flip a.active{background:#D4AF37;color:#1a1a1a;font-weight:500;}
+.cp-flip a:active{transform:scale(.97);}
+.cp-corner{display:flex;align-items:center;gap:9px;color:#9a958a;min-height:30px;}
+.cp-corner.right{justify-content:flex-end;text-align:right;}
+.cp-corner .stk{line-height:1.25;}
+.cp-corner .big{color:#e7e0cf;font-size:clamp(13px,1.7vw,16px);font-weight:500;}
+.cp-corner .sub{color:#7d786c;font-size:clamp(9px,1.1vw,10px);}
+.cp-ic{font-size:clamp(20px,2.6vw,26px);line-height:1;}
+.cp-loc{text-align:center;color:#7d786c;font-size:clamp(10px,1.2vw,11px);margin-top:2px;
+  display:flex;align-items:center;justify-content:center;gap:5px;}
+
+/* — middle band: cards | dial | cards — */
+.cp-mid{display:grid;grid-template-columns:1fr auto 1fr;
+  gap:clamp(10px,2.4vw,24px);align-items:center;flex:1;
+  margin-top:clamp(6px,1.5vmin,10px);}
+.cp-cards{display:flex;flex-direction:column;gap:clamp(6px,1.1vmin,10px);}
+.cp-card{display:flex;justify-content:space-between;align-items:center;
+  background:#121212;border:.5px solid #1f1f1f;border-radius:10px;
+  padding:clamp(8px,1.3vmin,11px) clamp(10px,1.4vw,14px);}
+.cp-card .nm{display:flex;align-items:center;gap:9px;color:#cfcabb;
+  font-size:clamp(11px,1.5vw,13px);}
+.cp-card .tm{color:#e7e0cf;font-size:clamp(13px,1.8vw,15px);font-weight:500;
+  font-variant-numeric:tabular-nums;}
+.cp-dot{width:8px;height:8px;border-radius:50%;flex:none;}
+.cp-dot.fired{background:#5fb55f;}
+.cp-dot.upcoming{background:transparent;border:1px solid #555;width:7px;height:7px;}
+.cp-dot.missed{background:#c0392b;}
+.cp-dot.next{background:#D4AF37;box-shadow:0 0 7px #D4AF37;width:9px;height:9px;}
+/* A5 next-card lift */
+.cp-card.is-next{background:linear-gradient(135deg,rgba(212,175,55,.18),rgba(18,18,18,.92));
+  border:1px solid #D4AF37;box-shadow:0 0 22px rgba(212,175,55,.16);}
+.cp-card.is-next .nm,.cp-card.is-next .tm{color:#D4AF37;}
+
+/* — centre column: dial + time + date + countdown — */
+.cp-center{display:flex;flex-direction:column;align-items:center;}
+/* A1 recess + outer drop, A2 layered gold rim rings */
+.cp-dial{position:relative;width:clamp(190px,42vmin,440px);aspect-ratio:1/1;
+  border-radius:50%;overflow:hidden;
+  box-shadow:0 0 0 3px #D4AF37,0 0 0 5px rgba(255,243,196,.20),
+    0 0 0 6px rgba(0,0,0,.92),0 22px 55px rgba(0,0,0,.7),0 0 26px rgba(212,175,55,.14);}
+.cp-dial svg{width:100%;height:100%;display:block;}
+.cp-time{color:#f4efe2;font-size:clamp(22px,4.6vw,40px);font-weight:500;
+  font-variant-numeric:tabular-nums;line-height:1;margin-top:clamp(6px,1.3vmin,10px);}
+.cp-date{color:#7d786c;font-size:clamp(10px,1.3vw,12px);margin-top:4px;text-align:center;}
+.cp-count{margin-top:clamp(6px,1.2vmin,9px);background:rgba(20,20,20,.85);
+  border:1px solid #D4AF37;border-radius:16px;color:#cfcabb;
+  padding:6px clamp(12px,1.8vw,18px);font-size:clamp(11px,1.5vw,13px);}
+.cp-count b{color:#D4AF37;font-weight:500;}
+
+/* — now-playing + stop (only while audio sounds) — */
+.cp-now{margin-top:clamp(8px,1.6vmin,12px);display:none;
+  flex-direction:column;align-items:center;gap:7px;animation:cpIn .2s ease;}
+body.cp-playing .cp-now{display:flex;}
+@keyframes cpIn{from{opacity:0;transform:translateY(-4px);}to{opacity:1;transform:translateY(0);}}
+.cp-now .lbl{color:#cfcabb;font-size:clamp(11px,1.4vw,13px);}
+.cp-stop{background:linear-gradient(#d84a3a,#9f241b);color:#fff;border:none;
+  border-radius:30px;padding:9px 30px;font-weight:600;cursor:pointer;
+  font-size:clamp(13px,1.7vw,15px);box-shadow:0 0 24px rgba(192,57,43,.25);}
+.cp-stop:active{transform:scale(.98);}
+
+/* — legend + offline line — */
+.cp-legend{display:flex;justify-content:center;flex-wrap:wrap;
+  gap:clamp(12px,2.4vw,22px);margin-top:clamp(10px,2vmin,16px);
+  padding-top:11px;border-top:.5px solid #181818;
+  font-size:clamp(10px,1.2vw,11px);color:#7d786c;}
+.cp-legend span{display:flex;align-items:center;gap:6px;}
+.cp-legend i{width:8px;height:8px;border-radius:50%;display:inline-block;}
+.cp-offline{text-align:center;color:#7d786c;font-size:11px;min-height:14px;margin-top:6px;}
+
+/* — admin-side flip pill (shown on the dashboard so the family can switch).
+     Floats bottom-centre so it never collides with the dashboard's busy top
+     (title / language picker / panels) and stays reachable while scrolling. — */
+#cp-adminflip{position:fixed;bottom:14px;left:50%;transform:translateX(-50%);
+  z-index:4000;display:none;}
+#cp-adminflip .cp-flip{box-shadow:0 4px 16px rgba(0,0,0,.6);}
+
+/* — mobile reflow: dial first, then cards two-up — */
+@media (max-width:800px){
+  .cp-mid{grid-template-columns:1fr;}
+  .cp-center{order:-1;margin-bottom:6px;}
+  .cp-cards{flex-direction:row;flex-wrap:wrap;}
+  .cp-cards .cp-card{flex:1 1 44%;}
+}
+@media (prefers-reduced-motion:reduce){
+  .cp-now{animation:none;}
+  #cp-root *,#cp-adminflip *{transition:none !important;}
+}
+</style>
 </head>
 <body>
 <!-- E-4 (v1.6.0): Simple Mode pane. Hidden by default; activated when the
@@ -623,6 +740,118 @@
     <button onclick="window.location.href='/'">↩ Full dashboard</button>
   </div>
   <div class="simple-tip">Or say <em>"Hey Google, stop"</em> to any speaker.</div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════════════════
+     Clock Page (family-facing) — v1.11. See CLOCK_PAGE_BRIEF.md.
+     Hidden unless ?view=clock. Admin = the .container dashboard below, unchanged.
+     ════════════════════════════════════════════════════════════════════════ -->
+<div id="cp-root">
+  <div class="cp-vignette"></div>
+  <div id="cp-wrap">
+
+    <!-- top band -->
+    <div class="cp-top">
+      <div class="cp-corner left" id="cp-weather"></div>
+      <div class="cp-flip">
+        <a href="?view=clock" class="active">Clock</a>
+        <a href="./" id="cp-to-admin">Admin</a>
+      </div>
+      <div class="cp-corner right" id="cp-moon"></div>
+    </div>
+    <div class="cp-loc"><span>📍</span><span id="cp-location">—</span></div>
+
+    <!-- middle band -->
+    <div class="cp-mid">
+      <div class="cp-cards" id="cp-cards-left"></div>
+
+      <div class="cp-center">
+        <div class="cp-dial">
+          <svg viewBox="0 0 200 200" role="img" aria-label="24-hour prayer clock">
+            <defs>
+              <clipPath id="cpClip"><circle cx="100" cy="100" r="100"/></clipPath>
+              <linearGradient id="cpDay" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stop-color="#15273a"/>
+                <stop offset="58%" stop-color="#574025"/>
+                <stop offset="100%" stop-color="#39322500"/>
+              </linearGradient>
+              <linearGradient id="cpNight" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stop-color="#0c1626"/>
+                <stop offset="100%" stop-color="#090f17"/>
+              </linearGradient>
+              <radialGradient id="cpSun" cx="50%" cy="50%" r="50%">
+                <stop offset="0%" stop-color="#d8b160" stop-opacity="0.7"/>
+                <stop offset="100%" stop-color="#d8b160" stop-opacity="0"/>
+              </radialGradient>
+              <radialGradient id="cpRecess" cx="50%" cy="50%" r="50%">
+                <stop offset="62%" stop-color="#000000" stop-opacity="0"/>
+                <stop offset="100%" stop-color="#000000" stop-opacity="0.85"/>
+              </radialGradient>
+              <radialGradient id="cpLens" cx="34%" cy="24%" r="58%">
+                <stop offset="0%" stop-color="#ffffff" stop-opacity="0.15"/>
+                <stop offset="24%" stop-color="#ffffff" stop-opacity="0.04"/>
+                <stop offset="52%" stop-color="#ffffff" stop-opacity="0"/>
+              </radialGradient>
+            </defs>
+            <!-- muted day/night scene (decorative, knocked back) -->
+            <g clip-path="url(#cpClip)">
+              <rect x="0" y="0" width="200" height="100" fill="url(#cpDay)"/>
+              <circle cx="100" cy="60" r="19" fill="url(#cpSun)"/>
+              <circle cx="100" cy="60" r="7" fill="#c9a456" opacity="0.6"/>
+              <rect x="0" y="100" width="200" height="100" fill="url(#cpNight)"/>
+              <circle cx="48" cy="132" r="0.9" fill="#cfd6e2" opacity="0.55"/>
+              <circle cx="74" cy="152" r="0.8" fill="#cfd6e2" opacity="0.45"/>
+              <circle cx="128" cy="138" r="1" fill="#cfd6e2" opacity="0.55"/>
+              <circle cx="150" cy="155" r="0.8" fill="#cfd6e2" opacity="0.4"/>
+              <circle cx="70" cy="125" r="0.7" fill="#cfd6e2" opacity="0.4"/>
+              <path d="M0 100 q20 -7 42 -2 t40 1 t38 2 t44 -1 L200 100 Z" fill="#0a0f18"/>
+              <line x1="0" y1="100" x2="200" y2="100" stroke="#D4AF37" stroke-width="0.5" opacity="0.26"/>
+              <rect x="0" y="0" width="200" height="200" fill="#0c0c0c" opacity="0.4"/>
+              <circle cx="100" cy="100" r="100" fill="url(#cpRecess)"/>
+              <circle cx="100" cy="100" r="100" fill="url(#cpLens)"/>
+            </g>
+            <g id="cp-numerals" fill="#8f897a" font-size="8" text-anchor="middle"
+               font-family="sans-serif"></g>
+            <g id="cp-ticks" stroke="#8f897a" stroke-width="0.7" opacity="0.65"></g>
+            <g id="cp-dots"></g>
+            <text id="cp-dial-moon" font-size="13" text-anchor="middle"></text>
+            <line id="cp-hHand" stroke="#D4AF37" stroke-width="4.4" stroke-linecap="round"/>
+            <line id="cp-mHand" stroke="#f4efe2" stroke-width="2.4" stroke-linecap="round"/>
+            <line id="cp-sHand" stroke="#c0392b" stroke-width="1.1" stroke-linecap="round" opacity="0.75"/>
+            <circle cx="100" cy="100" r="5.5" fill="none" stroke="#D4AF37" stroke-width="1.6"/>
+            <circle cx="100" cy="100" r="2.4" fill="#D4AF37"/>
+          </svg>
+        </div>
+        <div class="cp-time" id="cp-time">--:--</div>
+        <div class="cp-date" id="cp-date">—</div>
+        <div class="cp-count" id="cp-count">Next: —</div>
+        <div class="cp-now">
+          <div class="lbl" id="cp-now-lbl">Now playing</div>
+          <button class="cp-stop" id="cp-stop">STOP</button>
+        </div>
+      </div>
+
+      <div class="cp-cards" id="cp-cards-right"></div>
+    </div>
+
+    <!-- legend + fail-soft line -->
+    <div class="cp-legend">
+      <span><i style="background:#5fb55f"></i>Fired</span>
+      <span><i style="background:#D4AF37"></i>Next</span>
+      <span><i style="background:transparent;border:1px solid #555"></i>Upcoming</span>
+      <span><i style="background:#c0392b"></i>Missed</span>
+    </div>
+    <div class="cp-offline" id="cp-offline"></div>
+
+  </div>
+</div>
+
+<!-- flip pill shown on the dashboard (Admin) so the family can switch to Clock -->
+<div id="cp-adminflip">
+  <div class="cp-flip">
+    <a href="?view=clock">Clock</a>
+    <a href="./" class="active">Admin</a>
+  </div>
 </div>
 
 <div class="container">
@@ -4092,6 +4321,369 @@ window.addEventListener('load', () => {
     }
   };
 });
+</script>
+<script>
+/* ════════════════════════════════════════════════════════════════════════
+   Clock Page (family-facing) renderer — v1.11. CLOCK_PAGE_BRIEF §8/§9/§10.
+   Self-contained: own fetch loop, own dial maths. Does NOT touch the Admin
+   console. Activated only with ?view=clock. The dial is a fixed 24-hour face
+   with NOON at top (matches the approved muted day/night scene), live hands,
+   live prayer dots, and a live moon glyph. All data from existing endpoints:
+   /api/state, /api/play_history, /api/speaker/status, /api/config, /api/test/stop.
+   ════════════════════════════════════════════════════════════════════════ */
+(function cpInit(){
+  function qp(k){ try{ return new URLSearchParams(location.search).get(k); }catch(e){ return null; } }
+  const isClock = qp('view') === 'clock';
+  const adminFlip = document.getElementById('cp-adminflip');
+
+  if (!isClock) {
+    /* Dashboard (Admin): expose the flip pill so the family can switch to the
+       Clock page. Not shown in Simple Mode or the TV ?mode=clock ambient face. */
+    if (adminFlip && qp('mode') !== 'simple' && qp('mode') !== 'clock') {
+      adminFlip.style.display = 'block';
+    }
+    return;
+  }
+
+  document.body.classList.add('cp-active');
+
+  const CX = 100, CY = 100;
+  const $cp = (id) => document.getElementById(id);
+  const localName = (p) => (typeof prayerName === 'function') ? prayerName(p) : p;
+  const pad = (n) => String(n).padStart(2, '0');
+  const parseHM = (s) => (typeof parseTime === 'function') ? parseTime(s) : (() => {
+    if (!s || s === 'undefined') return null;
+    const [h, m] = String(s).split(':').map(Number);
+    if (isNaN(h) || isNaN(m)) return null;
+    const d = new Date(); d.setHours(h, m, 0, 0); return d;
+  })();
+
+  /* angle (deg, clockwise from top) for a 24-hour face with NOON at top */
+  const angle24 = (hoursFloat) => ((hoursFloat - 12) / 24) * 360;
+  const pt = (r, deg) => {
+    const a = deg * Math.PI / 180;
+    return { x: CX + r * Math.sin(a), y: CY - r * Math.cos(a) };
+  };
+  const SVGNS = 'http://www.w3.org/2000/svg';
+
+  /* ---- static dial: numerals (every 2h) + hour ticks ---- */
+  function drawNumeralsTicks(){
+    const nums = $cp('cp-numerals'), ticks = $cp('cp-ticks');
+    if (!nums || !ticks) return;
+    nums.innerHTML = ''; ticks.innerHTML = '';
+    for (let k = 0; k < 12; k++) {
+      const hour = (12 + k * 2) % 24;
+      const p = pt(84, k * 30);
+      const t = document.createElementNS(SVGNS, 'text');
+      t.setAttribute('x', p.x); t.setAttribute('y', p.y + 3);
+      t.textContent = hour === 0 ? '24' : hour;
+      nums.appendChild(t);
+    }
+    for (let h = 0; h < 24; h++) {
+      const deg = angle24(h);
+      const outer = pt(98, deg);
+      const inner = pt(h % 2 === 0 ? 92 : 95, deg);
+      const ln = document.createElementNS(SVGNS, 'line');
+      ln.setAttribute('x1', outer.x); ln.setAttribute('y1', outer.y);
+      ln.setAttribute('x2', inner.x); ln.setAttribute('y2', inner.y);
+      ticks.appendChild(ln);
+    }
+  }
+
+  /* ---- hands + digital time (1s tick) ---- */
+  function tickClock(){
+    const now = new Date();
+    const h = now.getHours(), m = now.getMinutes(), s = now.getSeconds();
+    setHand('cp-hHand', 46, angle24(h + m / 60 + s / 3600));
+    setHand('cp-mHand', 64, ((m + s / 60) / 60) * 360);
+    setHand('cp-sHand', 70, (s / 60) * 360);
+    const tEl = $cp('cp-time');
+    if (tEl) tEl.textContent = now.toLocaleTimeString('en-GB',
+      { hour: 'numeric', minute: '2-digit', hour12: true }).toLowerCase();
+    updateDateLine(now);
+    tickCountdown(now);
+  }
+  function setHand(id, len, deg){
+    const el = $cp(id); if (!el) return;
+    const p = pt(len, deg);
+    el.setAttribute('x1', CX); el.setAttribute('y1', CY);
+    el.setAttribute('x2', p.x); el.setAttribute('y2', p.y);
+  }
+
+  let cpHijriFull = '';
+  function updateDateLine(now){
+    const el = $cp('cp-date'); if (!el) return;
+    const greg = now.toLocaleDateString('en-GB',
+      { weekday: 'short', day: 'numeric', month: 'long', year: 'numeric' });
+    el.textContent = cpHijriFull ? `${greg} · ${cpHijriFull}` : greg;
+  }
+
+  /* ---- countdown ---- */
+  let cpNext = null; // {name, when}
+  function tickCountdown(now){
+    const el = $cp('cp-count'); if (!el) return;
+    if (!cpNext || !cpNext.when) { el.textContent = 'Next: —'; return; }
+    const diff = +cpNext.when - +now;
+    const nm = localName(cpNext.name);
+    if (diff <= 0) { el.innerHTML = `Now: <b>${nm}</b>`; return; }
+    const h = Math.floor(diff / 3600000);
+    const m = Math.floor((diff % 3600000) / 60000);
+    el.innerHTML = h > 0 ? `Next: <b>${nm}</b> in ${h}h ${pad(m)}m`
+                         : `Next: <b>${nm}</b> in ${m}m`;
+  }
+
+  /* ---- status per prayer (fired / next / upcoming / missed) ---- */
+  function statusFor(name, timeStr, nextName, hist, now){
+    if (name === nextName) return 'next';
+    const t = parseHM(timeStr);
+    const e = hist[name];
+    if (e) {
+      if (e === 'PASS') return 'fired';
+      if (e === 'FAIL') return 'missed';
+    }
+    if (name === 'Sunrise') return (t && t <= now) ? 'fired' : 'upcoming';
+    if (t && t <= now) return 'fired';   // past adhan, no FAIL on record → assume played
+    return 'upcoming';
+  }
+
+  function timeOf(times, name){
+    if (name === 'Sunrise') return times.Sunrise || times.sunrise || times.sunrise_time || null;
+    return times[name] || null;
+  }
+
+  function renderCards(times, nextName, hist, now){
+    const L = ['Fajr', 'Sunrise', 'Dhuhr'], R = ['Asr', 'Maghrib', 'Isha'];
+    const build = (containerId, list) => {
+      const c = $cp(containerId); if (!c) return;
+      c.innerHTML = list.map(name => {
+        const ts = timeOf(times, name) || '--:--';
+        const st = statusFor(name, ts, nextName, hist, now);
+        const isNext = st === 'next';
+        return `<div class="cp-card${isNext ? ' is-next' : ''}">
+          <span class="nm"><span class="cp-dot ${st}"></span>${localName(name)}</span>
+          <span class="tm">${ts}</span></div>`;
+      }).join('');
+    };
+    build('cp-cards-left', L);
+    build('cp-cards-right', R);
+  }
+
+  function renderDots(times, nextName, hist, now){
+    const g = $cp('cp-dots'); if (!g) return;
+    g.innerHTML = '';
+    const COL = { fired: '#5fb55f', missed: '#c0392b', next: '#D4AF37', upcoming: '#7d786c' };
+    ['Fajr', 'Sunrise', 'Dhuhr', 'Asr', 'Maghrib', 'Isha'].forEach(name => {
+      const ts = timeOf(times, name); if (!ts) return;
+      const t = parseHM(ts); if (!t) return;
+      const deg = angle24(t.getHours() + t.getMinutes() / 60);
+      const p = pt(90, deg);
+      const st = statusFor(name, ts, nextName, hist, now);
+      const c = document.createElementNS(SVGNS, 'circle');
+      c.setAttribute('cx', p.x); c.setAttribute('cy', p.y);
+      c.setAttribute('r', st === 'next' ? 4.4 : 3.2);
+      if (st === 'upcoming') {
+        c.setAttribute('fill', 'none');
+        c.setAttribute('stroke', '#7d786c'); c.setAttribute('stroke-width', '1.1');
+      } else {
+        c.setAttribute('fill', COL[st]);
+        if (st === 'next') { c.setAttribute('stroke', '#fff3c4'); c.setAttribute('stroke-width', '1'); }
+      }
+      g.appendChild(c);
+    });
+  }
+
+  /* ---- moon (local Conway age → emoji + phase name + dial glyph) ---- */
+  function updateMoon(){
+    try {
+      const now = new Date();
+      const y = now.getUTCFullYear(), mo = now.getUTCMonth() + 1, d = now.getUTCDate();
+      let r = y % 100; r %= 19; if (r > 9) r -= 19;
+      r = (r * 11) % 30 + mo + d; if (mo < 3) r += 2;
+      r -= (y < 2000) ? 4 : 8.3;
+      let age = r % 30; if (age < 0) age += 30;
+      const phases = [
+        [1.84, '🌑', 'New moon'], [5.53, '🌒', 'Waxing crescent'],
+        [9.22, '🌓', 'First quarter'], [12.91, '🌔', 'Waxing gibbous'],
+        [16.61, '🌕', 'Full moon'], [20.30, '🌖', 'Waning gibbous'],
+        [23.99, '🌗', 'Last quarter'], [27.68, '🌘', 'Waning crescent'],
+        [99, '🌑', 'New moon']
+      ];
+      const ph = phases.find(p => age < p[0]);
+      const el = $cp('cp-moon');
+      if (el) el.innerHTML =
+        `<div class="stk"><div class="big">${ph[2]}</div><div class="sub" id="cp-hijri-sub"></div></div>`
+        + `<span class="cp-ic">${ph[1]}</span>`;
+      const dm = $cp('cp-dial-moon');
+      if (dm) {
+        const p = pt(50, 180);
+        dm.setAttribute('x', p.x); dm.setAttribute('y', p.y + 4);
+        dm.textContent = ph[1];
+      }
+      if (cpHijriShort) { const hs = $cp('cp-hijri-sub'); if (hs) hs.textContent = cpHijriShort; }
+    } catch (e) {}
+  }
+
+  /* ---- hijri (aladhan, once) ---- */
+  let cpHijriShort = '';
+  function updateHijri(){
+    const today = new Date();
+    const dmy = `${pad(today.getDate())}-${pad(today.getMonth() + 1)}-${today.getFullYear()}`;
+    fetch(`https://api.aladhan.com/v1/gToH?date=${dmy}`)
+      .then(r => r.json())
+      .then(d => {
+        const h = d && d.data && d.data.hijri; if (!h) return;
+        cpHijriShort = `${h.day} ${h.month.en}`;
+        cpHijriFull = `${h.day} ${h.month.en} ${h.year}`;
+        const hs = $cp('cp-hijri-sub'); if (hs) hs.textContent = cpHijriShort;
+        updateDateLine(new Date());
+      }).catch(() => {});
+  }
+
+  /* ---- weather (open-meteo, fail-silent) ---- */
+  function wmo(code){
+    if (code === 0) return ['☀️', 'Clear'];
+    if (code <= 2) return ['🌤️', 'Mainly clear'];
+    if (code === 3) return ['☁️', 'Overcast'];
+    if (code <= 48) return ['🌫️', 'Fog'];
+    if (code <= 67) return ['🌧️', 'Rain'];
+    if (code <= 77) return ['🌨️', 'Snow'];
+    if (code <= 82) return ['🌦️', 'Showers'];
+    if (code <= 86) return ['🌨️', 'Snow showers'];
+    return ['⛈️', 'Thunderstorm'];
+  }
+  function defLat(){ return (typeof configLat !== 'undefined' && isFinite(configLat)) ? configLat : 51.5074; }
+  function defLon(){ return (typeof configLon !== 'undefined' && isFinite(configLon)) ? configLon : -0.1278; }
+  function fetchWeather(lat, lon){
+    if (!isFinite(lat) || !isFinite(lon)) return;
+    fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,weather_code`)
+      .then(r => r.json()).then(w => {
+        const cur = w && w.current; if (!cur) return;
+        const [emoji, desc] = wmo(cur.weather_code);
+        const temp = Math.round(cur.temperature_2m);
+        const el = $cp('cp-weather');
+        if (el) el.innerHTML =
+          `<span class="cp-ic">${emoji}</span>`
+          + `<div class="stk"><div class="big">${temp}°C</div><div class="sub">${desc}</div></div>`;
+      }).catch(() => {});
+  }
+  function updateWeather(){
+    /* Prefer the configured location; fall back to the dashboard's global
+       coords (London default) if /api/config is briefly unavailable, so the
+       weather corner still populates rather than staying blank. */
+    fetch('/api/config').then(r => r.json()).then(d => {
+      const loc = d && d.ok && d.config && d.config.app && d.config.app.location;
+      let lat = loc && loc.latitude, lon = loc && loc.longitude;
+      if (!isFinite(lat) || !isFinite(lon)) { lat = defLat(); lon = defLon(); }
+      fetchWeather(lat, lon);
+    }).catch(() => fetchWeather(defLat(), defLon()));
+  }
+
+  /* ---- main data refresh (state + history + playing) ---- */
+  function computeNext(state, times, now){
+    const np = state.next_prayer;
+    if (np && np.name && (np.effective_when_iso || np.when_iso)) {
+      return { name: np.name, when: new Date(np.effective_when_iso || np.when_iso) };
+    }
+    if (typeof getNextPrayerFallback === 'function') {
+      const fb = getNextPrayerFallback(times, now);
+      if (fb) return { name: fb.name, when: fb.when };
+    }
+    return null;
+  }
+
+  function setOffline(msg){ const el = $cp('cp-offline'); if (el) el.textContent = msg || ''; }
+  function fmtClock(d){ return d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }); }
+
+  async function refreshData(){
+    const now = new Date();
+    let state;
+    try {
+      const res = await fetch('/api/state');
+      state = await res.json();
+    } catch (e) {
+      setOffline('Clock offline · last update ' + (cpLastOk ? fmtClock(cpLastOk) : '—'));
+      return; // keep last good render; local clock keeps ticking
+    }
+
+    const times = { ...(state.prayer_times || {}) };
+    if (state.prayer_times && state.prayer_times.Sunrise) times.Sunrise = state.prayer_times.Sunrise;
+    else if (state.sunrise_time) times.Sunrise = state.sunrise_time;
+    else if (state.sunrise) times.Sunrise = state.sunrise;
+
+    if (state.location) {
+      const el = $cp('cp-location');
+      if (el) el.textContent = `${state.location.city || ''}, ${state.location.country || ''}`.replace(/^, |, $/, '');
+    }
+
+    const nextName = (state.next_prayer && state.next_prayer.name) || null;
+    cpNext = computeNext(state, times, now);
+
+    // history → {prayerName: 'PASS'|'FAIL'}
+    const hist = {};
+    try {
+      const hres = await fetch('/api/play_history?limit=200');
+      const hj = await hres.json();
+      if (hj && hj.ok && Array.isArray(hj.entries)) {
+        const today = String(state.now || now.toISOString()).slice(0, 10);
+        for (const e of hj.entries) {
+          if (e.audio_type !== 'adhan') continue;
+          if (!String(e.ts_local || '').startsWith(today)) continue;
+          if (e.status === 'PASS' || e.status === 'DISCOVERY_RECOVERED') hist[e.prayer_name] = 'PASS';
+          else if (e.status === 'FAIL' || e.status === 'NO_SPEAKERS') hist[e.prayer_name] = 'FAIL';
+        }
+      }
+    } catch (e) { /* keep cards without history colouring */ }
+
+    renderCards(times, nextName, hist, now);
+    renderDots(times, nextName, hist, now);
+    tickCountdown(now);
+
+    // playing? — show Now-playing / Stop
+    try {
+      const sres = await fetch('/api/speaker/status');
+      const sj = await sres.json();
+      const map = (sj && sj.status) || {};
+      const live = Object.keys(map).filter(k => map[k]);
+      if (live.length) {
+        document.body.classList.add('cp-playing');
+        const lbl = $cp('cp-now-lbl');
+        if (lbl) lbl.textContent = `Now playing · ${live.join(', ')}`;
+      } else {
+        document.body.classList.remove('cp-playing');
+      }
+    } catch (e) { /* leave playing state as-is */ }
+
+    cpLastOk = new Date();
+    setOffline('');
+  }
+  let cpLastOk = null;
+
+  /* ---- Stop ---- */
+  const stopBtn = $cp('cp-stop');
+  if (stopBtn) stopBtn.addEventListener('click', async () => {
+    stopBtn.disabled = true;
+    try { await fetch('/api/test/stop', { method: 'POST', headers: { 'Content-Type': 'application/json' } }); }
+    catch (e) {}
+    document.body.classList.remove('cp-playing');
+    setTimeout(() => { stopBtn.disabled = false; refreshData(); }, 800);
+  });
+
+  /* ---- boot ---- */
+  function boot(){
+    drawNumeralsTicks();
+    tickClock();
+    updateMoon();
+    updateHijri();
+    updateWeather();
+    refreshData();
+    setInterval(tickClock, 1000);          // hands + time + countdown
+    setInterval(refreshData, 15000);       // state + history + playing
+    setInterval(updateWeather, 15 * 60000);// weather
+    setInterval(updateMoon, 60 * 60000);   // moon phase
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
+  else boot();
+})();
 </script>
 </body>
 </html>
