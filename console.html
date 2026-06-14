@@ -4374,6 +4374,17 @@ window.addEventListener('load', () => {
   function qp(k){ try{ return new URLSearchParams(location.search).get(k); }catch(e){ return null; } }
   const adminFlip = document.getElementById('cp-adminflip');
 
+  /* Make the flip pills robust regardless of how the page is served. The static
+     href="./" resolves to the directory "/" (a file listing on a plain server);
+     point Clock at the current page path and Admin at ?view=admin instead. */
+  (function fixFlipLinks(){
+    const path = location.pathname || '/';
+    document.querySelectorAll('.cp-flip a').forEach(a => {
+      const t = (a.textContent || '').trim().toLowerCase();
+      a.setAttribute('href', t === 'admin' ? path + '?view=admin' : path);
+    });
+  })();
+
   /* Clock is the DEFAULT family-facing view. The operator dashboard shows only
      when explicitly requested via ?view=admin (reachable from the flip pill).
      The legacy ?mode=clock (TV ambient) and ?mode=simple pages are left alone. */
