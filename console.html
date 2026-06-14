@@ -749,6 +749,32 @@ body.cp-playing .cp-now{display:flex;}
   .cp-now{animation:none;}
   #cp-root *,#cp-adminflip *{transition:none !important;}
 }
+/* large screens / TVs: scale everything up so it reads from across a room
+   (the base sizes are tuned for phones; without this the clock caps too small) */
+@media (min-width:1100px){
+  #cp-wrap{max-width:min(1680px,96vw);padding:clamp(12px,2vmin,30px) clamp(24px,4vw,64px);}
+  .cp-mid{gap:clamp(18px,3vw,48px);margin-top:clamp(6px,1.4vmin,14px);}
+  .cp-dial{width:clamp(380px,56vmin,760px);height:clamp(380px,56vmin,760px);}
+  .cp-time{font-size:clamp(46px,7vmin,96px);margin-top:clamp(6px,1.4vmin,14px);}
+  .cp-date{font-size:clamp(15px,2.1vmin,26px);margin-top:6px;}
+  .cp-count{font-size:clamp(16px,2.3vmin,28px);padding:8px clamp(18px,2.4vw,32px);
+    margin-top:clamp(8px,1.6vmin,16px);border-radius:22px;}
+  .cp-cards{gap:clamp(8px,1.4vmin,16px);}
+  .cp-card{padding:clamp(12px,1.8vmin,22px) clamp(14px,1.8vw,26px);border-radius:14px;}
+  .cp-card .nm{font-size:clamp(16px,2.3vmin,30px);gap:12px;}
+  .cp-card .tm{font-size:clamp(18px,2.6vmin,34px);}
+  .cp-dot{width:12px;height:12px;}
+  .cp-card .cp-dot.next{width:14px;height:14px;}
+  .cp-corner .big{font-size:clamp(18px,2.4vmin,30px);}
+  .cp-corner .sub{font-size:clamp(11px,1.5vmin,18px);}
+  .cp-ic{font-size:clamp(28px,3.6vmin,52px);}
+  .cp-loc{font-size:clamp(14px,1.8vmin,22px);}
+  .cp-flip a{font-size:clamp(14px,1.8vmin,22px);padding:8px clamp(18px,2vw,30px);}
+  .cp-legend{font-size:clamp(13px,1.7vmin,20px);gap:clamp(18px,3vw,44px);}
+  .cp-legend i{width:11px;height:11px;}
+  .cp-now .lbl{font-size:clamp(14px,1.9vmin,24px);}
+  .cp-stop{font-size:clamp(15px,2vmin,26px);padding:11px clamp(30px,4vw,52px);}
+}
 </style>
 </head>
 <body>
