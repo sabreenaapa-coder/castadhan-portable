@@ -4391,18 +4391,22 @@ window.addEventListener('load', () => {
      petals / stars continuously emerge and dissolve (moiré-like interference).
      The whole field also "breathes" (slow scale + opacity). The motion is the
      mathematics — there are no moving dots. ---- */
+  /* petal rings: r = baseR + amp·(½+½cos(kθ+wt))^sharp → k flower petals that
+     bulge outward from a base circle (sharp>1 narrows the tips). Three nested
+     flowers (8/10/14 petals) rotate at different speeds → a slowly shifting
+     bloom. Tinted gold / pink / purple to match the aurora. */
   const MANDALA = [
-    { baseR: 92, amp: 3.6, harms: [{ k: 6,  w: 0.100 }, { k: 11, w: -0.062 }], stroke: 'rgba(212,175,55,0.34)', width: 0.8 },
-    { baseR: 88, amp: 2.7, harms: [{ k: 8,  w: -0.082 }, { k: 5,  w: 0.052 }], stroke: 'rgba(239,230,207,0.16)', width: 0.6 },
-    { baseR: 96, amp: 2.1, harms: [{ k: 13, w: 0.122 }, { k: 7,  w: -0.090 }], stroke: 'rgba(212,175,55,0.12)', width: 0.6 }
+    { baseR: 85, petals: [{ k: 10, amp: 9.0, sharp: 1.9, w: 0.060 }],  stroke: 'rgba(212,175,55,0.38)', width: 0.8 },
+    { baseR: 89, petals: [{ k: 14, amp: 6.5, sharp: 2.1, w: -0.045 }], stroke: 'rgba(240,150,205,0.22)', width: 0.6 },
+    { baseR: 82, petals: [{ k: 8,  amp: 8.0, sharp: 1.7, w: 0.034 }],  stroke: 'rgba(185,140,238,0.18)', width: 0.6 }
   ];
   const mandalaEls = [];
-  function ringPath(baseR, amp, harms, t){
-    const N = 200; let d = '';
+  function ringPath(baseR, petals, t){
+    const N = 240; let d = '';
     for (let i = 0; i <= N; i++){
       const th = (i / N) * Math.PI * 2;
       let rr = baseR;
-      for (const h of harms) rr += amp * Math.sin(h.k * th + h.w * t);
+      for (const p of petals) rr += p.amp * Math.pow(0.5 + 0.5 * Math.cos(p.k * th + p.w * t), p.sharp);
       const x = 100 + rr * Math.cos(th), y = 100 + rr * Math.sin(th);
       d += (i === 0 ? 'M' : 'L') + x.toFixed(2) + ' ' + y.toFixed(2) + ' ';
     }
@@ -4417,7 +4421,7 @@ window.addEventListener('load', () => {
       p.setAttribute('stroke', cfg.stroke);
       p.setAttribute('stroke-width', cfg.width);
       p.setAttribute('stroke-linejoin', 'round');
-      p.setAttribute('d', ringPath(cfg.baseR, cfg.amp, cfg.harms, 0));
+      p.setAttribute('d', ringPath(cfg.baseR, cfg.petals, 0));
       root.appendChild(p);
       mandalaEls.push({ el: p, cfg });
     });
@@ -4459,12 +4463,10 @@ window.addEventListener('load', () => {
               + 0.4 * Math.sin(5 * th + 0.12 * t);
         i = (i + 2.2) / 4.4; if (i < 0) i = 0; else if (i > 1) i = 1;
         i = Math.pow(i, 1.35);
-        // warm gold base
-        let R = 60 + i * 185, G = 42 + i * 156, B = 22 + i * i * 50;
-        // cool teal/violet shimmer ONLY at the brightest peaks (northern-lights)
-        let pc = (i - 0.6) / 0.4; pc = pc < 0 ? 0 : (pc > 1 ? 1 : pc);
-        pc = pc * pc * (3 - 2 * pc);                          // smoothstep
-        R = R * (1 - pc) + 150 * pc; G = G * (1 - pc) + 198 * pc; B = B * (1 - pc) + 236 * pc;
+        // colour ramp: warm rose-gold (dim) → pink (mid) → purple (peaks)
+        let R, G, B;
+        if (i < 0.5) { const u = i / 0.5; R = 150 + 85 * u; G = 95 + 25 * u; B = 70 + 105 * u; }
+        else { const u = (i - 0.5) / 0.5; R = 235 - 70 * u; G = 120 - 25 * u; B = 175 + 65 * u; }
         d[idx] = R; d[idx + 1] = G; d[idx + 2] = B;
         d[idx + 3] = env * (0.10 + 0.42 * i) * 255;           // brighter (A ≤ ~0.52)
       }
@@ -4566,7 +4568,7 @@ window.addEventListener('load', () => {
     if (_mode24) setHands24(now); else setHands(now);     // every frame → smooth second hand
     if (t - _mandalaT >= 0.033) {                          // mandala ~30fps
       _mandalaT = t;
-      for (const m of mandalaEls) m.el.setAttribute('d', ringPath(m.cfg.baseR, m.cfg.amp, m.cfg.harms, t));
+      for (const m of mandalaEls) m.el.setAttribute('d', ringPath(m.cfg.baseR, m.cfg.petals, t));
       const root = $cp('cp-orbits');
       if (root) {
         const s = 1 + 0.012 * Math.sin(t * 2 * Math.PI / 90);   // breathe scale ~90s
