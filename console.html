@@ -690,7 +690,7 @@ body.cp-mode24 .cp-ottoman,body.cp-mode24 .cp-hands{display:none;}
 .cp-orig-slot .clock{width:100% !important;height:100% !important;}
 /* the relocated clock's numerals/dots are tiny (0.8rem) — scale them so the
    24-hour numbers read from across a room on a TV */
-.cp-orig-slot .num{font-size:clamp(1rem,2.8vmin,2.4rem) !important;font-weight:500;}
+.cp-orig-slot .num{font-size:clamp(0.7rem,1.9vmin,1.5rem) !important;font-weight:500;}
 .cp-orig-slot .dot{width:clamp(9px,1.5vmin,17px) !important;height:clamp(9px,1.5vmin,17px) !important;}
 /* display-settings gear + popover */
 #cp-gear{position:fixed;bottom:14px;right:14px;z-index:4500;width:34px;height:34px;
@@ -1969,11 +1969,11 @@ function drawNumerals(){
     }
     return;
   }
-  /* Dashboard 24-hour prayer dial: v1.10.1 restores numerals to every 2
-     hours (12 labels) — 24 was cluttered, the v1.10 cut to 8 (every 3h) was
-     too sparse to read ("too difficult to read as 24 hour clock"). Every-2h
-     is the readable middle. */
-  for(let i=2; i<=24; i+=2){
+  /* Dashboard 24-hour prayer dial: every 2 hours by default (decluttered).
+     The family Clock page's 24-hour mode sets window._cpEvery1h so EVERY hour
+     (1..24) is numbered there, as the operator requested. */
+  const _numStep = window._cpEvery1h ? 1 : 2;
+  for(let i=_numStep; i<=24; i+=_numStep){
     const standardAngle = (i/24)*360;
     const adjustedAngle = (standardAngle - sunriseOffset + 360) % 360;
     const rad = (adjustedAngle/180)*Math.PI - Math.PI/2;
@@ -4578,6 +4578,7 @@ window.addEventListener('load', () => {
   }
   function applyClockMode(mode){
     _mode24 = (mode === '24');
+    window._cpEvery1h = _mode24;   // 24-hour Clock-page mode numbers every hour
     document.body.classList.toggle('cp-mode24', _mode24);
     document.querySelectorAll('.cp-set-opt').forEach(b =>
       b.classList.toggle('active', b.dataset.mode === (_mode24 ? '24' : '12')));
