@@ -671,9 +671,10 @@ body.cp-active{overflow:hidden;}
    live hands (cp-hands) on top in the transparent centre. */
 .cp-dial{position:relative;width:clamp(220px,46vmin,470px);aspect-ratio:1/1;}
 .cp-dial svg,.cp-ottoman{position:absolute;inset:0;width:100%;height:100%;}
-/* aurora glow: 128px canvas upscaled + blurred → cheap soft colour halo */
-.cp-aurora{position:absolute;inset:0;width:100%;height:100%;
-  filter:blur(7px);opacity:.9;pointer-events:none;}
+/* aurora glow: 128px canvas upscaled + blurred → cheap soft colour halo.
+   Sized to 135% of the dial so the bloom can spill out past the bezel. */
+.cp-aurora{position:absolute;inset:auto;top:50%;left:50%;width:135%;height:135%;
+  transform:translate(-50%,-50%);filter:blur(9px);opacity:1;pointer-events:none;}
 .cp-ottoman{inset:auto;top:50%;left:50%;width:84%;height:84%;
   transform:translate(-50%,-50%);object-fit:contain;pointer-events:none;
   filter:drop-shadow(0 14px 34px rgba(0,0,0,.7));}
@@ -4427,7 +4428,8 @@ window.addEventListener('load', () => {
      soft warm-gold colour wash confined to the PERIPHERY (the gold ring masks
      the inner part; the centre stays black). ~20fps is ample for sub-deg/s
      motion. Warm/amber with a restrained cool shimmer only at the peaks. ---- */
-  const AW = 128, AH = 128, ACX = 64, ACY = 64;
+  const AW = 128, AH = 128, ACX = 64, ACY = 64, AEDGE = 64;
+  const A_SPAN = 1.35;   // canvas edge = 1.35 × dial-radius (matches CSS width:135%)
   let auroraCtx = null, auroraImg = null;
   function initAurora(){
     const cv = $cp('cp-aurora'); if (!cv || !cv.getContext) return;
@@ -4441,19 +4443,27 @@ window.addEventListener('load', () => {
       for (let x = 0; x < AW; x++) {
         const idx = (y * AW + x) * 4;
         const dx = x - ACX, dy = y - ACY;
-        const r = Math.sqrt(dx * dx + dy * dy);
-        const env = Math.exp(-((r - 57) * (r - 57)) / 162);  // periphery band
+        const f = (Math.sqrt(dx * dx + dy * dy) / AEDGE) * A_SPAN;  // 0..1.35 in dial-radii
+        // wide band peaking at the bezel (f=1.0) blooming outward; hard inner
+        // gate keeps the gold ring + black centre clear (no glow for f<0.80)
+        let env = Math.exp(-((f - 1.0) * (f - 1.0)) / 0.0648);
+        const gate = Math.min(Math.max((f - 0.80) / 0.06, 0), 1);
+        env *= gate;
         if (env < 0.012) { d[idx + 3] = 0; continue; }
         const th = Math.atan2(dy, dx);
         let i = Math.sin(6 * th + 0.03 * t) * Math.cos(11 * th - 0.02 * t)
               + 0.5 * Math.sin(17 * th + 0.01 * t)
               + 0.3 * Math.cos(th * 1.618 - 0.005 * t);
         i = (i + 1.8) / 3.6; if (i < 0) i = 0; else if (i > 1) i = 1;
-        i = i * i;                                            // gamma: mostly dim
-        d[idx]     = 70 + i * 185;                            // R  warm
-        d[idx + 1] = 45 + i * 150;                            // G  amber
-        d[idx + 2] = 25 + i * i * 195;                        // B  cool only at peaks
-        d[idx + 3] = env * (0.06 + 0.30 * i) * 255;           // A  ≤ ~0.32
+        i = Math.pow(i, 1.35);
+        // warm gold base
+        let R = 60 + i * 185, G = 42 + i * 156, B = 22 + i * i * 50;
+        // cool teal/violet shimmer ONLY at the brightest peaks (northern-lights)
+        let pc = (i - 0.6) / 0.4; pc = pc < 0 ? 0 : (pc > 1 ? 1 : pc);
+        pc = pc * pc * (3 - 2 * pc);                          // smoothstep
+        R = R * (1 - pc) + 150 * pc; G = G * (1 - pc) + 198 * pc; B = B * (1 - pc) + 236 * pc;
+        d[idx] = R; d[idx + 1] = G; d[idx + 2] = B;
+        d[idx + 3] = env * (0.10 + 0.42 * i) * 255;           // brighter (A ≤ ~0.52)
       }
     }
     auroraCtx.putImageData(auroraImg, 0, 0);
