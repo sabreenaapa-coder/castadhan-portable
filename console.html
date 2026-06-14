@@ -688,6 +688,10 @@ body.cp-mode24 .cp-ottoman,body.cp-mode24 .cp-hands{display:none;}
 .cp-orig-slot .clock-container{position:absolute;top:50%;left:50%;
   width:92% !important;height:92% !important;transform:translate(-50%,-50%);}
 .cp-orig-slot .clock{width:100% !important;height:100% !important;}
+/* the relocated clock's numerals/dots are tiny (0.8rem) — scale them so the
+   24-hour numbers read from across a room on a TV */
+.cp-orig-slot .num{font-size:clamp(1rem,2.8vmin,2.4rem) !important;font-weight:500;}
+.cp-orig-slot .dot{width:clamp(9px,1.5vmin,17px) !important;height:clamp(9px,1.5vmin,17px) !important;}
 /* display-settings gear + popover */
 #cp-gear{position:fixed;bottom:14px;right:14px;z-index:4500;width:34px;height:34px;
   border-radius:50%;background:#161616;border:.5px solid #2d2d2d;color:#8a8a8a;
