@@ -671,6 +671,9 @@ body.cp-active{overflow:hidden;}
    live hands (cp-hands) on top in the transparent centre. */
 .cp-dial{position:relative;width:clamp(220px,46vmin,470px);aspect-ratio:1/1;}
 .cp-dial svg,.cp-ottoman{position:absolute;inset:0;width:100%;height:100%;}
+/* aurora glow: 128px canvas upscaled + blurred → cheap soft colour halo */
+.cp-aurora{position:absolute;inset:0;width:100%;height:100%;
+  filter:blur(7px);opacity:.9;pointer-events:none;}
 .cp-ottoman{inset:auto;top:50%;left:50%;width:84%;height:84%;
   transform:translate(-50%,-50%);object-fit:contain;pointer-events:none;
   filter:drop-shadow(0 14px 34px rgba(0,0,0,.7));}
@@ -787,9 +790,11 @@ body.cp-playing .cp-now{display:flex;}
 
       <div class="cp-center">
         <div class="cp-dial">
-          <!-- Ambient orbits (decorative arcs + dots circling at different
-               speeds) sit in the periphery, behind the Ottoman 12-hour face.
-               Long, shaped hands glide in the transparent (black) centre. -->
+          <!-- Aurora glow (low-res canvas, CSS-upscaled + blurred) sits at the
+               very back, confined to the periphery; the standing-wave mandala
+               (crisp moiré contour) layers over it; then the Ottoman face;
+               then the gliding hands in the transparent black centre. -->
+          <canvas id="cp-aurora" class="cp-aurora" width="128" height="128" aria-hidden="true"></canvas>
           <svg class="cp-ring" viewBox="0 0 200 200" aria-hidden="true">
             <g id="cp-orbits"></g>
           </svg>
@@ -4417,6 +4422,43 @@ window.addEventListener('load', () => {
     });
   }
 
+  /* ---- Aurora glow — low-res polar field (128²) upscaled + blurred by CSS.
+     Same standing-wave / golden-ratio interference as the mandala, but as a
+     soft warm-gold colour wash confined to the PERIPHERY (the gold ring masks
+     the inner part; the centre stays black). ~20fps is ample for sub-deg/s
+     motion. Warm/amber with a restrained cool shimmer only at the peaks. ---- */
+  const AW = 128, AH = 128, ACX = 64, ACY = 64;
+  let auroraCtx = null, auroraImg = null;
+  function initAurora(){
+    const cv = $cp('cp-aurora'); if (!cv || !cv.getContext) return;
+    auroraCtx = cv.getContext('2d');
+    auroraImg = auroraCtx.createImageData(AW, AH);
+  }
+  function drawAurora(t){
+    if (!auroraCtx) return;
+    const d = auroraImg.data;
+    for (let y = 0; y < AH; y++) {
+      for (let x = 0; x < AW; x++) {
+        const idx = (y * AW + x) * 4;
+        const dx = x - ACX, dy = y - ACY;
+        const r = Math.sqrt(dx * dx + dy * dy);
+        const env = Math.exp(-((r - 57) * (r - 57)) / 162);  // periphery band
+        if (env < 0.012) { d[idx + 3] = 0; continue; }
+        const th = Math.atan2(dy, dx);
+        let i = Math.sin(6 * th + 0.03 * t) * Math.cos(11 * th - 0.02 * t)
+              + 0.5 * Math.sin(17 * th + 0.01 * t)
+              + 0.3 * Math.cos(th * 1.618 - 0.005 * t);
+        i = (i + 1.8) / 3.6; if (i < 0) i = 0; else if (i > 1) i = 1;
+        i = i * i;                                            // gamma: mostly dim
+        d[idx]     = 70 + i * 185;                            // R  warm
+        d[idx + 1] = 45 + i * 150;                            // G  amber
+        d[idx + 2] = 25 + i * i * 195;                        // B  cool only at peaks
+        d[idx + 3] = env * (0.06 + 0.30 * i) * 255;           // A  ≤ ~0.32
+      }
+    }
+    auroraCtx.putImageData(auroraImg, 0, 0);
+  }
+
   /* hands — set by the rAF spin loop (smooth glide) or per-second when the
      user prefers reduced motion. */
   let _reduce = false;
@@ -4503,19 +4545,23 @@ window.addEventListener('load', () => {
     }));
   }
 
-  let _spin0 = null;
+  let _spin0 = null, _mandalaT = -1, _auroraT = -1;
   function spin(ts){
     if (_spin0 == null) _spin0 = ts;
     const t = (ts - _spin0) / 1000;
     const now = new Date();
-    if (_mode24) setHands24(now); else setHands(now);
-    for (const m of mandalaEls) m.el.setAttribute('d', ringPath(m.cfg.baseR, m.cfg.amp, m.cfg.harms, t));
-    const root = $cp('cp-orbits');
-    if (root) {
-      const s = 1 + 0.012 * Math.sin(t * 2 * Math.PI / 90);   // breathe scale ~90s
-      root.setAttribute('transform', `translate(${(100 - 100 * s).toFixed(3)} ${(100 - 100 * s).toFixed(3)}) scale(${s.toFixed(4)})`);
-      root.setAttribute('opacity', (0.78 + 0.22 * Math.sin(t * 2 * Math.PI / 120)).toFixed(3));  // breathe opacity ~120s
+    if (_mode24) setHands24(now); else setHands(now);     // every frame → smooth second hand
+    if (t - _mandalaT >= 0.033) {                          // mandala ~30fps
+      _mandalaT = t;
+      for (const m of mandalaEls) m.el.setAttribute('d', ringPath(m.cfg.baseR, m.cfg.amp, m.cfg.harms, t));
+      const root = $cp('cp-orbits');
+      if (root) {
+        const s = 1 + 0.012 * Math.sin(t * 2 * Math.PI / 90);   // breathe scale ~90s
+        root.setAttribute('transform', `translate(${(100 - 100 * s).toFixed(3)} ${(100 - 100 * s).toFixed(3)}) scale(${s.toFixed(4)})`);
+        root.setAttribute('opacity', (0.78 + 0.22 * Math.sin(t * 2 * Math.PI / 120)).toFixed(3));  // breathe opacity ~120s
+      }
     }
+    if (t - _auroraT >= 0.05) { _auroraT = t; drawAurora(t); }   // aurora ~20fps
     requestAnimationFrame(spin);
   }
 
@@ -4769,6 +4815,7 @@ window.addEventListener('load', () => {
   /* ---- boot ---- */
   function boot(){
     buildMandala();
+    initAurora();
     buildFace24();
     initSettings();
     let savedMode = '12';
@@ -4784,8 +4831,8 @@ window.addEventListener('load', () => {
     setInterval(updateWeather, 15 * 60000);// weather
     setInterval(updateMoon, 60 * 60000);   // moon phase
     _reduce = !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
-    if (_reduce) { if (_mode24) setHands24(new Date()); else setHands(new Date()); }  // static hands
-    else requestAnimationFrame(spin);      // smooth gliding hands + mandala
+    if (_reduce) { if (_mode24) setHands24(new Date()); else setHands(new Date()); drawAurora(0); }  // static
+    else requestAnimationFrame(spin);      // smooth gliding hands + mandala + aurora
   }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
   else boot();
