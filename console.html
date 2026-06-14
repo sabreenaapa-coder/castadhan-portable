@@ -667,12 +667,32 @@ body.cp-active{overflow:hidden;}
 
 /* — centre column: dial + time + date + countdown — */
 .cp-center{display:flex;flex-direction:column;align-items:center;}
-/* A1 recess + outer drop, A2 layered gold rim rings */
-.cp-dial{position:relative;width:clamp(190px,42vmin,440px);aspect-ratio:1/1;
-  border-radius:50%;overflow:hidden;
-  box-shadow:0 0 0 3px #D4AF37,0 0 0 5px rgba(255,243,196,.20),
-    0 0 0 6px rgba(0,0,0,.92),0 22px 55px rgba(0,0,0,.7),0 0 26px rgba(212,175,55,.14);}
-.cp-dial svg{width:100%;height:100%;display:block;}
+/* Dial = 24h day-ring (cp-ring) behind, Ottoman 12h face (img) over it,
+   live hands (cp-hands) on top in the transparent centre. */
+.cp-dial{position:relative;width:clamp(220px,46vmin,470px);aspect-ratio:1/1;}
+.cp-dial svg,.cp-ottoman{position:absolute;inset:0;width:100%;height:100%;display:block;}
+.cp-ottoman{inset:auto;top:50%;left:50%;width:84%;height:84%;
+  transform:translate(-50%,-50%);object-fit:contain;pointer-events:none;
+  filter:drop-shadow(0 14px 34px rgba(0,0,0,.7));}
+/* clock-style toggle: 24-hour prayer dial replaces the Ottoman 12h face */
+.cp-face24{display:none;}
+body.cp-mode24 .cp-ottoman,body.cp-mode24 .cp-hands{display:none;}
+body.cp-mode24 .cp-face24{display:block;}
+/* display-settings gear + popover */
+#cp-gear{position:fixed;bottom:14px;right:14px;z-index:4500;width:34px;height:34px;
+  border-radius:50%;background:#161616;border:.5px solid #2d2d2d;color:#8a8a8a;
+  font-size:16px;line-height:1;cursor:pointer;}
+#cp-gear:hover{color:#D4AF37;}
+#cp-settings{position:fixed;bottom:56px;right:14px;z-index:4500;min-width:184px;
+  background:#141414;border:1px solid #2d2d2d;border-radius:10px;padding:8px;
+  box-shadow:0 8px 24px rgba(0,0,0,.6);}
+#cp-settings[hidden]{display:none;}
+.cp-set-title{color:#7d786c;font-size:10px;text-transform:uppercase;
+  letter-spacing:.06em;margin:2px 6px 6px;}
+.cp-set-opt{display:block;width:100%;text-align:left;background:none;border:none;
+  color:#cfcabb;font-size:13px;padding:7px 8px;border-radius:7px;cursor:pointer;}
+.cp-set-opt:hover{background:#1f1f1f;}
+.cp-set-opt.active{color:#D4AF37;background:rgba(212,175,55,.12);}
 .cp-time{color:#f4efe2;font-size:clamp(22px,4.6vw,40px);font-weight:500;
   font-variant-numeric:tabular-nums;line-height:1;margin-top:clamp(6px,1.3vmin,10px);}
 .cp-date{color:#7d786c;font-size:clamp(10px,1.3vw,12px);margin-top:4px;text-align:center;}
@@ -767,59 +787,36 @@ body.cp-playing .cp-now{display:flex;}
 
       <div class="cp-center">
         <div class="cp-dial">
-          <svg viewBox="0 0 200 200" role="img" aria-label="24-hour prayer clock">
-            <defs>
-              <clipPath id="cpClip"><circle cx="100" cy="100" r="100"/></clipPath>
-              <linearGradient id="cpDay" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stop-color="#15273a"/>
-                <stop offset="58%" stop-color="#574025"/>
-                <stop offset="100%" stop-color="#39322500"/>
-              </linearGradient>
-              <linearGradient id="cpNight" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stop-color="#0c1626"/>
-                <stop offset="100%" stop-color="#090f17"/>
-              </linearGradient>
-              <radialGradient id="cpSun" cx="50%" cy="50%" r="50%">
-                <stop offset="0%" stop-color="#d8b160" stop-opacity="0.7"/>
-                <stop offset="100%" stop-color="#d8b160" stop-opacity="0"/>
-              </radialGradient>
-              <radialGradient id="cpRecess" cx="50%" cy="50%" r="50%">
-                <stop offset="62%" stop-color="#000000" stop-opacity="0"/>
-                <stop offset="100%" stop-color="#000000" stop-opacity="0.85"/>
-              </radialGradient>
-              <radialGradient id="cpLens" cx="34%" cy="24%" r="58%">
-                <stop offset="0%" stop-color="#ffffff" stop-opacity="0.15"/>
-                <stop offset="24%" stop-color="#ffffff" stop-opacity="0.04"/>
-                <stop offset="52%" stop-color="#ffffff" stop-opacity="0"/>
-              </radialGradient>
-            </defs>
-            <!-- muted day/night scene (decorative, knocked back) -->
-            <g clip-path="url(#cpClip)">
-              <rect x="0" y="0" width="200" height="100" fill="url(#cpDay)"/>
-              <circle cx="100" cy="60" r="19" fill="url(#cpSun)"/>
-              <circle cx="100" cy="60" r="7" fill="#c9a456" opacity="0.6"/>
-              <rect x="0" y="100" width="200" height="100" fill="url(#cpNight)"/>
-              <circle cx="48" cy="132" r="0.9" fill="#cfd6e2" opacity="0.55"/>
-              <circle cx="74" cy="152" r="0.8" fill="#cfd6e2" opacity="0.45"/>
-              <circle cx="128" cy="138" r="1" fill="#cfd6e2" opacity="0.55"/>
-              <circle cx="150" cy="155" r="0.8" fill="#cfd6e2" opacity="0.4"/>
-              <circle cx="70" cy="125" r="0.7" fill="#cfd6e2" opacity="0.4"/>
-              <path d="M0 100 q20 -7 42 -2 t40 1 t38 2 t44 -1 L200 100 Z" fill="#0a0f18"/>
-              <line x1="0" y1="100" x2="200" y2="100" stroke="#D4AF37" stroke-width="0.5" opacity="0.26"/>
-              <rect x="0" y="0" width="200" height="200" fill="#0c0c0c" opacity="0.4"/>
-              <circle cx="100" cy="100" r="100" fill="url(#cpRecess)"/>
-              <circle cx="100" cy="100" r="100" fill="url(#cpLens)"/>
-            </g>
-            <g id="cp-numerals" fill="#8f897a" font-size="8" text-anchor="middle"
-               font-family="sans-serif"></g>
-            <g id="cp-ticks" stroke="#8f897a" stroke-width="0.7" opacity="0.65"></g>
-            <g id="cp-dots"></g>
-            <text id="cp-dial-moon" font-size="13" text-anchor="middle"></text>
-            <line id="cp-hHand" stroke="#D4AF37" stroke-width="4.4" stroke-linecap="round"/>
-            <line id="cp-mHand" stroke="#f4efe2" stroke-width="2.4" stroke-linecap="round"/>
-            <line id="cp-sHand" stroke="#c0392b" stroke-width="1.1" stroke-linecap="round" opacity="0.75"/>
-            <circle cx="100" cy="100" r="5.5" fill="none" stroke="#D4AF37" stroke-width="1.6"/>
+          <!-- Ambient orbits (decorative arcs + dots circling at different
+               speeds) sit in the periphery, behind the Ottoman 12-hour face.
+               Long, shaped hands glide in the transparent (black) centre. -->
+          <svg class="cp-ring" viewBox="0 0 200 200" aria-hidden="true">
+            <g id="cp-orbits"></g>
+          </svg>
+          <img class="cp-ottoman" src="static/ottoman-dial-dark.png" alt="" aria-hidden="true">
+          <svg class="cp-hands" viewBox="0 0 200 200" aria-hidden="true">
+            <!-- straight modernist rectangle hands; second hand ends at the
+                 inner gold edge (perimeter of the central black circle, r~49). -->
+            <line id="cp-hHand" x1="100" y1="107" x2="100" y2="70"
+                  stroke="#efe6cf" stroke-width="2.5" stroke-linecap="round"/>
+            <line id="cp-mHand" x1="100" y1="107" x2="100" y2="57"
+                  stroke="#efe6cf" stroke-width="1.7" stroke-linecap="round"/>
+            <line id="cp-sHand" x1="100" y1="111" x2="100" y2="51"
+                  stroke="#c0392b" stroke-width="0.9" stroke-linecap="round"/>
+            <circle cx="100" cy="100" r="2.4" fill="#D4AF37" stroke="#2a241a" stroke-width="0.4"/>
+            <circle cx="100" cy="100" r="0.9" fill="#15110a"/>
+          </svg>
+          <!-- 24-hour prayer-dial face (shown when the user picks 24-hour) -->
+          <svg class="cp-face24" viewBox="0 0 200 200" aria-hidden="true">
+            <circle cx="100" cy="100" r="80" fill="none" stroke="#D4AF37" stroke-width="1.4" opacity="0.8"/>
+            <g id="cp-f24-ticks" stroke="#7d7350" stroke-width="0.6" opacity="0.6"></g>
+            <g id="cp-f24-num" fill="#cdbf90" font-size="7" text-anchor="middle" font-family="sans-serif"></g>
+            <g id="cp-f24-dots"></g>
+            <line id="cp-h24" x1="100" y1="108" x2="100" y2="58" stroke="#efe6cf" stroke-width="2.6" stroke-linecap="round"/>
+            <line id="cp-m24" x1="100" y1="110" x2="100" y2="40" stroke="#efe6cf" stroke-width="1.7" stroke-linecap="round"/>
+            <line id="cp-s24" x1="100" y1="114" x2="100" y2="34" stroke="#c0392b" stroke-width="0.9" stroke-linecap="round"/>
             <circle cx="100" cy="100" r="2.4" fill="#D4AF37"/>
+            <circle cx="100" cy="100" r="0.9" fill="#15110a"/>
           </svg>
         </div>
         <div class="cp-time" id="cp-time">--:--</div>
@@ -843,6 +840,14 @@ body.cp-playing .cp-now{display:flex;}
     </div>
     <div class="cp-offline" id="cp-offline"></div>
 
+  </div>
+
+  <!-- display settings (clock style) -->
+  <button id="cp-gear" aria-label="Display settings">⚙</button>
+  <div id="cp-settings" hidden>
+    <div class="cp-set-title">Clock style</div>
+    <button class="cp-set-opt" data-mode="12">12-hour · Ottoman</button>
+    <button class="cp-set-opt" data-mode="24">24-hour · prayer dial</button>
   </div>
 </div>
 
@@ -4366,48 +4371,164 @@ window.addEventListener('load', () => {
   };
   const SVGNS = 'http://www.w3.org/2000/svg';
 
-  /* ---- static dial: numerals (every 2h) + hour ticks ---- */
-  function drawNumeralsTicks(){
-    const nums = $cp('cp-numerals'), ticks = $cp('cp-ticks');
-    if (!nums || !ticks) return;
-    nums.innerHTML = ''; ticks.innerHTML = '';
-    for (let k = 0; k < 12; k++) {
-      const hour = (12 + k * 2) % 24;
-      const p = pt(84, k * 30);
-      const t = document.createElementNS(SVGNS, 'text');
-      t.setAttribute('x', p.x); t.setAttribute('y', p.y + 3);
-      t.textContent = hour === 0 ? '24' : hour;
-      nums.appendChild(t);
+  /* ---- graceful shaped hands + ambient orbiting decorations ---- */
+  function arcPath(r, a0, a1){
+    const s = pt(r, a0), e = pt(r, a1);
+    const large = (a1 - a0) > 180 ? 1 : 0;
+    return `M ${s.x} ${s.y} A ${r} ${r} 0 ${large} 1 ${e.x} ${e.y}`;
+  }
+  function setRot(id, deg){ const el = $cp(id); if (el) el.setAttribute('transform', `rotate(${deg} 100 100)`); }
+
+  /* ---- Standing-wave resonance mandala (emergent, not orbiting objects).
+     Each faint ring's radius = baseR + Σ amp·sin(k·θ + w·t). Two angular
+     harmonics per ring with phases drifting slowly in OPPOSITE directions, so
+     petals / stars continuously emerge and dissolve (moiré-like interference).
+     The whole field also "breathes" (slow scale + opacity). The motion is the
+     mathematics — there are no moving dots. ---- */
+  const MANDALA = [
+    { baseR: 92, amp: 3.6, harms: [{ k: 6,  w: 0.100 }, { k: 11, w: -0.062 }], stroke: 'rgba(212,175,55,0.34)', width: 0.8 },
+    { baseR: 88, amp: 2.7, harms: [{ k: 8,  w: -0.082 }, { k: 5,  w: 0.052 }], stroke: 'rgba(239,230,207,0.16)', width: 0.6 },
+    { baseR: 96, amp: 2.1, harms: [{ k: 13, w: 0.122 }, { k: 7,  w: -0.090 }], stroke: 'rgba(212,175,55,0.12)', width: 0.6 }
+  ];
+  const mandalaEls = [];
+  function ringPath(baseR, amp, harms, t){
+    const N = 200; let d = '';
+    for (let i = 0; i <= N; i++){
+      const th = (i / N) * Math.PI * 2;
+      let rr = baseR;
+      for (const h of harms) rr += amp * Math.sin(h.k * th + h.w * t);
+      const x = 100 + rr * Math.cos(th), y = 100 + rr * Math.sin(th);
+      d += (i === 0 ? 'M' : 'L') + x.toFixed(2) + ' ' + y.toFixed(2) + ' ';
     }
-    for (let h = 0; h < 24; h++) {
-      const deg = angle24(h);
-      const outer = pt(98, deg);
-      const inner = pt(h % 2 === 0 ? 92 : 95, deg);
-      const ln = document.createElementNS(SVGNS, 'line');
-      ln.setAttribute('x1', outer.x); ln.setAttribute('y1', outer.y);
-      ln.setAttribute('x2', inner.x); ln.setAttribute('y2', inner.y);
-      ticks.appendChild(ln);
-    }
+    return d + 'Z';
+  }
+  function buildMandala(){
+    const root = $cp('cp-orbits'); if (!root) return;
+    root.innerHTML = ''; mandalaEls.length = 0;
+    MANDALA.forEach(cfg => {
+      const p = document.createElementNS(SVGNS, 'path');
+      p.setAttribute('fill', 'none');
+      p.setAttribute('stroke', cfg.stroke);
+      p.setAttribute('stroke-width', cfg.width);
+      p.setAttribute('stroke-linejoin', 'round');
+      p.setAttribute('d', ringPath(cfg.baseR, cfg.amp, cfg.harms, 0));
+      root.appendChild(p);
+      mandalaEls.push({ el: p, cfg });
+    });
   }
 
-  /* ---- hands + digital time (1s tick) ---- */
+  /* hands — set by the rAF spin loop (smooth glide) or per-second when the
+     user prefers reduced motion. */
+  let _reduce = false;
+  function setHands(now){
+    const s = now.getSeconds() + now.getMilliseconds() / 1000;
+    const m = now.getMinutes() + s / 60;
+    const h = (now.getHours() % 12) + m / 60;
+    setRot('cp-hHand', (h / 12) * 360);
+    setRot('cp-mHand', (m / 60) * 360);
+    setRot('cp-sHand', (s / 60) * 360);
+  }
+
+  /* ---- 24-hour prayer-dial face (toggleable via the settings gear) ----
+     A clean vector dial: noon at top, 24h numerals every 2h, prayer dots
+     coloured by status, hour hand making one turn per day. */
+  let _mode24 = false;
+  let _lastTimes = null, _lastNext = null, _lastHist = {};
+  function buildFace24(){
+    const num = $cp('cp-f24-num'), ticks = $cp('cp-f24-ticks');
+    if (num) {
+      num.innerHTML = '';
+      for (let k = 0; k < 12; k++) {
+        const hour = (12 + k * 2) % 24; const p = pt(68, k * 30);
+        const t = document.createElementNS(SVGNS, 'text');
+        t.setAttribute('x', p.x); t.setAttribute('y', p.y + 2.6);
+        t.textContent = hour === 0 ? '24' : hour; num.appendChild(t);
+      }
+    }
+    if (ticks) {
+      ticks.innerHTML = '';
+      for (let h = 0; h < 24; h++) {
+        const deg = ((h - 12) / 24) * 360;
+        const o = pt(79, deg), i = pt(h % 2 === 0 ? 75 : 77, deg);
+        const ln = document.createElementNS(SVGNS, 'line');
+        ln.setAttribute('x1', o.x); ln.setAttribute('y1', o.y);
+        ln.setAttribute('x2', i.x); ln.setAttribute('y2', i.y); ticks.appendChild(ln);
+      }
+    }
+  }
+  function drawF24(times, nextName, hist, now){
+    const g = $cp('cp-f24-dots'); if (!g) return; g.innerHTML = '';
+    const COL = { fired: '#5fb55f', missed: '#c0392b', next: '#D4AF37', upcoming: '#c9b27a' };
+    ['Fajr', 'Sunrise', 'Dhuhr', 'Asr', 'Maghrib', 'Isha'].forEach(name => {
+      const ts = timeOf(times, name); if (!ts) return; const t = parseHM(ts); if (!t) return;
+      const deg = ((t.getHours() + t.getMinutes() / 60 - 12) / 24) * 360; const p = pt(72, deg);
+      const st = statusFor(name, ts, nextName, hist, now);
+      const c = document.createElementNS(SVGNS, 'circle');
+      c.setAttribute('cx', p.x); c.setAttribute('cy', p.y);
+      c.setAttribute('r', st === 'next' ? 3.8 : 2.6);
+      c.setAttribute('stroke', '#0c0c0c'); c.setAttribute('stroke-width', '1');
+      if (st === 'upcoming') { c.setAttribute('fill', '#171717'); c.setAttribute('stroke', '#8a7d52'); }
+      else { c.setAttribute('fill', COL[st]); if (st === 'next') { c.setAttribute('stroke', '#fff3c4'); c.setAttribute('stroke-width', '1.2'); } }
+      g.appendChild(c);
+    });
+  }
+  function setHands24(now){
+    const s = now.getSeconds() + now.getMilliseconds() / 1000;
+    const m = now.getMinutes() + s / 60;
+    const h = now.getHours() + m / 60;
+    setRot('cp-h24', ((h - 12) / 24) * 360);   // hour hand: one turn per day, noon at top
+    setRot('cp-m24', (m / 60) * 360);
+    setRot('cp-s24', (s / 60) * 360);
+  }
+  function applyClockMode(mode){
+    _mode24 = (mode === '24');
+    document.body.classList.toggle('cp-mode24', _mode24);
+    document.querySelectorAll('.cp-set-opt').forEach(b =>
+      b.classList.toggle('active', b.dataset.mode === (_mode24 ? '24' : '12')));
+    const now = new Date();
+    if (_mode24) setHands24(now); else setHands(now);
+    if (_lastTimes) drawF24(_lastTimes, _lastNext, _lastHist, now);
+  }
+  function initSettings(){
+    const gear = $cp('cp-gear'), panel = $cp('cp-settings');
+    if (gear) gear.addEventListener('click', (e) => { e.stopPropagation(); if (panel) panel.hidden = !panel.hidden; });
+    document.addEventListener('click', (e) => {
+      if (panel && !panel.hidden && !panel.contains(e.target) && e.target !== gear) panel.hidden = true;
+    });
+    document.querySelectorAll('.cp-set-opt').forEach(b => b.addEventListener('click', () => {
+      const mode = b.dataset.mode;
+      try { localStorage.setItem('cp_clockmode', mode); } catch (e) {}
+      applyClockMode(mode);
+      if (panel) panel.hidden = true;
+    }));
+  }
+
+  let _spin0 = null;
+  function spin(ts){
+    if (_spin0 == null) _spin0 = ts;
+    const t = (ts - _spin0) / 1000;
+    const now = new Date();
+    if (_mode24) setHands24(now); else setHands(now);
+    for (const m of mandalaEls) m.el.setAttribute('d', ringPath(m.cfg.baseR, m.cfg.amp, m.cfg.harms, t));
+    const root = $cp('cp-orbits');
+    if (root) {
+      const s = 1 + 0.012 * Math.sin(t * 2 * Math.PI / 90);   // breathe scale ~90s
+      root.setAttribute('transform', `translate(${(100 - 100 * s).toFixed(3)} ${(100 - 100 * s).toFixed(3)}) scale(${s.toFixed(4)})`);
+      root.setAttribute('opacity', (0.78 + 0.22 * Math.sin(t * 2 * Math.PI / 120)).toFixed(3));  // breathe opacity ~120s
+    }
+    requestAnimationFrame(spin);
+  }
+
+  /* ---- digital time + date + countdown (1s tick). Hands glide via rAF
+     (spin); only updated here when reduced-motion is preferred. ---- */
   function tickClock(){
     const now = new Date();
-    const h = now.getHours(), m = now.getMinutes(), s = now.getSeconds();
-    setHand('cp-hHand', 46, angle24(h + m / 60 + s / 3600));
-    setHand('cp-mHand', 64, ((m + s / 60) / 60) * 360);
-    setHand('cp-sHand', 70, (s / 60) * 360);
     const tEl = $cp('cp-time');
     if (tEl) tEl.textContent = now.toLocaleTimeString('en-GB',
       { hour: 'numeric', minute: '2-digit', hour12: true }).toLowerCase();
     updateDateLine(now);
     tickCountdown(now);
-  }
-  function setHand(id, len, deg){
-    const el = $cp(id); if (!el) return;
-    const p = pt(len, deg);
-    el.setAttribute('x1', CX); el.setAttribute('y1', CY);
-    el.setAttribute('x2', p.x); el.setAttribute('y2', p.y);
+    if (_reduce) { if (_mode24) setHands24(now); else setHands(now); }
   }
 
   let cpHijriFull = '';
@@ -4466,30 +4587,6 @@ window.addEventListener('load', () => {
     };
     build('cp-cards-left', L);
     build('cp-cards-right', R);
-  }
-
-  function renderDots(times, nextName, hist, now){
-    const g = $cp('cp-dots'); if (!g) return;
-    g.innerHTML = '';
-    const COL = { fired: '#5fb55f', missed: '#c0392b', next: '#D4AF37', upcoming: '#7d786c' };
-    ['Fajr', 'Sunrise', 'Dhuhr', 'Asr', 'Maghrib', 'Isha'].forEach(name => {
-      const ts = timeOf(times, name); if (!ts) return;
-      const t = parseHM(ts); if (!t) return;
-      const deg = angle24(t.getHours() + t.getMinutes() / 60);
-      const p = pt(90, deg);
-      const st = statusFor(name, ts, nextName, hist, now);
-      const c = document.createElementNS(SVGNS, 'circle');
-      c.setAttribute('cx', p.x); c.setAttribute('cy', p.y);
-      c.setAttribute('r', st === 'next' ? 4.4 : 3.2);
-      if (st === 'upcoming') {
-        c.setAttribute('fill', 'none');
-        c.setAttribute('stroke', '#7d786c'); c.setAttribute('stroke-width', '1.1');
-      } else {
-        c.setAttribute('fill', COL[st]);
-        if (st === 'next') { c.setAttribute('stroke', '#fff3c4'); c.setAttribute('stroke-width', '1'); }
-      }
-      g.appendChild(c);
-    });
   }
 
   /* ---- moon (local Conway age → emoji + phase name + dial glyph) ---- */
@@ -4634,8 +4731,9 @@ window.addEventListener('load', () => {
       }
     } catch (e) { /* keep cards without history colouring */ }
 
+    _lastTimes = times; _lastNext = nextName; _lastHist = hist;
     renderCards(times, nextName, hist, now);
-    renderDots(times, nextName, hist, now);
+    drawF24(times, nextName, hist, now);
     tickCountdown(now);
 
     // playing? — show Now-playing / Stop
@@ -4670,16 +4768,24 @@ window.addEventListener('load', () => {
 
   /* ---- boot ---- */
   function boot(){
-    drawNumeralsTicks();
+    buildMandala();
+    buildFace24();
+    initSettings();
+    let savedMode = '12';
+    try { savedMode = localStorage.getItem('cp_clockmode') || '12'; } catch (e) {}
+    applyClockMode(savedMode);
     tickClock();
     updateMoon();
     updateHijri();
     updateWeather();
     refreshData();
-    setInterval(tickClock, 1000);          // hands + time + countdown
+    setInterval(tickClock, 1000);          // time + date + countdown
     setInterval(refreshData, 15000);       // state + history + playing
     setInterval(updateWeather, 15 * 60000);// weather
     setInterval(updateMoon, 60 * 60000);   // moon phase
+    _reduce = !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+    if (_reduce) { if (_mode24) setHands24(new Date()); else setHands(new Date()); }  // static hands
+    else requestAnimationFrame(spin);      // smooth gliding hands + mandala
   }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
   else boot();
