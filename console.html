@@ -778,8 +778,8 @@ body.cp-playing .cp-now{display:flex;}
     <div class="cp-top">
       <div class="cp-corner left" id="cp-weather"></div>
       <div class="cp-flip">
-        <a href="?view=clock" class="active">Clock</a>
-        <a href="./" id="cp-to-admin">Admin</a>
+        <a href="./" class="active">Clock</a>
+        <a href="?view=admin" id="cp-to-admin">Admin</a>
       </div>
       <div class="cp-corner right" id="cp-moon"></div>
     </div>
@@ -860,8 +860,8 @@ body.cp-playing .cp-now{display:flex;}
 <!-- flip pill shown on the dashboard (Admin) so the family can switch to Clock -->
 <div id="cp-adminflip">
   <div class="cp-flip">
-    <a href="?view=clock">Clock</a>
-    <a href="./" class="active">Admin</a>
+    <a href="./">Clock</a>
+    <a href="?view=admin" class="active">Admin</a>
   </div>
 </div>
 
@@ -4344,15 +4344,14 @@ window.addEventListener('load', () => {
    ════════════════════════════════════════════════════════════════════════ */
 (function cpInit(){
   function qp(k){ try{ return new URLSearchParams(location.search).get(k); }catch(e){ return null; } }
-  const isClock = qp('view') === 'clock';
   const adminFlip = document.getElementById('cp-adminflip');
 
-  if (!isClock) {
-    /* Dashboard (Admin): expose the flip pill so the family can switch to the
-       Clock page. Not shown in Simple Mode or the TV ?mode=clock ambient face. */
-    if (adminFlip && qp('mode') !== 'simple' && qp('mode') !== 'clock') {
-      adminFlip.style.display = 'block';
-    }
+  /* Clock is the DEFAULT family-facing view. The operator dashboard shows only
+     when explicitly requested via ?view=admin (reachable from the flip pill).
+     The legacy ?mode=clock (TV ambient) and ?mode=simple pages are left alone. */
+  if (qp('mode') === 'clock' || qp('mode') === 'simple') return;
+  if (qp('view') === 'admin') {
+    if (adminFlip) adminFlip.style.display = 'block';   // pill to return to Clock
     return;
   }
 
