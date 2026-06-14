@@ -4451,10 +4451,13 @@ window.addEventListener('load', () => {
         env *= gate;
         if (env < 0.012) { d[idx + 3] = 0; continue; }
         const th = Math.atan2(dy, dx);
-        let i = Math.sin(6 * th + 0.03 * t) * Math.cos(11 * th - 0.02 * t)
-              + 0.5 * Math.sin(17 * th + 0.01 * t)
-              + 0.3 * Math.cos(th * 1.618 - 0.005 * t);
-        i = (i + 1.8) / 3.6; if (i < 0) i = 0; else if (i > 1) i = 1;
+        // low angular harmonics (2,3,5) → a few broad curtains that MERGE
+        // (not many discrete lobes); radial-phase terms make the bands curve;
+        // counter-rotating, faster drift so it visibly flows (~5°/s).
+        let i = Math.sin(2 * th + 0.17 * t + 2.6 * f)
+              + 0.8 * Math.sin(3 * th - 0.26 * t - 1.4 * f)
+              + 0.4 * Math.sin(5 * th + 0.12 * t);
+        i = (i + 2.2) / 4.4; if (i < 0) i = 0; else if (i > 1) i = 1;
         i = Math.pow(i, 1.35);
         // warm gold base
         let R = 60 + i * 185, G = 42 + i * 156, B = 22 + i * i * 50;
