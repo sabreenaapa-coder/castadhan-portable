@@ -855,6 +855,10 @@ body.cp-playing .cp-now{display:flex;}
           <!-- 24-hour prayer dial (clockfaceonline "Time Manager" style): 0 at
                top, 0–23 every hour, filled prayer-period wedges, 24h hour hand -->
           <svg class="cp-face24" viewBox="0 0 200 200" aria-hidden="true">
+            <defs><!-- dim+greyscale the inactive period wedges -->
+              <filter id="cp-dim"><feColorMatrix type="saturate" values="0"/>
+                <feComponentTransfer><feFuncR type="linear" slope="0.42"/><feFuncG type="linear" slope="0.42"/><feFuncB type="linear" slope="0.42"/></feComponentTransfer></filter>
+            </defs>
             <g id="cp-f24-wedges"></g>                                       <!-- time-of-day scene sectors -->
             <circle cx="100" cy="100" r="80" fill="none" stroke="rgba(212,175,55,0.55)" stroke-width="1.1"/>
             <circle cx="100" cy="100" r="96" fill="none" stroke="rgba(159,176,196,0.20)" stroke-width="0.7"/>
@@ -4595,15 +4599,21 @@ window.addEventListener('load', () => {
     // solid colour kept behind as a load-fallback. Sector angles come from the
     // real prayer times, so the slices grow/shrink with the season.
     const SCENE = { Isha: 'static/scenes/night.jpg', Fajr: 'static/scenes/dawn.jpg',
-                    Sunrise: 'static/scenes/day.jpg', Dhuhr: 'static/scenes/day.jpg',
+                    Sunrise: 'static/scenes/morning.jpg', Dhuhr: 'static/scenes/midday.jpg',
                     Asr: 'static/scenes/afternoon.jpg', Maghrib: 'static/scenes/dusk.jpg' };
+    // only the CURRENT period (where the hour hand sits) stays full colour;
+    // the rest are greyscaled + darkened via the #cp-dim filter.
+    const nowH = now.getHours() + now.getMinutes() / 60 + now.getSeconds() / 3600;
+    const inSeg = (a, b) => (a < b) ? (nowH >= a && nowH < b) : (nowH >= a || nowH < b);
     if (pts.length >= 2) {
       for (let i = 0; i < pts.length; i++) {
         const a = pts[i], b = pts[(i + 1) % pts.length];
+        const active = inSeg(a.h, b.h);
         const d = sector(80, ang0(a.h), ang0(b.h));
         const base = document.createElementNS(SVGNS, 'path');           // solid fallback
         base.setAttribute('d', d);
         base.setAttribute('fill', PERIOD_WEDGE[a.n] || 'rgba(159,176,196,0.15)');
+        if (!active) base.setAttribute('filter', 'url(#cp-dim)');
         wedges.appendChild(base);
         const cpId = 'cpseg' + i;                                       // sector clip for the image
         const cp = document.createElementNS(SVGNS, 'clipPath'); cp.setAttribute('id', cpId);
@@ -4617,6 +4627,7 @@ window.addEventListener('load', () => {
         img.setAttribute('width', 160); img.setAttribute('height', 160);
         img.setAttribute('preserveAspectRatio', 'xMidYMid slice');
         img.setAttribute('clip-path', 'url(#' + cpId + ')');
+        if (!active) img.setAttribute('filter', 'url(#cp-dim)');
         wedges.appendChild(img);
       }
     }
