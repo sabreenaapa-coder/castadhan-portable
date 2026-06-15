@@ -62,7 +62,7 @@
   .clock{width:var(--clock);height:var(--clock);border-radius:50%;border:4px solid var(--gold);position:relative;background:#1a1a1a;box-shadow:0 0 30px rgba(212,175,55,.2) inset, 0 0 25px rgba(212,175,55,.15)}
   /* aura halo behind the dashboard clock (overlay — does not change clock size) */
   .clock-container>.clock{z-index:1}
-  .dash-aurora{position:absolute;top:50%;left:50%;width:160%;height:160%;transform:translate(-50%,-50%);filter:blur(6px);opacity:1;pointer-events:none;z-index:0}
+  .dash-aurora{position:absolute;top:50%;left:50%;width:138%;height:138%;transform:translate(-50%,-50%);filter:blur(6px);opacity:1;pointer-events:none;z-index:0}
   .zones{position:absolute;inset:0;border-radius:50%;transition:background .5s ease}
   .glow{position:absolute;inset:0;border-radius:50%;background:radial-gradient(circle at center, rgba(212,175,55,0.15) 0%, transparent 70%);z-index:2;pointer-events:none;transition:transform 1s linear;}
   .hub{position:absolute;inset:auto;left:50%;top:50%;transform:translate(-50%,-50%);width:16px;height:16px;border-radius:50%;background:var(--gold);border:2px solid var(--bg);z-index:5}
@@ -4952,20 +4952,22 @@ window.addEventListener('load', () => {
   const run = () => {
     const cv = document.getElementById('dash-aurora');
     if (!cv || !cv.getContext) return;
-    const ctx = cv.getContext('2d'); const AW = 128, AH = 128, A_SPAN = 1.60;
+    const ctx = cv.getContext('2d'); const AW = 128, AH = 128, A_SPAN = 1.38;
     const img = ctx.createImageData(AW, AH);
-    /* Alien-atmosphere clouds: domain-warped fractal turbulence (wispy, marbled
-       gas-giant formations) in a green → yellow → orange → hot palette. */
+    /* Aurora borealis: domain-warped turbulence (wispy curtains) in a green +
+       purple/pink palette. The hue splits across the dial (green one side,
+       purple the other) and slowly drifts. Tight halo that fades well before the
+       canvas edge so no square edges show and it stays clear of the panels. */
     function draw(tt){
       const d = img.data;
       for (let y = 0; y < AH; y++) for (let x = 0; x < AW; x++) {
         const idx = (y * AW + x) * 4;
         const nx = (x - 64) / 64, ny = (y - 64) / 64;
         const f = Math.sqrt(nx * nx + ny * ny) * A_SPAN;
-        let env = Math.exp(-((f - 1.12) * (f - 1.12)) / 0.16);   // broad cloud band
-        const gate = Math.min(Math.max((f - 0.88) / 0.08, 0), 1); env *= gate;
+        let env = Math.exp(-((f - 0.98) * (f - 0.98)) / 0.032);   // tight band, ~0 by the edge
+        const gate = Math.min(Math.max((f - 0.85) / 0.07, 0), 1); env *= gate;
         if (env < 0.015) { d[idx + 3] = 0; continue; }
-        // domain-warped fractal turbulence → swirling wispy clouds
+        // domain-warped fractal turbulence → wispy aurora curtains
         let wx = nx * 1.7 + 0.35 * Math.sin(ny * 2.3 + tt * 0.25);
         let wy = ny * 1.7 + 0.35 * Math.cos(nx * 2.1 - tt * 0.20);
         let n = 0, amp = 0.55, fr = 1.0;
@@ -4975,20 +4977,14 @@ window.addEventListener('load', () => {
           amp *= 0.55; fr *= 1.95;
         }
         n = n * 0.5 + 0.5; if (n < 0) n = 0; else if (n > 1) n = 1;
-        // a coherent "storm" heat zone that slowly drifts around → one orange/red
-        // region (like the reference) while the rest of the atmosphere stays green
-        let da = Math.atan2(ny, nx) - tt * 0.06;
-        da = Math.atan2(Math.sin(da), Math.cos(da));            // wrap to -π..π
-        const heat = Math.exp(-(da * da) / 0.9);
-        let temp = n * 0.5 + heat * 0.55 + n * heat * 0.5;
-        if (temp < 0) temp = 0; else if (temp > 1) temp = 1; temp = Math.pow(temp, 1.05);
-        // green (calm) → yellow-green → yellow → orange → hot orange (storm)
-        let R, G, B;
-        if (temp < 0.5)       { const u = temp / 0.5;           R = 14 + 49 * u;  G = 58 + 110 * u; B = 30 + 10 * u; }
-        else if (temp < 0.78) { const u = (temp - 0.5) / 0.28;  R = 63 + 144 * u; G = 168 + 58 * u; B = 40 + 18 * u; }
-        else if (temp < 0.92) { const u = (temp - 0.78) / 0.14; R = 207 + 25 * u; G = 226 - 108 * u; B = 58 - 28 * u; }
-        else                  { const u = (temp - 0.92) / 0.08; R = 232 + 23 * u; G = 118 - 44 * u; B = 30 - 10 * u; }
-        d[idx] = R; d[idx + 1] = G; d[idx + 2] = B; d[idx + 3] = env * (0.22 + 0.55 * temp) * 255;
+        // hue: green one side → purple/pink the other; boundary drifts + wisps
+        let mix = 0.5 + 0.5 * Math.sin(Math.atan2(ny, nx) - tt * 0.05);
+        mix = mix * 0.72 + n * 0.28; if (mix < 0) mix = 0; else if (mix > 1) mix = 1;
+        let gR, gG, gB, pR, pG, pB;
+        if (n < 0.5) { const u = n / 0.5; gR = 10 + 37 * u; gG = 46 + 150 * u; gB = 26 + 48 * u; pR = 40 + 110 * u; pG = 18 + 42 * u; pB = 64 + 146 * u; }
+        else { const u = (n - 0.5) / 0.5; gR = 47 + 103 * u; gG = 196 + 59 * u; gB = 74 + 56 * u; pR = 150 + 105 * u; pG = 60 + 60 * u; pB = 210; }
+        d[idx] = gR + (pR - gR) * mix; d[idx + 1] = gG + (pG - gG) * mix; d[idx + 2] = gB + (pB - gB) * mix;
+        d[idx + 3] = env * (0.20 + 0.55 * n) * 255;
       }
       ctx.putImageData(img, 0, 0);
     }
