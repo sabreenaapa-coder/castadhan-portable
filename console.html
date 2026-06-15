@@ -67,6 +67,11 @@
   .hour{width:5px;height:35%;background:var(--gold);z-index:4}
   .minute{width:3px;height:45%;background:var(--fg);opacity:.95;z-index:3}
   .second{width:1px;height:48%;background:var(--gold);opacity:.7;z-index:2}
+  /* 24-hour prayer dial (everything except the 12-hour ?mode=clock ambient
+     face): the hour hand reads the time on its own, so drop the minute hand
+     and make the hour hand long (as long as the second hand). */
+  body:not(.clock-mode) .minute{display:none;}
+  body:not(.clock-mode) .hour{height:48%;}
   .num{position:absolute;font-size:0.8rem;color:var(--silver);transform:translate(-50%,-50%);user-select:none}
   .pin{position:absolute;top:0;left:50%;width:8px;height:50%;transform-origin:bottom center;z-index:6}
   .dot{position:absolute;top:8px;left:50%;transform:translateX(-50%);width:8px;height:8px;border-radius:50%;background:var(--gold);box-shadow:0 0 8px var(--gold)}
@@ -853,9 +858,9 @@ body.cp-playing .cp-now{display:flex;}
             <g id="cp-f24-ticks" stroke="rgba(159,176,196,0.30)" stroke-width="0.6"></g>
             <g id="cp-f24-num" fill="#9fb0c4" font-size="6.4" text-anchor="middle" font-family="sans-serif"></g>
             <g id="cp-f24-markers"></g>
-            <line id="cp-h24" x1="100" y1="110" x2="100" y2="66" stroke="#f4efe2" stroke-width="3.4" stroke-linecap="round"/>
-            <line id="cp-m24" x1="100" y1="111" x2="100" y2="44" stroke="#e7e0cf" stroke-width="1.9" stroke-linecap="round"/>
-            <line id="cp-s24" x1="100" y1="113" x2="100" y2="28" stroke="#c0392b" stroke-width="0.9" stroke-linecap="round"/>
+            <!-- 24-hour dial: long hour hand reads the time (no minute hand) + thin second -->
+            <line id="cp-h24" x1="100" y1="110" x2="100" y2="30" stroke="#f4efe2" stroke-width="3.0" stroke-linecap="round"/>
+            <line id="cp-s24" x1="100" y1="113" x2="100" y2="26" stroke="#c0392b" stroke-width="0.9" stroke-linecap="round"/>
             <circle cx="100" cy="100" r="2.6" fill="#f4efe2" stroke="#2a241a" stroke-width="0.4"/>
             <circle cx="100" cy="100" r="0.9" fill="#15110a"/>
           </svg>
@@ -4616,9 +4621,8 @@ window.addEventListener('load', () => {
     const s = now.getSeconds() + now.getMilliseconds() / 1000;
     const m = now.getMinutes() + s / 60;
     const h = now.getHours() + m / 60;
-    setRot('cp-h24', ang0(h));             // hour hand: one turn per day, 0 at top
-    setRot('cp-m24', (m / 60) * 360);
-    setRot('cp-s24', (s / 60) * 360);
+    setRot('cp-h24', ang0(h));             // long hour hand reads the time (one turn/day, 0 at top)
+    setRot('cp-s24', (s / 60) * 360);      // no minute hand on the 24-hour dial
   }
   function applyClockMode(mode){
     _mode24 = (mode === '24');
