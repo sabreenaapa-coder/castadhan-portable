@@ -62,7 +62,7 @@
   .clock{width:var(--clock);height:var(--clock);border-radius:50%;border:4px solid var(--gold);position:relative;background:#1a1a1a;box-shadow:0 0 30px rgba(212,175,55,.2) inset, 0 0 25px rgba(212,175,55,.15)}
   /* aura halo behind the dashboard clock (overlay — does not change clock size) */
   .clock-container>.clock{z-index:1}
-  .dash-aurora{position:absolute;top:50%;left:50%;width:135%;height:135%;transform:translate(-50%,-50%);filter:blur(9px);opacity:1;pointer-events:none;z-index:0}
+  .dash-aurora{position:absolute;top:50%;left:50%;width:160%;height:160%;transform:translate(-50%,-50%);filter:blur(6px);opacity:1;pointer-events:none;z-index:0}
   .zones{position:absolute;inset:0;border-radius:50%;transition:background .5s ease}
   .glow{position:absolute;inset:0;border-radius:50%;background:radial-gradient(circle at center, rgba(212,175,55,0.15) 0%, transparent 70%);z-index:2;pointer-events:none;transition:transform 1s linear;}
   .hub{position:absolute;inset:auto;left:50%;top:50%;transform:translate(-50%,-50%);width:16px;height:16px;border-radius:50%;background:var(--gold);border:2px solid var(--bg);z-index:5}
@@ -4952,23 +4952,43 @@ window.addEventListener('load', () => {
   const run = () => {
     const cv = document.getElementById('dash-aurora');
     if (!cv || !cv.getContext) return;
-    const ctx = cv.getContext('2d'); const AW = 128, AH = 128, A_SPAN = 1.35;
+    const ctx = cv.getContext('2d'); const AW = 128, AH = 128, A_SPAN = 1.60;
     const img = ctx.createImageData(AW, AH);
+    /* Alien-atmosphere clouds: domain-warped fractal turbulence (wispy, marbled
+       gas-giant formations) in a green → yellow → orange → hot palette. */
     function draw(tt){
       const d = img.data;
       for (let y = 0; y < AH; y++) for (let x = 0; x < AW; x++) {
-        const idx = (y * AW + x) * 4, dx = x - 64, dy = y - 64;
-        const f = (Math.sqrt(dx * dx + dy * dy) / 64) * A_SPAN;
-        let env = Math.exp(-((f - 1.0) * (f - 1.0)) / 0.0648);
-        const gate = Math.min(Math.max((f - 0.80) / 0.06, 0), 1); env *= gate;
-        if (env < 0.012) { d[idx + 3] = 0; continue; }
-        const th = Math.atan2(dy, dx);
-        let i = Math.sin(2 * th + 0.17 * tt + 2.6 * f) + 0.8 * Math.sin(3 * th - 0.26 * tt - 1.4 * f) + 0.4 * Math.sin(5 * th + 0.12 * tt);
-        i = (i + 2.2) / 4.4; if (i < 0) i = 0; else if (i > 1) i = 1; i = Math.pow(i, 1.35);
+        const idx = (y * AW + x) * 4;
+        const nx = (x - 64) / 64, ny = (y - 64) / 64;
+        const f = Math.sqrt(nx * nx + ny * ny) * A_SPAN;
+        let env = Math.exp(-((f - 1.12) * (f - 1.12)) / 0.16);   // broad cloud band
+        const gate = Math.min(Math.max((f - 0.88) / 0.08, 0), 1); env *= gate;
+        if (env < 0.015) { d[idx + 3] = 0; continue; }
+        // domain-warped fractal turbulence → swirling wispy clouds
+        let wx = nx * 1.7 + 0.35 * Math.sin(ny * 2.3 + tt * 0.25);
+        let wy = ny * 1.7 + 0.35 * Math.cos(nx * 2.1 - tt * 0.20);
+        let n = 0, amp = 0.55, fr = 1.0;
+        for (let o = 0; o < 4; o++) {
+          n += amp * Math.sin(wx * fr + tt * 0.12 * (o + 1)) * Math.cos(wy * fr * 1.27 - tt * 0.09 * (o + 1));
+          const tmp = wx; wx = wy * 1.6 + n * 0.6; wy = -tmp * 1.6 - n * 0.6;
+          amp *= 0.55; fr *= 1.95;
+        }
+        n = n * 0.5 + 0.5; if (n < 0) n = 0; else if (n > 1) n = 1;
+        // a coherent "storm" heat zone that slowly drifts around → one orange/red
+        // region (like the reference) while the rest of the atmosphere stays green
+        let da = Math.atan2(ny, nx) - tt * 0.06;
+        da = Math.atan2(Math.sin(da), Math.cos(da));            // wrap to -π..π
+        const heat = Math.exp(-(da * da) / 0.9);
+        let temp = n * 0.5 + heat * 0.55 + n * heat * 0.5;
+        if (temp < 0) temp = 0; else if (temp > 1) temp = 1; temp = Math.pow(temp, 1.05);
+        // green (calm) → yellow-green → yellow → orange → hot orange (storm)
         let R, G, B;
-        if (i < 0.5) { const u = i / 0.5; R = 150 + 85 * u; G = 95 + 25 * u; B = 70 + 105 * u; }
-        else { const u = (i - 0.5) / 0.5; R = 235 - 70 * u; G = 120 - 25 * u; B = 175 + 65 * u; }
-        d[idx] = R; d[idx + 1] = G; d[idx + 2] = B; d[idx + 3] = env * (0.10 + 0.42 * i) * 255;
+        if (temp < 0.5)       { const u = temp / 0.5;           R = 14 + 49 * u;  G = 58 + 110 * u; B = 30 + 10 * u; }
+        else if (temp < 0.78) { const u = (temp - 0.5) / 0.28;  R = 63 + 144 * u; G = 168 + 58 * u; B = 40 + 18 * u; }
+        else if (temp < 0.92) { const u = (temp - 0.78) / 0.14; R = 207 + 25 * u; G = 226 - 108 * u; B = 58 - 28 * u; }
+        else                  { const u = (temp - 0.92) / 0.08; R = 232 + 23 * u; G = 118 - 44 * u; B = 30 - 10 * u; }
+        d[idx] = R; d[idx + 1] = G; d[idx + 2] = B; d[idx + 3] = env * (0.22 + 0.55 * temp) * 255;
       }
       ctx.putImageData(img, 0, 0);
     }
