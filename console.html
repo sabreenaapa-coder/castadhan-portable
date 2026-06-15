@@ -853,9 +853,9 @@ body.cp-playing .cp-now{display:flex;}
             <g id="cp-f24-ticks" stroke="rgba(159,176,196,0.30)" stroke-width="0.6"></g>
             <g id="cp-f24-num" fill="#9fb0c4" font-size="6.4" text-anchor="middle" font-family="sans-serif"></g>
             <g id="cp-f24-markers"></g>
-            <line id="cp-h24" x1="100" y1="108" x2="100" y2="54" stroke="#f4efe2" stroke-width="2.6" stroke-linecap="round"/>
-            <line id="cp-m24" x1="100" y1="110" x2="100" y2="36" stroke="#f4efe2" stroke-width="1.7" stroke-linecap="round"/>
-            <line id="cp-s24" x1="100" y1="112" x2="100" y2="30" stroke="#c0392b" stroke-width="0.9" stroke-linecap="round"/>
+            <line id="cp-h24" x1="100" y1="110" x2="100" y2="66" stroke="#f4efe2" stroke-width="3.4" stroke-linecap="round"/>
+            <line id="cp-m24" x1="100" y1="111" x2="100" y2="44" stroke="#e7e0cf" stroke-width="1.9" stroke-linecap="round"/>
+            <line id="cp-s24" x1="100" y1="113" x2="100" y2="28" stroke="#c0392b" stroke-width="0.9" stroke-linecap="round"/>
             <circle cx="100" cy="100" r="2.6" fill="#f4efe2" stroke="#2a241a" stroke-width="0.4"/>
             <circle cx="100" cy="100" r="0.9" fill="#15110a"/>
           </svg>
@@ -4647,19 +4647,20 @@ window.addEventListener('load', () => {
   function spin(ts){
     if (_spin0 == null) _spin0 = ts;
     const t = (ts - _spin0) / 1000;
+    const at = t * 3;                  // animation time — decorative motion runs 3× (hands stay real-time)
     const now = new Date();
     if (_mode24) setHands24(now); else setHands(now);   // smooth gliding hands
     if (t - _mandalaT >= 0.033) {                          // mandala ~30fps
       _mandalaT = t;
-      for (const m of mandalaEls) m.el.setAttribute('d', ringPath(m.cfg.baseR, m.cfg.petals, t));
+      for (const m of mandalaEls) m.el.setAttribute('d', ringPath(m.cfg.baseR, m.cfg.petals, at));
       const root = $cp('cp-orbits');
       if (root) {
-        const s = 1 + 0.012 * Math.sin(t * 2 * Math.PI / 90);   // breathe scale ~90s
+        const s = 1 + 0.012 * Math.sin(at * 2 * Math.PI / 90);   // breathe scale
         root.setAttribute('transform', `translate(${(100 - 100 * s).toFixed(3)} ${(100 - 100 * s).toFixed(3)}) scale(${s.toFixed(4)})`);
-        root.setAttribute('opacity', (0.78 + 0.22 * Math.sin(t * 2 * Math.PI / 120)).toFixed(3));  // breathe opacity ~120s
+        root.setAttribute('opacity', (0.78 + 0.22 * Math.sin(at * 2 * Math.PI / 120)).toFixed(3));  // breathe opacity
       }
     }
-    if (t - _auroraT >= 0.05) { _auroraT = t; drawAurora(t); }   // aurora ~20fps
+    if (t - _auroraT >= 0.05) { _auroraT = t; drawAurora(at); }   // aurora ~20fps
     requestAnimationFrame(spin);
   }
 
