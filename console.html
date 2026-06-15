@@ -683,8 +683,8 @@ body.cp-active{overflow:hidden;}
 .cp-dial svg,.cp-ottoman{position:absolute;inset:0;width:100%;height:100%;}
 /* aurora glow: 128px canvas upscaled + blurred → cheap soft colour halo.
    Sized to 135% of the dial so the bloom can spill out past the bezel. */
-.cp-aurora{position:absolute;inset:auto;top:50%;left:50%;width:135%;height:135%;
-  transform:translate(-50%,-50%);filter:blur(9px);opacity:1;pointer-events:none;}
+.cp-aurora{position:absolute;inset:auto;top:50%;left:50%;width:138%;height:138%;
+  transform:translate(-50%,-50%);filter:blur(6px);opacity:1;pointer-events:none;}
 .cp-ottoman{inset:auto;top:50%;left:50%;width:84%;height:84%;
   transform:translate(-50%,-50%);object-fit:contain;pointer-events:none;
   filter:drop-shadow(0 14px 34px rgba(0,0,0,.7));}
@@ -4484,7 +4484,7 @@ window.addEventListener('load', () => {
      the inner part; the centre stays black). ~20fps is ample for sub-deg/s
      motion. Warm/amber with a restrained cool shimmer only at the peaks. ---- */
   const AW = 128, AH = 128, ACX = 64, ACY = 64, AEDGE = 64;
-  const A_SPAN = 1.35;   // canvas edge = 1.35 × dial-radius (matches CSS width:135%)
+  const A_SPAN = 1.38;   // canvas edge = 1.38 × dial-radius (matches CSS width:138%)
   let auroraCtx = null, auroraImg = null;
   function initAurora(){
     const cv = $cp('cp-aurora'); if (!cv || !cv.getContext) return;
@@ -4497,29 +4497,31 @@ window.addEventListener('load', () => {
     for (let y = 0; y < AH; y++) {
       for (let x = 0; x < AW; x++) {
         const idx = (y * AW + x) * 4;
-        const dx = x - ACX, dy = y - ACY;
-        const f = (Math.sqrt(dx * dx + dy * dy) / AEDGE) * A_SPAN;  // 0..1.35 in dial-radii
-        // wide band peaking at the bezel (f=1.0) blooming outward; hard inner
-        // gate keeps the gold ring + black centre clear (no glow for f<0.80)
-        let env = Math.exp(-((f - 1.0) * (f - 1.0)) / 0.0648);
-        const gate = Math.min(Math.max((f - 0.80) / 0.06, 0), 1);
-        env *= gate;
-        if (env < 0.012) { d[idx + 3] = 0; continue; }
-        const th = Math.atan2(dy, dx);
-        // low angular harmonics (2,3,5) → a few broad curtains that MERGE
-        // (not many discrete lobes); radial-phase terms make the bands curve;
-        // counter-rotating, faster drift so it visibly flows (~5°/s).
-        let i = Math.sin(2 * th + 0.17 * t + 2.6 * f)
-              + 0.8 * Math.sin(3 * th - 0.26 * t - 1.4 * f)
-              + 0.4 * Math.sin(5 * th + 0.12 * t);
-        i = (i + 2.2) / 4.4; if (i < 0) i = 0; else if (i > 1) i = 1;
-        i = Math.pow(i, 1.35);
-        // colour ramp: warm rose-gold (dim) → pink (mid) → purple (peaks)
-        let R, G, B;
-        if (i < 0.5) { const u = i / 0.5; R = 150 + 85 * u; G = 95 + 25 * u; B = 70 + 105 * u; }
-        else { const u = (i - 0.5) / 0.5; R = 235 - 70 * u; G = 120 - 25 * u; B = 175 + 65 * u; }
-        d[idx] = R; d[idx + 1] = G; d[idx + 2] = B;
-        d[idx + 3] = env * (0.10 + 0.42 * i) * 255;           // brighter (A ≤ ~0.52)
+        const nx = (x - ACX) / AEDGE, ny = (y - ACY) / AEDGE;
+        const f = Math.sqrt(nx * nx + ny * ny) * A_SPAN;       // 0..1.38 in dial-radii
+        // periphery band just outside the Ottoman ring; fades to ~0 before the
+        // canvas edge so no square edges, and the gold ring + black centre stay clear
+        let env = Math.exp(-((f - 1.02) * (f - 1.02)) / 0.035);
+        const gate = Math.min(Math.max((f - 0.82) / 0.06, 0), 1); env *= gate;
+        if (env < 0.014) { d[idx + 3] = 0; continue; }
+        // domain-warped fractal turbulence → wispy planetary whorls
+        let wx = nx * 1.7 + 0.35 * Math.sin(ny * 2.3 + t * 0.25);
+        let wy = ny * 1.7 + 0.35 * Math.cos(nx * 2.1 - t * 0.20);
+        let n = 0, amp = 0.55, fr = 1.0;
+        for (let o = 0; o < 4; o++) {
+          n += amp * Math.sin(wx * fr + t * 0.12 * (o + 1)) * Math.cos(wy * fr * 1.27 - t * 0.09 * (o + 1));
+          const tmp = wx; wx = wy * 1.6 + n * 0.6; wy = -tmp * 1.6 - n * 0.6;
+          amp *= 0.55; fr *= 1.95;
+        }
+        n = n * 0.5 + 0.5; if (n < 0) n = 0; else if (n > 1) n = 1;
+        // hue: royal blue one side ↔ Cadbury purple the other (drifts + wisps)
+        let mix = 0.5 + 0.5 * Math.sin(Math.atan2(ny, nx) - t * 0.05);
+        mix = mix * 0.72 + n * 0.28; if (mix < 0) mix = 0; else if (mix > 1) mix = 1;
+        let bR, bG, bB, pR, pG, pB;
+        if (n < 0.5) { const u = n / 0.5; bR = 10 + 37 * u; bG = 26 + 65 * u; bB = 74 + 150 * u; pR = 31 + 60 * u; pG = 10 + 32 * u; pB = 58 + 82 * u; }
+        else { const u = (n - 0.5) / 0.5; bR = 47 + 78 * u; bG = 91 + 75 * u; bB = 224 + 31 * u; pR = 91 + 85 * u; pG = 42 + 80 * u; pB = 140 + 68 * u; }
+        d[idx] = bR + (pR - bR) * mix; d[idx + 1] = bG + (pG - bG) * mix; d[idx + 2] = bB + (pB - bB) * mix;
+        d[idx + 3] = env * (0.18 + 0.55 * n) * 255;
       }
     }
     auroraCtx.putImageData(auroraImg, 0, 0);
