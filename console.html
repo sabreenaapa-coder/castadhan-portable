@@ -855,12 +855,14 @@ body.cp-playing .cp-now{display:flex;}
           <!-- 24-hour prayer dial (clockfaceonline "Time Manager" style): 0 at
                top, 0–23 every hour, filled prayer-period wedges, 24h hour hand -->
           <svg class="cp-face24" viewBox="0 0 200 200" aria-hidden="true">
-            <g id="cp-f24-wedges"></g>
+            <g id="cp-f24-wedges"></g>                                       <!-- time-of-day scene sectors -->
+            <circle cx="100" cy="100" r="80" fill="none" stroke="rgba(212,175,55,0.55)" stroke-width="1.1"/>
             <circle cx="100" cy="100" r="96" fill="none" stroke="rgba(159,176,196,0.20)" stroke-width="0.7"/>
             <g id="cp-f24-spokes"></g>
             <g id="cp-f24-ticks" stroke="rgba(159,176,196,0.30)" stroke-width="0.6"></g>
-            <g id="cp-f24-num" fill="#9fb0c4" font-size="6.4" text-anchor="middle" font-family="sans-serif"></g>
+            <g id="cp-f24-num" fill="#cfe0f0" font-size="6.6" text-anchor="middle" font-family="sans-serif"></g>
             <g id="cp-f24-markers"></g>
+            <circle cx="100" cy="100" r="15" fill="rgba(8,10,20,0.5)"/>               <!-- hub backing -->
             <!-- 24-hour dial: long hour hand reads the time (no minute hand) + thin second -->
             <line id="cp-h24" x1="100" y1="110" x2="100" y2="30" stroke="#f4efe2" stroke-width="3.0" stroke-linecap="round"/>
             <line id="cp-s24" x1="100" y1="113" x2="100" y2="26" stroke="#c0392b" stroke-width="0.9" stroke-linecap="round"/>
@@ -4589,14 +4591,33 @@ window.addEventListener('load', () => {
     const ORDER = ['Fajr', 'Sunrise', 'Dhuhr', 'Asr', 'Maghrib', 'Isha'];
     const pts = ORDER.map(n => { const t = parseHM(timeOf(times, n)); return t ? { n, h: t.getHours() + t.getMinutes() / 60 } : null; }).filter(Boolean);
     wedges.innerHTML = ''; if (spokes) spokes.innerHTML = ''; if (markers) markers.innerHTML = '';
-    // filled prayer-period wedges (each period = the sector to the next prayer)
+    // each period = a sector of a time-of-day SCENE image (clipped), with the
+    // solid colour kept behind as a load-fallback. Sector angles come from the
+    // real prayer times, so the slices grow/shrink with the season.
+    const SCENE = { Isha: 'static/scenes/night.jpg', Fajr: 'static/scenes/dawn.jpg',
+                    Sunrise: 'static/scenes/day.jpg', Dhuhr: 'static/scenes/day.jpg',
+                    Asr: 'static/scenes/afternoon.jpg', Maghrib: 'static/scenes/dusk.jpg' };
     if (pts.length >= 2) {
       for (let i = 0; i < pts.length; i++) {
         const a = pts[i], b = pts[(i + 1) % pts.length];
-        const path = document.createElementNS(SVGNS, 'path');
-        path.setAttribute('d', sector(80, ang0(a.h), ang0(b.h)));
-        path.setAttribute('fill', PERIOD_WEDGE[a.n] || 'rgba(159,176,196,0.15)');
-        wedges.appendChild(path);
+        const d = sector(80, ang0(a.h), ang0(b.h));
+        const base = document.createElementNS(SVGNS, 'path');           // solid fallback
+        base.setAttribute('d', d);
+        base.setAttribute('fill', PERIOD_WEDGE[a.n] || 'rgba(159,176,196,0.15)');
+        wedges.appendChild(base);
+        const cpId = 'cpseg' + i;                                       // sector clip for the image
+        const cp = document.createElementNS(SVGNS, 'clipPath'); cp.setAttribute('id', cpId);
+        const cpp = document.createElementNS(SVGNS, 'path'); cpp.setAttribute('d', d);
+        cp.appendChild(cpp); wedges.appendChild(cp);
+        const img = document.createElementNS(SVGNS, 'image');           // time-of-day scene
+        const src = SCENE[a.n] || SCENE.Isha;
+        img.setAttribute('href', src);
+        img.setAttributeNS('http://www.w3.org/1999/xlink', 'href', src);
+        img.setAttribute('x', 20); img.setAttribute('y', 20);
+        img.setAttribute('width', 160); img.setAttribute('height', 160);
+        img.setAttribute('preserveAspectRatio', 'xMidYMid slice');
+        img.setAttribute('clip-path', 'url(#' + cpId + ')');
+        wedges.appendChild(img);
       }
     }
     // boundary spokes + prayer markers coloured by status
