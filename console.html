@@ -679,7 +679,7 @@ body.cp-active{overflow:hidden;}
    live hands (cp-hands) on top in the transparent centre. */
 /* explicit square size (NOT aspect-ratio — older TV browsers don't support it,
    which collapsed the dial to zero height) */
-.cp-dial{position:relative;width:clamp(220px,46vmin,470px);height:clamp(220px,46vmin,470px);}
+.cp-dial{position:relative;width:clamp(260px,58vmin,600px);height:clamp(260px,58vmin,600px);}
 .cp-dial svg,.cp-ottoman{position:absolute;inset:0;width:100%;height:100%;}
 /* aurora glow: 128px canvas upscaled + blurred → cheap soft colour halo.
    Sized to 135% of the dial so the bloom can spill out past the bezel. */
@@ -759,7 +759,7 @@ body.cp-playing .cp-now{display:flex;}
 @media (min-width:1100px){
   #cp-wrap{max-width:min(1680px,96vw);padding:clamp(12px,2vmin,30px) clamp(24px,4vw,64px);}
   .cp-mid{gap:clamp(18px,3vw,48px);margin-top:clamp(6px,1.4vmin,14px);}
-  .cp-dial{width:clamp(380px,56vmin,760px);height:clamp(380px,56vmin,760px);}
+  .cp-dial{width:clamp(460px,68vmin,900px);height:clamp(460px,68vmin,900px);}
   .cp-time{font-size:clamp(46px,7vmin,96px);margin-top:clamp(6px,1.4vmin,14px);}
   .cp-date{font-size:clamp(15px,2.1vmin,26px);margin-top:6px;}
   .cp-count{font-size:clamp(16px,2.3vmin,28px);padding:8px clamp(18px,2.4vw,32px);
@@ -856,8 +856,8 @@ body.cp-playing .cp-now{display:flex;}
                top, 0–23 every hour, filled prayer-period wedges, 24h hour hand -->
           <svg class="cp-face24" viewBox="0 0 200 200" aria-hidden="true">
             <defs><!-- dim+greyscale the inactive period wedges -->
-              <filter id="cp-dim"><feColorMatrix type="saturate" values="0"/>
-                <feComponentTransfer><feFuncR type="linear" slope="0.42"/><feFuncG type="linear" slope="0.42"/><feFuncB type="linear" slope="0.42"/></feComponentTransfer></filter>
+              <filter id="cp-dim"><feColorMatrix type="saturate" values="0.28"/>
+                <feComponentTransfer><feFuncR type="linear" slope="0.52"/><feFuncG type="linear" slope="0.52"/><feFuncB type="linear" slope="0.52"/></feComponentTransfer></filter>
             </defs>
             <g id="cp-f24-wedges"></g>                                       <!-- time-of-day scene sectors -->
             <circle cx="100" cy="100" r="80" fill="none" stroke="rgba(212,175,55,0.55)" stroke-width="1.1"/>
@@ -868,8 +868,10 @@ body.cp-playing .cp-now{display:flex;}
             <g id="cp-f24-markers"></g>
             <circle cx="100" cy="100" r="15" fill="rgba(8,10,20,0.5)"/>               <!-- hub backing -->
             <!-- 24-hour dial: long hour hand reads the time (no minute hand) + thin second -->
-            <line id="cp-h24" x1="100" y1="110" x2="100" y2="30" stroke="#f4efe2" stroke-width="3.0" stroke-linecap="round"/>
-            <line id="cp-s24" x1="100" y1="113" x2="100" y2="26" stroke="#c0392b" stroke-width="0.9" stroke-linecap="round"/>
+            <g id="cp-h24"><line x1="100" y1="110" x2="100" y2="30" stroke="rgba(4,6,12,0.62)" stroke-width="4.8" stroke-linecap="round"/>
+              <line x1="100" y1="110" x2="100" y2="30" stroke="#f4efe2" stroke-width="3.0" stroke-linecap="round"/></g>
+            <g id="cp-s24"><line x1="100" y1="113" x2="100" y2="26" stroke="rgba(4,6,12,0.55)" stroke-width="2.3" stroke-linecap="round"/>
+              <line x1="100" y1="113" x2="100" y2="26" stroke="#e0483a" stroke-width="0.9" stroke-linecap="round"/></g>
             <circle cx="100" cy="100" r="2.6" fill="#f4efe2" stroke="#2a241a" stroke-width="0.4"/>
             <circle cx="100" cy="100" r="0.9" fill="#15110a"/>
           </svg>
@@ -4589,57 +4591,114 @@ window.addEventListener('load', () => {
     const large = ((((a1 - a0) % 360) + 360) % 360) > 180 ? 1 : 0;
     return `M 100 100 L ${s.x.toFixed(2)} ${s.y.toFixed(2)} A ${r} ${r} 0 ${large} 1 ${e.x.toFixed(2)} ${e.y.toFixed(2)} Z`;
   }
+  // annular sector ("donut pane"): outer arc a0→a1, then inner arc back
+  function annSector(rIn, rOut, a0, a1){
+    const large = ((((a1 - a0) % 360) + 360) % 360) > 180 ? 1 : 0;
+    const oS = pt(rOut, a0), oE = pt(rOut, a1), iE = pt(rIn, a1), iS = pt(rIn, a0);
+    return `M ${oS.x.toFixed(2)} ${oS.y.toFixed(2)} A ${rOut} ${rOut} 0 ${large} 1 ${oE.x.toFixed(2)} ${oE.y.toFixed(2)}`
+         + ` L ${iE.x.toFixed(2)} ${iE.y.toFixed(2)} A ${rIn} ${rIn} 0 ${large} 0 ${iS.x.toFixed(2)} ${iS.y.toFixed(2)} Z`;
+  }
   function drawF24(times, nextName, hist, now){
     const wedges = $cp('cp-f24-wedges'); if (!wedges) return;
     const spokes = $cp('cp-f24-spokes'), markers = $cp('cp-f24-markers');
     const ORDER = ['Fajr', 'Sunrise', 'Dhuhr', 'Asr', 'Maghrib', 'Isha'];
     const pts = ORDER.map(n => { const t = parseHM(timeOf(times, n)); return t ? { n, h: t.getHours() + t.getMinutes() / 60 } : null; }).filter(Boolean);
     wedges.innerHTML = ''; if (spokes) spokes.innerHTML = ''; if (markers) markers.innerHTML = '';
-    // each period = a sector of a time-of-day SCENE image (clipped), with the
-    // solid colour kept behind as a load-fallback. Sector angles come from the
-    // real prayer times, so the slices grow/shrink with the season.
+    // --- "current period dominant" dial -------------------------------------
+    // Each prayer period maps to a time-of-day SCENE image. The CURRENT period's
+    // image flows BACKWARDS (counter-clockwise) across the past wedges it
+    // absorbs, forming one continuous dominant pane; FUTURE wedges keep their
+    // own images, muted, so the upcoming prayers stay readable. Boundaries are
+    // always marked (dots + faint band ticks). Panes are annular (donut band) so
+    // the hub centre stays clean.
     const SCENE = { Isha: 'static/scenes/night.jpg', Fajr: 'static/scenes/dawn.jpg',
                     Sunrise: 'static/scenes/morning.jpg', Dhuhr: 'static/scenes/midday.jpg',
                     Asr: 'static/scenes/afternoon.jpg', Maghrib: 'static/scenes/dusk.jpg' };
-    // only the CURRENT period (where the hour hand sits) stays full colour;
-    // the rest are greyscaled + darkened via the #cp-dim filter.
+    // The CURRENT period's image flows BACKWARDS over every PAST wedge of today,
+    // but never past Fajr: the Fajr (dawn) wedge is a protected anchor that keeps
+    // its own image, so Fajr stays readable all day. (Fajr itself, when current,
+    // absorbs only the night/Isha wedge directly behind it.)
+    const RIN = 34, ROUT = 80;                                          // donut band radii
     const nowH = now.getHours() + now.getMinutes() / 60 + now.getSeconds() / 3600;
     const inSeg = (a, b) => (a < b) ? (nowH >= a && nowH < b) : (nowH >= a || nowH < b);
-    if (pts.length >= 2) {
-      for (let i = 0; i < pts.length; i++) {
-        const a = pts[i], b = pts[(i + 1) % pts.length];
-        const active = inSeg(a.h, b.h);
-        const d = sector(80, ang0(a.h), ang0(b.h));
-        const base = document.createElementNS(SVGNS, 'path');           // solid fallback
-        base.setAttribute('d', d);
-        base.setAttribute('fill', PERIOD_WEDGE[a.n] || 'rgba(159,176,196,0.15)');
-        if (!active) base.setAttribute('filter', 'url(#cp-dim)');
-        wedges.appendChild(base);
-        const cpId = 'cpseg' + i;                                       // sector clip for the image
-        const cp = document.createElementNS(SVGNS, 'clipPath'); cp.setAttribute('id', cpId);
-        const cpp = document.createElementNS(SVGNS, 'path'); cpp.setAttribute('d', d);
-        cp.appendChild(cpp); wedges.appendChild(cp);
-        const img = document.createElementNS(SVGNS, 'image');           // time-of-day scene
-        const src = SCENE[a.n] || SCENE.Isha;
-        img.setAttribute('href', src);
-        img.setAttributeNS('http://www.w3.org/1999/xlink', 'href', src);
-        img.setAttribute('x', 20); img.setAttribute('y', 20);
-        img.setAttribute('width', 160); img.setAttribute('height', 160);
-        img.setAttribute('preserveAspectRatio', 'xMidYMid slice');
-        img.setAttribute('clip-path', 'url(#' + cpId + ')');
-        if (!active) img.setAttribute('filter', 'url(#cp-dim)');
-        wedges.appendChild(img);
+    // dark base disc so the hub centre + any unfilled gap read as clean night
+    const baseDisc = document.createElementNS(SVGNS, 'circle');
+    baseDisc.setAttribute('cx', 100); baseDisc.setAttribute('cy', 100);
+    baseDisc.setAttribute('r', ROUT); baseDisc.setAttribute('fill', '#0a0d18');
+    wedges.appendChild(baseDisc);
+    // draw one annular pane: a scene image clipped to [a0,a1], optional mute + came
+    let _seq = 0;
+    function pane(a0, a1, src, fill, dim, came){
+      const d = annSector(RIN, ROUT, a0, a1);
+      const base = document.createElementNS(SVGNS, 'path');             // solid fallback
+      base.setAttribute('d', d); base.setAttribute('fill', fill || 'rgba(159,176,196,0.15)');
+      if (dim) base.setAttribute('filter', 'url(#cp-dim)');
+      wedges.appendChild(base);
+      const cpId = 'cpseg' + (_seq++);
+      const cp = document.createElementNS(SVGNS, 'clipPath'); cp.setAttribute('id', cpId);
+      const cpp = document.createElementNS(SVGNS, 'path'); cpp.setAttribute('d', d);
+      cp.appendChild(cpp); wedges.appendChild(cp);
+      const img = document.createElementNS(SVGNS, 'image');             // time-of-day scene
+      img.setAttribute('href', src); img.setAttributeNS('http://www.w3.org/1999/xlink', 'href', src);
+      img.setAttribute('x', 20); img.setAttribute('y', 20);
+      img.setAttribute('width', 160); img.setAttribute('height', 160);
+      img.setAttribute('preserveAspectRatio', 'xMidYMid slice');
+      img.setAttribute('clip-path', 'url(#' + cpId + ')');
+      if (dim) img.setAttribute('filter', 'url(#cp-dim)');
+      wedges.appendChild(img);
+      if (came){
+        const lead = document.createElementNS(SVGNS, 'path');           // stained-glass "leading"
+        lead.setAttribute('d', d); lead.setAttribute('fill', 'none');
+        lead.setAttribute('stroke', 'rgba(7,9,16,0.82)'); lead.setAttribute('stroke-width', '0.9');
+        wedges.appendChild(lead);
       }
+    }
+    if (pts.length >= 2) {
+      const L = pts.length;
+      // current wedge = the one containing 'now'
+      let ci = -1;
+      for (let i = 0; i < L; i++) { if (inSeg(pts[i].h, pts[(i + 1) % L].h)) { ci = i; break; } }
+      // build the current block (contiguous: current + past wedges, back to Fajr).
+      // startIdx = earliest wedge in the block.
+      const block = new Set();
+      let startIdx = ci;
+      if (ci >= 0) {
+        block.add(ci);
+        if (pts[ci].n === 'Fajr') {                                     // Fajr absorbs only the night behind it
+          startIdx = (ci - 1 + L) % L; block.add(startIdx);
+        } else {                                                        // absorb every past wedge, but stop before Fajr
+          let j = (ci - 1 + L) % L;
+          while (j !== ci && pts[j].n !== 'Fajr') { block.add(j); startIdx = j; j = (j - 1 + L) % L; }
+        }
+      }
+      // 1) non-block wedges (future + the protected Fajr anchor): own image, muted
+      for (let i = 0; i < L; i++) {
+        if (block.has(i)) continue;
+        const a = pts[i], b = pts[(i + 1) % L];
+        pane(ang0(a.h), ang0(b.h), SCENE[a.n] || SCENE.Isha, PERIOD_WEDGE[a.n], true, true);
+      }
+      // 2) the current block: ONE continuous full-colour pane (earliest past → now)
+      if (ci >= 0) {
+        pane(ang0(pts[startIdx].h), ang0(pts[(ci + 1) % L].h), SCENE[pts[ci].n], PERIOD_WEDGE[pts[ci].n], false, true);
+      } else {                                                          // no active wedge: all own images, muted
+        for (let i = 0; i < L; i++) { const a = pts[i], b = pts[(i + 1) % L]; pane(ang0(a.h), ang0(b.h), SCENE[a.n] || SCENE.Isha, PERIOD_WEDGE[a.n], true, true); }
+      }
+      // faint gold gleam on the inner came (the donut hole edge)
+      const inner = document.createElementNS(SVGNS, 'circle');
+      inner.setAttribute('cx', 100); inner.setAttribute('cy', 100); inner.setAttribute('r', RIN);
+      inner.setAttribute('fill', 'none'); inner.setAttribute('stroke', 'rgba(212,175,55,0.38)');
+      inner.setAttribute('stroke-width', '0.7'); wedges.appendChild(inner);
     }
     // boundary spokes + prayer markers coloured by status
     const COL = { fired: '#5fb55f', missed: '#c0392b', next: '#D4AF37', upcoming: '#c9b27a' };
     pts.forEach(p => {
       const deg = ang0(p.h), m = pt(80, deg);
-      if (spokes) {
+      if (spokes) {                                                     // faint boundary tick, band only (keeps hub clean)
+        const s0 = pt(34, deg), s1 = pt(80, deg);
         const ln = document.createElementNS(SVGNS, 'line');
-        ln.setAttribute('x1', 100); ln.setAttribute('y1', 100);
-        ln.setAttribute('x2', m.x); ln.setAttribute('y2', m.y);
-        ln.setAttribute('stroke', 'rgba(255,255,255,0.10)'); ln.setAttribute('stroke-width', '0.5');
+        ln.setAttribute('x1', s0.x); ln.setAttribute('y1', s0.y);
+        ln.setAttribute('x2', s1.x); ln.setAttribute('y2', s1.y);
+        ln.setAttribute('stroke', 'rgba(255,255,255,0.14)'); ln.setAttribute('stroke-width', '0.5');
         spokes.appendChild(ln);
       }
       if (markers) {
