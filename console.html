@@ -62,7 +62,11 @@
   .clock{width:var(--clock);height:var(--clock);border-radius:50%;border:4px solid var(--gold);position:relative;background:#1a1a1a;box-shadow:0 0 30px rgba(212,175,55,.2) inset, 0 0 25px rgba(212,175,55,.15)}
   /* aura halo behind the dashboard clock (overlay — does not change clock size) */
   .clock-container>.clock{z-index:1}
-  .dash-aurora{position:absolute;top:50%;left:50%;width:138%;height:138%;transform:translate(-50%,-50%);filter:blur(6px);opacity:1;pointer-events:none;z-index:0}
+  .dash-aurora{position:absolute;top:50%;left:50%;width:138%;height:138%;transform:translate(-50%,-50%);filter:blur(9px) saturate(1.5) contrast(1.18) brightness(1.06);opacity:0.3;pointer-events:none;z-index:0}
+  /* Admin scene-wedge dial overlays the clock-container; original #clock hidden in the dashboard */
+  .cp-face24-admin{position:absolute;top:50%;left:50%;width:100%;height:100%;transform:translate(-50%,-50%);z-index:2;pointer-events:none}
+  body:not(.clock-mode):not(.simple-mode):not(.cp-active) .clock-container>.clock{display:none}
+  body.clock-mode .cp-face24-admin,body.simple-mode .cp-face24-admin{display:none}
   .zones{position:absolute;inset:0;border-radius:50%;transition:background .5s ease}
   .glow{position:absolute;inset:0;border-radius:50%;background:radial-gradient(circle at center, rgba(212,175,55,0.15) 0%, transparent 70%);z-index:2;pointer-events:none;transition:transform 1s linear;}
   .hub{position:absolute;inset:auto;left:50%;top:50%;transform:translate(-50%,-50%);width:16px;height:16px;border-radius:50%;background:var(--gold);border:2px solid var(--bg);z-index:5}
@@ -672,6 +676,10 @@ body.cp-active{overflow:hidden;}
 .cp-card.is-next{background:linear-gradient(135deg,rgba(212,175,55,.18),rgba(18,18,18,.92));
   border:1px solid #D4AF37;box-shadow:0 0 22px rgba(212,175,55,.16);}
 .cp-card.is-next .nm,.cp-card.is-next .tm{color:#D4AF37;}
+/* the ACTIVE (current) prayer card — illuminated to match the lit dial segment */
+.cp-card.is-active{background:linear-gradient(135deg,rgba(255,211,107,.28),rgba(20,16,8,.94));
+  border:1px solid #ffd36b;box-shadow:0 0 34px rgba(255,211,107,.32);}
+.cp-card.is-active .nm,.cp-card.is-active .tm{color:#ffe6a8;}
 
 /* — centre column: dial + time + date + countdown — */
 .cp-center{display:flex;flex-direction:column;align-items:center;}
@@ -684,7 +692,7 @@ body.cp-active{overflow:hidden;}
 /* aurora glow: 128px canvas upscaled + blurred → cheap soft colour halo.
    Sized to 135% of the dial so the bloom can spill out past the bezel. */
 .cp-aurora{position:absolute;inset:auto;top:50%;left:50%;width:138%;height:138%;
-  transform:translate(-50%,-50%);filter:blur(6px);opacity:1;pointer-events:none;}
+  transform:translate(-50%,-50%);filter:blur(9px) saturate(1.5) contrast(1.18) brightness(1.06);opacity:0.3;pointer-events:none;}
 .cp-ottoman{inset:auto;top:50%;left:50%;width:84%;height:84%;
   transform:translate(-50%,-50%);object-fit:contain;pointer-events:none;
   filter:drop-shadow(0 14px 34px rgba(0,0,0,.7));}
@@ -694,20 +702,12 @@ body.cp-active{overflow:hidden;}
 body.cp-mode24 .cp-face24{display:block;}
 body.cp-mode24 .cp-ottoman,body.cp-mode24 .cp-hands{display:none;}
 /* display-settings gear + popover */
-#cp-gear{position:fixed;bottom:14px;right:14px;z-index:4500;width:34px;height:34px;
-  border-radius:50%;background:#161616;border:.5px solid #2d2d2d;color:#8a8a8a;
-  font-size:16px;line-height:1;cursor:pointer;}
-#cp-gear:hover{color:#D4AF37;}
-#cp-settings{position:fixed;bottom:56px;right:14px;z-index:4500;min-width:184px;
-  background:#141414;border:1px solid #2d2d2d;border-radius:10px;padding:8px;
-  box-shadow:0 8px 24px rgba(0,0,0,.6);}
-#cp-settings[hidden]{display:none;}
-.cp-set-title{color:#7d786c;font-size:10px;text-transform:uppercase;
-  letter-spacing:.06em;margin:2px 6px 6px;}
-.cp-set-opt{display:block;width:100%;text-align:left;background:none;border:none;
-  color:#cfcabb;font-size:13px;padding:7px 8px;border-radius:7px;cursor:pointer;}
-.cp-set-opt:hover{background:#1f1f1f;}
-.cp-set-opt.active{color:#D4AF37;background:rgba(212,175,55,.12);}
+#cp-modetoggle{position:fixed;bottom:16px;right:16px;z-index:4500;
+  background:#161616;border:.5px solid #3a3422;color:#D4AF37;cursor:pointer;
+  font-size:clamp(12px,1.5vw,15px);font-weight:500;line-height:1;
+  padding:10px 16px;border-radius:20px;box-shadow:0 4px 16px rgba(0,0,0,.5);}
+#cp-modetoggle:hover{background:#211d11;border-color:#D4AF37;}
+#cp-modetoggle:active{transform:scale(.97);}
 .cp-time{color:#f4efe2;font-size:clamp(22px,4.6vw,40px);font-weight:500;
   font-variant-numeric:tabular-nums;line-height:1;margin-top:clamp(6px,1.3vmin,10px);}
 .cp-date{color:#7d786c;font-size:clamp(10px,1.3vw,12px);margin-top:4px;text-align:center;}
@@ -721,6 +721,12 @@ body.cp-mode24 .cp-ottoman,body.cp-mode24 .cp-hands{display:none;}
   flex-direction:column;align-items:center;gap:7px;animation:cpIn .2s ease;}
 body.cp-playing .cp-now{display:flex;}
 @keyframes cpIn{from{opacity:0;transform:translateY(-4px);}to{opacity:1;transform:translateY(0);}}
+/* gentle twinkle on the ACTIVE dial segment so the eye lands on it */
+@keyframes cp-shimmer{0%,100%{filter:brightness(1) saturate(1.05);}50%{filter:brightness(1.14) saturate(1.2);}}
+.cp-active-wedge{animation:cp-shimmer 4.5s ease-in-out infinite;}
+@media (prefers-reduced-motion:reduce){.cp-active-wedge{animation:none;}}
+/* inactive segments: sharp but dark & desaturated (NO blur — keeps the detail) */
+.cp-inactive-wedge{filter:brightness(0.3) saturate(0.45) contrast(1.12);opacity:0.74;}
 .cp-now .lbl{color:#cfcabb;font-size:clamp(11px,1.4vw,13px);}
 .cp-stop{background:linear-gradient(#d84a3a,#9f241b);color:#fff;border:none;
   border-radius:30px;padding:9px 30px;font-weight:600;cursor:pointer;
@@ -855,12 +861,16 @@ body.cp-playing .cp-now{display:flex;}
           <!-- 24-hour prayer dial (clockfaceonline "Time Manager" style): 0 at
                top, 0–23 every hour, filled prayer-period wedges, 24h hour hand -->
           <svg class="cp-face24" viewBox="0 0 200 200" aria-hidden="true">
-            <defs><!-- dim+greyscale the inactive period wedges -->
-              <filter id="cp-dim"><feColorMatrix type="saturate" values="0.28"/>
-                <feComponentTransfer><feFuncR type="linear" slope="0.52"/><feFuncG type="linear" slope="0.52"/><feFuncB type="linear" slope="0.52"/></feComponentTransfer></filter>
+            <defs>
+              <!-- gold bloom for the ACTIVE segment rim + halo (spills outward) -->
+              <filter id="cp-goldglow" x="-50%" y="-50%" width="200%" height="200%">
+                <feGaussianBlur in="SourceAlpha" stdDeviation="2.6" result="b"/>
+                <feFlood flood-color="#ffd36b" flood-opacity="0.9"/>
+                <feComposite in2="b" operator="in" result="g"/>
+                <feMerge><feMergeNode in="g"/><feMergeNode in="g"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
             </defs>
             <g id="cp-f24-wedges"></g>                                       <!-- time-of-day scene sectors -->
-            <circle cx="100" cy="100" r="80" fill="none" stroke="rgba(212,175,55,0.55)" stroke-width="1.1"/>
+            <circle cx="100" cy="100" r="80" fill="none" stroke="rgba(228,193,96,0.72)" stroke-width="1.4"/>
             <circle cx="100" cy="100" r="96" fill="none" stroke="rgba(159,176,196,0.20)" stroke-width="0.7"/>
             <g id="cp-f24-spokes"></g>
             <g id="cp-f24-ticks" stroke="rgba(159,176,196,0.30)" stroke-width="0.6"></g>
@@ -899,13 +909,8 @@ body.cp-playing .cp-now{display:flex;}
 
   </div>
 
-  <!-- display settings (clock style) -->
-  <button id="cp-gear" aria-label="Display settings">⚙</button>
-  <div id="cp-settings" hidden>
-    <div class="cp-set-title">Clock style</div>
-    <button class="cp-set-opt" data-mode="12">12-hour · Ottoman</button>
-    <button class="cp-set-opt" data-mode="24">24-hour · prayer dial</button>
-  </div>
+  <!-- clock-style toggle: label shows the style you'll switch TO -->
+  <button id="cp-modetoggle" aria-label="Switch clock style">12-hour clock</button>
 </div>
 
 <!-- flip pill shown on the dashboard (Admin) so the family can switch to Clock -->
@@ -974,6 +979,31 @@ body.cp-playing .cp-now{display:flex;}
     <div class="center">
       <div class="clock-container">
         <canvas id="dash-aurora" class="dash-aurora" width="128" height="128" aria-hidden="true"></canvas>
+        <!-- Admin scene-wedge dial (same as the Clock page); shown in the dashboard,
+             hidden in legacy ?mode=clock/simple which keep the original #clock face -->
+        <svg class="cp-face24-admin" viewBox="0 0 200 200" aria-hidden="true">
+          <defs>
+            <filter id="cp-goldglowb" x="-50%" y="-50%" width="200%" height="200%">
+              <feGaussianBlur in="SourceAlpha" stdDeviation="2.6" result="b"/>
+              <feFlood flood-color="#ffd36b" flood-opacity="0.9"/>
+              <feComposite in2="b" operator="in" result="g"/>
+              <feMerge><feMergeNode in="g"/><feMergeNode in="g"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+          </defs>
+          <g id="cp-f24b-wedges"></g>
+          <circle cx="100" cy="100" r="80" fill="none" stroke="rgba(228,193,96,0.72)" stroke-width="1.4"/>
+          <circle cx="100" cy="100" r="96" fill="none" stroke="rgba(159,176,196,0.20)" stroke-width="0.7"/>
+          <g id="cp-f24b-spokes"></g>
+          <g id="cp-f24b-ticks" stroke="rgba(159,176,196,0.30)" stroke-width="0.6"></g>
+          <g id="cp-f24b-num" fill="#cfe0f0" font-size="6.6" text-anchor="middle" font-family="sans-serif"></g>
+          <g id="cp-f24b-markers"></g>
+          <circle cx="100" cy="100" r="15" fill="rgba(8,10,20,0.5)"/>
+          <g id="cp-h24b"><line x1="100" y1="110" x2="100" y2="30" stroke="rgba(4,6,12,0.62)" stroke-width="4.8" stroke-linecap="round"/>
+            <line x1="100" y1="110" x2="100" y2="30" stroke="#f4efe2" stroke-width="3.0" stroke-linecap="round"/></g>
+          <g id="cp-s24b"><line x1="100" y1="113" x2="100" y2="26" stroke="rgba(4,6,12,0.55)" stroke-width="2.3" stroke-linecap="round"/>
+            <line x1="100" y1="113" x2="100" y2="26" stroke="#e0483a" stroke-width="0.9" stroke-linecap="round"/></g>
+          <circle cx="100" cy="100" r="2.6" fill="#f4efe2" stroke="#2a241a" stroke-width="0.4"/>
+          <circle cx="100" cy="100" r="0.9" fill="#15110a"/>
+        </svg>
         <div class="clock" id="clock">
           <div id="zones" class="zones"></div>
           <div class="glow" id="glow"></div>
@@ -4410,12 +4440,9 @@ window.addEventListener('load', () => {
      when explicitly requested via ?view=admin (reachable from the flip pill).
      The legacy ?mode=clock (TV ambient) and ?mode=simple pages are left alone. */
   if (qp('mode') === 'clock' || qp('mode') === 'simple') return;
-  if (qp('view') === 'admin') {
-    if (adminFlip) adminFlip.style.display = 'block';   // pill to return to Clock
-    return;
-  }
-
-  document.body.classList.add('cp-active');
+  const _isAdmin = qp('view') === 'admin';
+  if (_isAdmin) { if (adminFlip) adminFlip.style.display = 'block'; }   // pill to return to Clock
+  else document.body.classList.add('cp-active');                        // (Admin: still define the dial helpers below)
 
   const CX = 100, CY = 100;
   const $cp = (id) => document.getElementById(id);
@@ -4499,6 +4526,65 @@ window.addEventListener('load', () => {
     auroraCtx = cv.getContext('2d');
     auroraImg = auroraCtx.createImageData(AW, AH);
   }
+  // ---- dynamic aurora palette: atmospheric prayer-progress + forbidden windows ----
+  const _hx = h => [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)];
+  const AU_KEYS = [
+    { p: 0.00, c: ['#38D66B', '#1ED6B5', '#31C7FF'] },   // early      — emerald
+    { p: 0.25, c: ['#1ED6B5', '#31C7FF', '#397BFF'] },   // developing — cyan-blue
+    { p: 0.50, c: ['#397BFF', '#6548E8', '#8B5CF6'] },   // mature     — blue-violet
+    { p: 0.75, c: ['#8B5CF6', '#C026D3', '#E11D8F'] },   // late       — violet-magenta
+    { p: 0.90, c: ['#E11D48', '#F43F5E', '#F97316'] },   // final      — crimson
+  ].map(k => ({ p: k.p, c: k.c.map(_hx) }));
+  const AU_FINAL   = ['#B91C1C', '#E11D48', '#F97316'].map(_hx);            // ≤15 min to next prayer
+  const AU_SUNRISE = ['#B91C1C', '#F97316', '#FACC15'].map(_hx);            // forbidden: 20 min after sunrise
+  const AU_ZENITH  = ['#FFF7CC', '#FACC15', '#F97316', '#B91C1C'].map(_hx); // forbidden: ±5 min around zenith
+  let _auPal = AU_KEYS[0].c.slice();   // active palette (array of [r,g,b])
+  let _auRay = 0;                      // 0 = calm drift; >0 = forbidden radial/solar energy
+  let _auMode = 'normal';
+  function _lerpPal(A, B, u){ return A.map((col, i) => col.map((v, j) => v + (B[i][j] - v) * u)); }
+  function _normalPal(progress){
+    let i = 0; while (i < AU_KEYS.length - 1 && progress >= AU_KEYS[i + 1].p) i++;
+    if (i >= AU_KEYS.length - 1) return AU_KEYS[AU_KEYS.length - 1].c;
+    const k0 = AU_KEYS[i], k1 = AU_KEYS[i + 1];
+    return _lerpPal(k0.c, k1.c, Math.max(0, Math.min(1, (progress - k0.p) / (k1.p - k0.p))));
+  }
+  /* Recompute the aurora palette + intensity. Priority (highest first):
+     sunrise-forbidden → zenith-forbidden → final-15-min → normal progress.
+     Zenith ≈ solar noon = midpoint(sunrise, sunset≈Maghrib). */
+  function updateAurora(now){
+    const cv = $cp('cp-aurora');
+    const times = _lastTimes || window.currentPrayers || {};
+    const toH = nm => { const t = parseHM(timeOf(times, nm)); return t ? t.getHours() + t.getMinutes() / 60 : null; };
+    const nowH = now.getHours() + now.getMinutes() / 60 + now.getSeconds() / 3600;
+    const sr = toH('Sunrise'), mg = toH('Maghrib');
+    const z = (sr != null && mg != null) ? (sr + mg) / 2 : null;
+    let pal = _auPal, ray = 0, op = 0.30, blur = 9, sat = 1.5, con = 1.18, bri = 1.06, mode = 'normal';
+    if (sr != null && nowH >= sr && nowH < sr + 20 / 60) {                              // 1. sunrise forbidden
+      pal = AU_SUNRISE; ray = 1; op = 0.42; bri = 1.18; mode = 'forbidden_sunrise';
+    } else if (z != null && nowH >= z - 5 / 60 && nowH <= z + 5 / 60) {                 // 2. zenith forbidden
+      pal = AU_ZENITH; ray = 0.85; op = 0.42; bri = 1.18; mode = 'forbidden_zenith';
+    } else {                                                                            // normal / final-15
+      const ORDER = ['Fajr', 'Sunrise', 'Dhuhr', 'Asr', 'Maghrib', 'Isha'];
+      const pts = ORDER.map(n => { const h = toH(n); return h == null ? null : { n, h }; }).filter(Boolean);
+      const inSeg = (a, b) => (a < b) ? (nowH >= a && nowH < b) : (nowH >= a || nowH < b);
+      for (let i = 0; i < pts.length; i++) {
+        const a = pts[i].h, b = pts[(i + 1) % pts.length].h;
+        if (inSeg(a, b)) {
+          const span = ((b - a + 24) % 24) || 24, elapsed = (nowH - a + 24) % 24;
+          const minsLeft = (span - elapsed) * 60;
+          if (minsLeft <= 15) { pal = AU_FINAL; op = 0.36; bri = 1.12; mode = 'final15'; }   // 3. final 15 min
+          else { pal = _normalPal(Math.max(0, Math.min(1, elapsed / span))); }               // 4. normal progress
+          break;
+        }
+      }
+    }
+    _auPal = pal; _auRay = ray; _auMode = mode;
+    if (cv) { cv.style.opacity = op; cv.style.filter = `blur(${blur}px) saturate(${sat}) contrast(${con}) brightness(${bri})`; }
+    // share with the Admin-dashboard aura (separate IIFE / canvas)
+    window._auPal = _auPal; window._auRay = _auRay;
+    const dc = document.getElementById('dash-aurora');
+    if (dc) { dc.style.opacity = op; dc.style.filter = `blur(${blur}px) saturate(${sat}) contrast(${con}) brightness(${bri})`; }
+  }
   function drawAurora(t){
     if (!auroraCtx) return;
     const d = auroraImg.data;
@@ -4513,8 +4599,8 @@ window.addEventListener('load', () => {
         const gate = Math.min(Math.max((f - 0.82) / 0.06, 0), 1); env *= gate;
         if (env < 0.014) { d[idx + 3] = 0; continue; }
         // domain-warped fractal turbulence → wispy planetary whorls
-        let wx = nx * 1.7 + 0.35 * Math.sin(ny * 2.3 + t * 0.25);
-        let wy = ny * 1.7 + 0.35 * Math.cos(nx * 2.1 - t * 0.20);
+        let wx = nx * 2.05 + 0.42 * Math.sin(ny * 2.3 + t * 0.25);
+        let wy = ny * 2.05 + 0.42 * Math.cos(nx * 2.1 - t * 0.20);
         let n = 0, amp = 0.55, fr = 1.0;
         for (let o = 0; o < 4; o++) {
           n += amp * Math.sin(wx * fr + t * 0.12 * (o + 1)) * Math.cos(wy * fr * 1.27 - t * 0.09 * (o + 1));
@@ -4522,14 +4608,19 @@ window.addEventListener('load', () => {
           amp *= 0.55; fr *= 1.95;
         }
         n = n * 0.5 + 0.5; if (n < 0) n = 0; else if (n > 1) n = 1;
-        // hue: royal blue one side ↔ Cadbury purple the other (drifts + wisps)
+        // forbidden modes add radial "solar / heat" energy (concentric rays)
+        if (_auRay > 0) { n += _auRay * 0.32 * Math.sin(f * 7.5 - t * 0.6); if (n < 0) n = 0; else if (n > 1) n = 1; }
+        // field position drifts; combined with turbulence → palette sample point
         let mix = 0.5 + 0.5 * Math.sin(Math.atan2(ny, nx) - t * 0.05);
-        mix = mix * 0.72 + n * 0.28; if (mix < 0) mix = 0; else if (mix > 1) mix = 1;
-        let bR, bG, bB, pR, pG, pB;
-        if (n < 0.5) { const u = n / 0.5; bR = 10 + 37 * u; bG = 26 + 65 * u; bB = 74 + 150 * u; pR = 31 + 60 * u; pG = 10 + 32 * u; pB = 58 + 82 * u; }
-        else { const u = (n - 0.5) / 0.5; bR = 47 + 78 * u; bG = 91 + 75 * u; bB = 224 + 31 * u; pR = 91 + 85 * u; pG = 42 + 80 * u; pB = 140 + 68 * u; }
-        d[idx] = bR + (pR - bR) * mix; d[idx + 1] = bG + (pG - bG) * mix; d[idx + 2] = bB + (pB - bB) * mix;
-        d[idx + 3] = env * (0.18 + 0.55 * n) * 255;
+        let s = mix * 0.55 + n * 0.45; if (s < 0) s = 0; else if (s > 1) s = 1;
+        // sample the dynamic palette (3–4 colours → natural multi-hue aurora)
+        const P = _auPal, K = P.length;
+        let seg = Math.floor(s * (K - 1)); if (seg > K - 2) seg = K - 2; if (seg < 0) seg = 0;
+        const su = s * (K - 1) - seg, ca = P[seg], cb = P[seg + 1];
+        d[idx] = ca[0] + (cb[0] - ca[0]) * su;
+        d[idx + 1] = ca[1] + (cb[1] - ca[1]) * su;
+        d[idx + 2] = ca[2] + (cb[2] - ca[2]) * su;
+        d[idx + 3] = env * (0.10 + 0.82 * n * n) * 255;   // steep curve → thin wisps with transparent gaps
       }
     }
     auroraCtx.putImageData(auroraImg, 0, 0);
@@ -4557,8 +4648,18 @@ window.addEventListener('load', () => {
      12 at bottom, 0–23 every hour clockwise; filled prayer-period wedges
      (muted day-cycle palette) + prayer markers coloured by status. */
   const ang0 = (hoursFloat) => (hoursFloat / 24) * 360;   // 0 at top, clockwise
-  function buildFace24(){
-    const num = $cp('cp-f24-num'), ticks = $cp('cp-f24-ticks');
+  // Two scene-dial targets: the Clock page (cp) and the Admin dashboard (b).
+  // DT() returns the id-set for whichever view is currently visible.
+  const DIAL_CP    = { w:'cp-f24-wedges',  sp:'cp-f24-spokes',  mk:'cp-f24-markers',  num:'cp-f24-num',  ticks:'cp-f24-ticks',  h:'cp-h24',  s:'cp-s24',  glow:'cp-goldglow'  };
+  const DIAL_ADMIN = { w:'cp-f24b-wedges', sp:'cp-f24b-spokes', mk:'cp-f24b-markers', num:'cp-f24b-num', ticks:'cp-f24b-ticks', h:'cp-h24b', s:'cp-s24b', glow:'cp-goldglowb' };
+  function DT(){
+    const b = document.body.classList;
+    if (b.contains('cp-active')) return _mode24 ? DIAL_CP : null;            // Clock page: scene dial only in 24h
+    if (b.contains('clock-mode') || b.contains('simple-mode')) return null;  // legacy ambient: original #clock
+    return DIAL_ADMIN;                                                       // operator dashboard
+  }
+  function buildFace24(t){
+    const num = $cp(t.num), ticks = $cp(t.ticks);
     if (num) {
       num.innerHTML = '';
       for (let h = 0; h < 24; h++) {
@@ -4599,8 +4700,9 @@ window.addEventListener('load', () => {
          + ` L ${iE.x.toFixed(2)} ${iE.y.toFixed(2)} A ${rIn} ${rIn} 0 ${large} 0 ${iS.x.toFixed(2)} ${iS.y.toFixed(2)} Z`;
   }
   function drawF24(times, nextName, hist, now){
-    const wedges = $cp('cp-f24-wedges'); if (!wedges) return;
-    const spokes = $cp('cp-f24-spokes'), markers = $cp('cp-f24-markers');
+    const T = DT(); if (!T) return;                       // null = no scene dial in this view
+    const wedges = $cp(T.w); if (!wedges) return;
+    const spokes = $cp(T.sp), markers = $cp(T.mk);
     const ORDER = ['Fajr', 'Sunrise', 'Dhuhr', 'Asr', 'Maghrib', 'Isha'];
     const pts = ORDER.map(n => { const t = parseHM(timeOf(times, n)); return t ? { n, h: t.getHours() + t.getMinutes() / 60 } : null; }).filter(Boolean);
     wedges.innerHTML = ''; if (spokes) spokes.innerHTML = ''; if (markers) markers.innerHTML = '';
@@ -4614,10 +4716,12 @@ window.addEventListener('load', () => {
     const SCENE = { Isha: 'static/scenes/night.jpg', Fajr: 'static/scenes/dawn.jpg',
                     Sunrise: 'static/scenes/morning.jpg', Dhuhr: 'static/scenes/midday.jpg',
                     Asr: 'static/scenes/afternoon.jpg', Maghrib: 'static/scenes/dusk.jpg' };
-    // The CURRENT period's image flows BACKWARDS over every PAST wedge of today,
-    // but never past Fajr: the Fajr (dawn) wedge is a protected anchor that keeps
-    // its own image, so Fajr stays readable all day. (Fajr itself, when current,
-    // absorbs only the night/Isha wedge directly behind it.)
+    // PRESENT-FOCUSED dial: the current period's image fills its own wedge + every
+    // wedge EARLIER in today's order (Fajr→Sunrise→Dhuhr→Asr→Maghrib→Isha); the
+    // NEXT prayer's wedge is never absorbed (so it stays readable). Fajr, having no
+    // earlier wedge today, instead absorbs the previous night's Isha. The active
+    // block is rendered last with full saturation + a gold rim/halo + a twinkle;
+    // the rest are heavily muted (#cp-dim).
     const RIN = 34, ROUT = 80;                                          // donut band radii
     const nowH = now.getHours() + now.getMinutes() / 60 + now.getSeconds() / 3600;
     const inSeg = (a, b) => (a < b) ? (nowH >= a && nowH < b) : (nowH >= a || nowH < b);
@@ -4632,7 +4736,7 @@ window.addEventListener('load', () => {
       const d = annSector(RIN, ROUT, a0, a1);
       const base = document.createElementNS(SVGNS, 'path');             // solid fallback
       base.setAttribute('d', d); base.setAttribute('fill', fill || 'rgba(159,176,196,0.15)');
-      if (dim) base.setAttribute('filter', 'url(#cp-dim)');
+      if (dim) base.setAttribute('class', 'cp-inactive-wedge');
       wedges.appendChild(base);
       const cpId = 'cpseg' + (_seq++);
       const cp = document.createElementNS(SVGNS, 'clipPath'); cp.setAttribute('id', cpId);
@@ -4644,12 +4748,13 @@ window.addEventListener('load', () => {
       img.setAttribute('width', 160); img.setAttribute('height', 160);
       img.setAttribute('preserveAspectRatio', 'xMidYMid slice');
       img.setAttribute('clip-path', 'url(#' + cpId + ')');
-      if (dim) img.setAttribute('filter', 'url(#cp-dim)');
+      if (dim) img.setAttribute('class', 'cp-inactive-wedge');
       wedges.appendChild(img);
       if (came){
-        const lead = document.createElementNS(SVGNS, 'path');           // stained-glass "leading"
+        const lead = document.createElementNS(SVGNS, 'path');           // aged-silver astrolabe "leading"
         lead.setAttribute('d', d); lead.setAttribute('fill', 'none');
-        lead.setAttribute('stroke', 'rgba(7,9,16,0.82)'); lead.setAttribute('stroke-width', '0.9');
+        lead.setAttribute('stroke', 'rgba(192,192,192,0.55)'); lead.setAttribute('stroke-width', '2');
+        lead.setAttribute('vector-effect', 'non-scaling-stroke');
         wedges.appendChild(lead);
       }
     }
@@ -4658,36 +4763,60 @@ window.addEventListener('load', () => {
       // current wedge = the one containing 'now'
       let ci = -1;
       for (let i = 0; i < L; i++) { if (inSeg(pts[i].h, pts[(i + 1) % L].h)) { ci = i; break; } }
-      // build the current block (contiguous: current + past wedges, back to Fajr).
-      // startIdx = earliest wedge in the block.
+      // build the current block: current wedge + every wedge EARLIER today, minus
+      // the next-prayer wedge. startIdx = earliest wedge in the (contiguous) block.
       const block = new Set();
       let startIdx = ci;
       if (ci >= 0) {
         block.add(ci);
-        if (pts[ci].n === 'Fajr') {                                     // Fajr absorbs only the night behind it
+        if (pts[ci].n === 'Fajr') {                                     // Fajr: absorb the previous night's Isha
           startIdx = (ci - 1 + L) % L; block.add(startIdx);
-        } else {                                                        // absorb every past wedge, but stop before Fajr
-          let j = (ci - 1 + L) % L;
-          while (j !== ci && pts[j].n !== 'Fajr') { block.add(j); startIdx = j; j = (j - 1 + L) % L; }
+        } else {
+          const nextIdx = (ci + 1) % L;                                 // next prayer — never absorbed
+          for (let j = 0; j < ci; j++) block.add(j);                    // every wedge earlier in today's order
+          if (nextIdx === 0) block.delete(0);                           // Isha: don't absorb next-day Fajr
+          startIdx = Math.min(...block);
         }
       }
-      // 1) non-block wedges (future + the protected Fajr anchor): own image, muted
+      // 1) non-block wedges (the next prayer + later wedges): own image, muted
       for (let i = 0; i < L; i++) {
         if (block.has(i)) continue;
         const a = pts[i], b = pts[(i + 1) % L];
         pane(ang0(a.h), ang0(b.h), SCENE[a.n] || SCENE.Isha, PERIOD_WEDGE[a.n], true, true);
-      }
-      // 2) the current block: ONE continuous full-colour pane (earliest past → now)
-      if (ci >= 0) {
-        pane(ang0(pts[startIdx].h), ang0(pts[(ci + 1) % L].h), SCENE[pts[ci].n], PERIOD_WEDGE[pts[ci].n], false, true);
-      } else {                                                          // no active wedge: all own images, muted
-        for (let i = 0; i < L; i++) { const a = pts[i], b = pts[(i + 1) % L]; pane(ang0(a.h), ang0(b.h), SCENE[a.n] || SCENE.Isha, PERIOD_WEDGE[a.n], true, true); }
       }
       // faint gold gleam on the inner came (the donut hole edge)
       const inner = document.createElementNS(SVGNS, 'circle');
       inner.setAttribute('cx', 100); inner.setAttribute('cy', 100); inner.setAttribute('r', RIN);
       inner.setAttribute('fill', 'none'); inner.setAttribute('stroke', 'rgba(212,175,55,0.38)');
       inner.setAttribute('stroke-width', '0.7'); wedges.appendChild(inner);
+      // 2) the ACTIVE block LAST (on top): one continuous full-colour pane with a
+      //    gold rim + outward halo, ~5% enlarged artwork, and a gentle twinkle.
+      if (ci >= 0) {
+        const a0 = ang0(pts[startIdx].h), a1 = ang0(pts[(ci + 1) % L].h);
+        const dA = annSector(RIN, ROUT, a0, a1);
+        const glow = document.createElementNS(SVGNS, 'path');           // gold halo (blurs outward past the bezel)
+        glow.setAttribute('d', dA); glow.setAttribute('fill', 'none');
+        glow.setAttribute('stroke', '#ffd36b'); glow.setAttribute('stroke-width', '2.2');
+        glow.setAttribute('filter', 'url(#' + T.glow + ')'); wedges.appendChild(glow);
+        const baseA = document.createElementNS(SVGNS, 'path');          // solid fallback
+        baseA.setAttribute('d', dA); baseA.setAttribute('fill', PERIOD_WEDGE[pts[ci].n] || 'rgba(159,176,196,0.15)');
+        wedges.appendChild(baseA);
+        const cpA = document.createElementNS(SVGNS, 'clipPath'); cpA.setAttribute('id', 'cpsegA');
+        const cppA = document.createElementNS(SVGNS, 'path'); cppA.setAttribute('d', dA);
+        cpA.appendChild(cppA); wedges.appendChild(cpA);
+        const imgA = document.createElementNS(SVGNS, 'image');          // active scene, artwork enlarged ~5%
+        const srcA = SCENE[pts[ci].n] || SCENE.Isha;
+        imgA.setAttribute('href', srcA); imgA.setAttributeNS('http://www.w3.org/1999/xlink', 'href', srcA);
+        imgA.setAttribute('x', 16); imgA.setAttribute('y', 16);
+        imgA.setAttribute('width', 168); imgA.setAttribute('height', 168);
+        imgA.setAttribute('preserveAspectRatio', 'xMidYMid slice');
+        imgA.setAttribute('clip-path', 'url(#cpsegA)');
+        imgA.setAttribute('class', 'cp-active-wedge'); wedges.appendChild(imgA);
+        const rimA = document.createElementNS(SVGNS, 'path');           // crisp illuminated gold rim
+        rimA.setAttribute('d', dA); rimA.setAttribute('fill', 'none');
+        rimA.setAttribute('stroke', 'rgba(255,218,120,0.95)'); rimA.setAttribute('stroke-width', '1.2');
+        wedges.appendChild(rimA);
+      }
     }
     // boundary spokes + prayer markers coloured by status
     const COL = { fired: '#5fb55f', missed: '#c0392b', next: '#D4AF37', upcoming: '#c9b27a' };
@@ -4714,33 +4843,29 @@ window.addEventListener('load', () => {
     });
   }
   function setHands24(now){
+    const T = DT(); if (!T) return;
     const s = now.getSeconds() + now.getMilliseconds() / 1000;
     const m = now.getMinutes() + s / 60;
     const h = now.getHours() + m / 60;
-    setRot('cp-h24', ang0(h));             // long hour hand reads the time (one turn/day, 0 at top)
-    setRot('cp-s24', (s / 60) * 360);      // no minute hand on the 24-hour dial
+    setRot(T.h, ang0(h));                   // long hour hand reads the time (one turn/day, 0 at top)
+    setRot(T.s, (s / 60) * 360);            // no minute hand on the 24-hour dial
   }
   function applyClockMode(mode){
     _mode24 = (mode === '24');
     document.body.classList.toggle('cp-mode24', _mode24);
-    document.querySelectorAll('.cp-set-opt').forEach(b =>
-      b.classList.toggle('active', b.dataset.mode === (_mode24 ? '24' : '12')));
+    const tg = $cp('cp-modetoggle');                       // label = the style you'll switch TO
+    if (tg) tg.textContent = _mode24 ? '12-hour clock' : '24-hour clock';
     const now = new Date();
     if (_mode24) { drawF24(_lastTimes || window.currentPrayers || {}, _lastNext, _lastHist, now); setHands24(now); }
     else setHands(now);
   }
   function initSettings(){
-    const gear = $cp('cp-gear'), panel = $cp('cp-settings');
-    if (gear) gear.addEventListener('click', (e) => { e.stopPropagation(); if (panel) panel.hidden = !panel.hidden; });
-    document.addEventListener('click', (e) => {
-      if (panel && !panel.hidden && !panel.contains(e.target) && e.target !== gear) panel.hidden = true;
-    });
-    document.querySelectorAll('.cp-set-opt').forEach(b => b.addEventListener('click', () => {
-      const mode = b.dataset.mode;
+    const tg = $cp('cp-modetoggle');
+    if (tg) tg.addEventListener('click', () => {
+      const mode = _mode24 ? '12' : '24';                  // switch to the other style
       try { localStorage.setItem('cp_clockmode', mode); } catch (e) {}
       applyClockMode(mode);
-      if (panel) panel.hidden = true;
-    }));
+    });
   }
 
   let _spin0 = null, _mandalaT = -1, _auroraT = -1;
@@ -4749,8 +4874,10 @@ window.addEventListener('load', () => {
     const t = (ts - _spin0) / 1000;
     const at = t * 3;                  // animation time — decorative motion runs 3× (hands stay real-time)
     const now = new Date();
-    if (_mode24) setHands24(now); else setHands(now);   // smooth gliding hands
-    if (t - _mandalaT >= 0.033) {                          // mandala ~30fps
+    const cpA = document.body.classList.contains('cp-active');
+    if (cpA) { if (_mode24) setHands24(now); else setHands(now); }
+    else setHands24(now);                                          // admin dashboard: scene-dial hands
+    if (cpA && t - _mandalaT >= 0.033) {                           // mandala + cp aurora: Clock page only
       _mandalaT = t;
       for (const m of mandalaEls) m.el.setAttribute('d', ringPath(m.cfg.baseR, m.cfg.petals, at));
       const root = $cp('cp-orbits');
@@ -4760,7 +4887,7 @@ window.addEventListener('load', () => {
         root.setAttribute('opacity', (0.78 + 0.22 * Math.sin(at * 2 * Math.PI / 120)).toFixed(3));  // breathe opacity
       }
     }
-    if (t - _auroraT >= 0.05) { _auroraT = t; drawAurora(at); }   // aurora ~20fps
+    if (cpA && t - _auroraT >= 0.05) { _auroraT = t; drawAurora(at); }   // cp aurora (admin aura = dashAura loop)
     requestAnimationFrame(spin);
   }
 
@@ -4773,6 +4900,7 @@ window.addEventListener('load', () => {
       { hour: 'numeric', minute: '2-digit', hour12: true }).toLowerCase();
     updateDateLine(now);
     tickCountdown(now);
+    updateAurora(now);                         // dynamic aurora palette (progress + forbidden windows)
     if (_reduce && !_mode24) setHands(now);   // 24h original clock self-ticks
   }
 
@@ -4817,15 +4945,29 @@ window.addEventListener('load', () => {
     return times[name] || null;
   }
 
+  // which prayer's PERIOD currently contains 'now' (the active/illuminated card)
+  function currentPeriodName(times, now){
+    const ORDER = ['Fajr', 'Sunrise', 'Dhuhr', 'Asr', 'Maghrib', 'Isha'];
+    const pts = ORDER.map(n => { const t = parseHM(timeOf(times, n)); return t ? { n, h: t.getHours() + t.getMinutes() / 60 } : null; }).filter(Boolean);
+    if (pts.length < 2) return null;
+    const nowH = now.getHours() + now.getMinutes() / 60 + now.getSeconds() / 3600;
+    for (let i = 0; i < pts.length; i++) {
+      const a = pts[i].h, b = pts[(i + 1) % pts.length].h;
+      if ((a < b) ? (nowH >= a && nowH < b) : (nowH >= a || nowH < b)) return pts[i].n;
+    }
+    return null;
+  }
   function renderCards(times, nextName, hist, now){
     const L = ['Fajr', 'Sunrise', 'Dhuhr'], R = ['Asr', 'Maghrib', 'Isha'];
+    const activeName = currentPeriodName(times, now);
     const build = (containerId, list) => {
       const c = $cp(containerId); if (!c) return;
       c.innerHTML = list.map(name => {
         const ts = timeOf(times, name) || '--:--';
         const st = statusFor(name, ts, nextName, hist, now);
         const isNext = st === 'next';
-        return `<div class="cp-card${isNext ? ' is-next' : ''}">
+        const isActive = name === activeName;
+        return `<div class="cp-card${isActive ? ' is-active' : ''}${isNext ? ' is-next' : ''}">
           <span class="nm"><span class="cp-dot ${st}"></span>${localName(name)}</span>
           <span class="tm">${ts}</span></div>`;
       }).join('');
@@ -5011,14 +5153,40 @@ window.addEventListener('load', () => {
     setTimeout(() => { stopBtn.disabled = false; refreshData(); }, 800);
   });
 
+  /* ---- Admin dashboard: render the SAME scene-wedge dial + dynamic aurora ---- */
+  function initAdminDial(){
+    buildFace24(DIAL_ADMIN);
+    const reduce = !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+    const render = async () => {
+      const now = new Date();
+      try {
+        const st = await (await fetch('/api/state')).json();
+        const times = { ...(st.prayer_times || {}) };
+        if (!times.Sunrise && st.sunrise_time) times.Sunrise = st.sunrise_time;
+        _lastTimes = times;
+        _lastNext = (st.next_prayer && st.next_prayer.name) || null;
+      } catch (e) { /* keep last good render */ }
+      drawF24(_lastTimes || window.currentPrayers || {}, _lastNext, {}, now);   // DT() → DIAL_ADMIN here
+      setHands24(now);
+      updateAurora(now);                                                        // sets window._auPal for dashAura
+    };
+    render();
+    setInterval(render, 15000);
+    if (!reduce) {
+      let t0 = null;
+      const loop = (ts) => { if (t0 == null) t0 = ts; setHands24(new Date()); requestAnimationFrame(loop); };
+      requestAnimationFrame(loop);
+    } else { setHands24(new Date()); }
+  }
+
   /* ---- boot ---- */
   function boot(){
     buildMandala();
     initAurora();
-    buildFace24();
+    buildFace24(DIAL_CP); buildFace24(DIAL_ADMIN);
     initSettings();
-    let savedMode = '12';
-    try { savedMode = localStorage.getItem('cp_clockmode') || '12'; } catch (e) {}
+    let savedMode = '24';
+    try { savedMode = localStorage.getItem('cp_clockmode') || '24'; } catch (e) {}
     applyClockMode(savedMode);
     tickClock();
     updateMoon();
@@ -5033,8 +5201,9 @@ window.addEventListener('load', () => {
     if (_reduce) { if (_mode24) setHands24(new Date()); else setHands(new Date()); drawAurora(0); }  // static
     else requestAnimationFrame(spin);      // smooth gliding hands + mandala + aurora
   }
-  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
-  else boot();
+  const _init = _isAdmin ? initAdminDial : boot;
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', _init);
+  else _init();
 })();
 
 /* ── Aura halo behind the Admin dashboard clock — same pink/purple standing-wave
@@ -5061,8 +5230,8 @@ window.addEventListener('load', () => {
         const gate = Math.min(Math.max((f - 0.85) / 0.07, 0), 1); env *= gate;
         if (env < 0.015) { d[idx + 3] = 0; continue; }
         // domain-warped fractal turbulence → wispy aurora curtains
-        let wx = nx * 1.7 + 0.35 * Math.sin(ny * 2.3 + tt * 0.25);
-        let wy = ny * 1.7 + 0.35 * Math.cos(nx * 2.1 - tt * 0.20);
+        let wx = nx * 2.05 + 0.42 * Math.sin(ny * 2.3 + tt * 0.25);
+        let wy = ny * 2.05 + 0.42 * Math.cos(nx * 2.1 - tt * 0.20);
         let n = 0, amp = 0.55, fr = 1.0;
         for (let o = 0; o < 4; o++) {
           n += amp * Math.sin(wx * fr + tt * 0.12 * (o + 1)) * Math.cos(wy * fr * 1.27 - tt * 0.09 * (o + 1));
@@ -5070,14 +5239,18 @@ window.addEventListener('load', () => {
           amp *= 0.55; fr *= 1.95;
         }
         n = n * 0.5 + 0.5; if (n < 0) n = 0; else if (n > 1) n = 1;
-        // hue: green one side → purple/pink the other; boundary drifts + wisps
+        const ray = window._auRay || 0;                       // forbidden modes: radial solar/heat energy
+        if (ray > 0) { n += ray * 0.32 * Math.sin(f * 7.5 - tt * 0.6); if (n < 0) n = 0; else if (n > 1) n = 1; }
         let mix = 0.5 + 0.5 * Math.sin(Math.atan2(ny, nx) - tt * 0.05);
-        mix = mix * 0.72 + n * 0.28; if (mix < 0) mix = 0; else if (mix > 1) mix = 1;
-        let gR, gG, gB, pR, pG, pB;
-        if (n < 0.5) { const u = n / 0.5; gR = 10 + 37 * u; gG = 46 + 150 * u; gB = 26 + 48 * u; pR = 40 + 110 * u; pG = 18 + 42 * u; pB = 64 + 146 * u; }
-        else { const u = (n - 0.5) / 0.5; gR = 47 + 103 * u; gG = 196 + 59 * u; gB = 74 + 56 * u; pR = 150 + 105 * u; pG = 60 + 60 * u; pB = 210; }
-        d[idx] = gR + (pR - gR) * mix; d[idx + 1] = gG + (pG - gG) * mix; d[idx + 2] = gB + (pB - gB) * mix;
-        d[idx + 3] = env * (0.20 + 0.55 * n) * 255;
+        let s = mix * 0.55 + n * 0.45; if (s < 0) s = 0; else if (s > 1) s = 1;
+        // dynamic timing palette shared from the Clock page (fallback blue-violet)
+        const P = window._auPal || [[34, 52, 107], [101, 72, 232], [139, 92, 246]], K = P.length;
+        let seg = Math.floor(s * (K - 1)); if (seg > K - 2) seg = K - 2; if (seg < 0) seg = 0;
+        const su = s * (K - 1) - seg, ca = P[seg], cb = P[seg + 1];
+        d[idx] = ca[0] + (cb[0] - ca[0]) * su;
+        d[idx + 1] = ca[1] + (cb[1] - ca[1]) * su;
+        d[idx + 2] = ca[2] + (cb[2] - ca[2]) * su;
+        d[idx + 3] = env * (0.10 + 0.82 * n * n) * 255;       // steep curve → thin wisps with gaps
       }
       ctx.putImageData(img, 0, 0);
     }
