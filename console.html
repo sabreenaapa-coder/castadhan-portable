@@ -62,11 +62,13 @@
   .clock{width:var(--clock);height:var(--clock);border-radius:50%;border:4px solid var(--gold);position:relative;background:#1a1a1a;box-shadow:0 0 30px rgba(212,175,55,.2) inset, 0 0 25px rgba(212,175,55,.15)}
   /* aura halo behind the dashboard clock (overlay — does not change clock size) */
   .clock-container>.clock{z-index:1}
-  .dash-aurora{position:absolute;top:50%;left:50%;width:138%;height:138%;transform:translate(-50%,-50%);filter:blur(9px) saturate(1.5) contrast(1.18) brightness(1.06);opacity:0.3;pointer-events:none;z-index:0}
+  .dash-aurora{position:absolute;top:50%;left:50%;width:138%;height:138%;transform:translate(-50%,-50%);filter:blur(6px);opacity:1;pointer-events:none;z-index:0}
   /* Admin scene-wedge dial overlays the clock-container; original #clock hidden in the dashboard */
   .cp-face24-admin{position:absolute;top:50%;left:50%;width:100%;height:100%;transform:translate(-50%,-50%);z-index:2;pointer-events:none}
   body:not(.clock-mode):not(.simple-mode):not(.cp-active) .clock-container>.clock{display:none}
   body.clock-mode .cp-face24-admin,body.simple-mode .cp-face24-admin{display:none}
+  /* operator dashboard: grow the scene-wedge clock as large as the layout allows */
+  body:not(.clock-mode):not(.simple-mode):not(.cp-active){--clock:min(72vh,42vw,860px)}
   .zones{position:absolute;inset:0;border-radius:50%;transition:background .5s ease}
   .glow{position:absolute;inset:0;border-radius:50%;background:radial-gradient(circle at center, rgba(212,175,55,0.15) 0%, transparent 70%);z-index:2;pointer-events:none;transition:transform 1s linear;}
   .hub{position:absolute;inset:auto;left:50%;top:50%;transform:translate(-50%,-50%);width:16px;height:16px;border-radius:50%;background:var(--gold);border:2px solid var(--bg);z-index:5}
@@ -687,13 +689,13 @@ body.cp-active{overflow:hidden;}
    live hands (cp-hands) on top in the transparent centre. */
 /* explicit square size (NOT aspect-ratio — older TV browsers don't support it,
    which collapsed the dial to zero height) */
-.cp-dial{position:relative;width:clamp(260px,58vmin,600px);height:clamp(260px,58vmin,600px);}
+.cp-dial{position:relative;width:clamp(260px,min(66vmin,calc(88vh - 100px)),720px);height:clamp(260px,min(66vmin,calc(88vh - 100px)),720px);}
 .cp-dial svg,.cp-ottoman{position:absolute;inset:0;width:100%;height:100%;}
 /* aurora glow: 128px canvas upscaled + blurred → cheap soft colour halo.
    Sized to 135% of the dial so the bloom can spill out past the bezel. */
 .cp-aurora{position:absolute;inset:auto;top:50%;left:50%;width:138%;height:138%;
-  transform:translate(-50%,-50%);filter:blur(9px) saturate(1.5) contrast(1.18) brightness(1.06);opacity:0.3;pointer-events:none;}
-.cp-ottoman{inset:auto;top:50%;left:50%;width:84%;height:84%;
+  transform:translate(-50%,-50%);filter:blur(6px);opacity:1;pointer-events:none;}
+.cp-ottoman{inset:auto;top:50%;left:50%;width:96%;height:96%;
   transform:translate(-50%,-50%);object-fit:contain;pointer-events:none;
   filter:drop-shadow(0 14px 34px rgba(0,0,0,.7));}
 /* clock-style toggle: the 24-hour prayer dial (clockfaceonline style — 0 at top,
@@ -708,8 +710,8 @@ body.cp-mode24 .cp-ottoman,body.cp-mode24 .cp-hands{display:none;}
   padding:10px 16px;border-radius:20px;box-shadow:0 4px 16px rgba(0,0,0,.5);}
 #cp-modetoggle:hover{background:#211d11;border-color:#D4AF37;}
 #cp-modetoggle:active{transform:scale(.97);}
-.cp-time{color:#f4efe2;font-size:clamp(22px,4.6vw,40px);font-weight:500;
-  font-variant-numeric:tabular-nums;line-height:1;margin-top:clamp(6px,1.3vmin,10px);}
+.cp-time{color:#f4efe2;font-size:clamp(18px,3.2vw,28px);font-weight:500;
+  font-variant-numeric:tabular-nums;line-height:1;margin-top:clamp(4px,1vmin,8px);}
 .cp-date{color:#7d786c;font-size:clamp(10px,1.3vw,12px);margin-top:4px;text-align:center;}
 .cp-count{margin-top:clamp(6px,1.2vmin,9px);background:rgba(20,20,20,.85);
   border:1px solid #D4AF37;border-radius:16px;color:#cfcabb;
@@ -735,12 +737,12 @@ body.cp-playing .cp-now{display:flex;}
 
 /* — legend + offline line — */
 .cp-legend{display:flex;justify-content:center;flex-wrap:wrap;
-  gap:clamp(12px,2.4vw,22px);margin-top:clamp(10px,2vmin,16px);
-  padding-top:11px;border-top:.5px solid #181818;
+  gap:clamp(12px,2.4vw,22px);margin-top:clamp(4px,1vmin,8px);
+  padding-top:7px;border-top:.5px solid #181818;
   font-size:clamp(10px,1.2vw,11px);color:#7d786c;}
 .cp-legend span{display:flex;align-items:center;gap:6px;}
 .cp-legend i{width:8px;height:8px;border-radius:50%;display:inline-block;}
-.cp-offline{text-align:center;color:#7d786c;font-size:11px;min-height:14px;margin-top:6px;}
+.cp-offline{text-align:center;color:#7d786c;font-size:11px;min-height:0;margin-top:4px;}
 
 /* — admin-side flip pill (shown on the dashboard so the family can switch).
      Floats bottom-centre so it never collides with the dashboard's busy top
@@ -763,10 +765,10 @@ body.cp-playing .cp-now{display:flex;}
 /* large screens / TVs: scale everything up so it reads from across a room
    (the base sizes are tuned for phones; without this the clock caps too small) */
 @media (min-width:1100px){
-  #cp-wrap{max-width:min(1680px,96vw);padding:clamp(12px,2vmin,30px) clamp(24px,4vw,64px);}
+  #cp-wrap{max-width:min(1680px,96vw);padding:clamp(8px,1.1vmin,16px) clamp(24px,4vw,64px);}
   .cp-mid{gap:clamp(18px,3vw,48px);margin-top:clamp(6px,1.4vmin,14px);}
-  .cp-dial{width:clamp(460px,68vmin,900px);height:clamp(460px,68vmin,900px);}
-  .cp-time{font-size:clamp(46px,7vmin,96px);margin-top:clamp(6px,1.4vmin,14px);}
+  .cp-dial{width:clamp(460px,min(74vmin,calc(86vh - 122px)),1040px);height:clamp(460px,min(74vmin,calc(86vh - 122px)),1040px);}
+  .cp-time{font-size:clamp(30px,4.2vmin,52px);margin-top:clamp(4px,0.9vmin,9px);}
   .cp-date{font-size:clamp(15px,2.1vmin,26px);margin-top:6px;}
   .cp-count{font-size:clamp(16px,2.3vmin,28px);padding:8px clamp(18px,2.4vw,32px);
     margin-top:clamp(8px,1.6vmin,16px);border-radius:22px;}
@@ -781,7 +783,7 @@ body.cp-playing .cp-now{display:flex;}
   .cp-ic{font-size:clamp(28px,3.6vmin,52px);}
   .cp-loc{font-size:clamp(14px,1.8vmin,22px);}
   .cp-flip a{font-size:clamp(14px,1.8vmin,22px);padding:8px clamp(18px,2vw,30px);}
-  .cp-legend{font-size:clamp(13px,1.7vmin,20px);gap:clamp(18px,3vw,44px);}
+  .cp-legend{font-size:clamp(11px,1.3vmin,15px);gap:clamp(16px,2.6vw,38px);}
   .cp-legend i{width:11px;height:11px;}
   .cp-now .lbl{font-size:clamp(14px,1.9vmin,24px);}
   .cp-stop{font-size:clamp(15px,2vmin,26px);padding:11px clamp(30px,4vw,52px);}
@@ -4535,9 +4537,9 @@ window.addEventListener('load', () => {
     { p: 0.75, c: ['#8B5CF6', '#C026D3', '#E11D8F'] },   // late       — violet-magenta
     { p: 0.90, c: ['#E11D48', '#F43F5E', '#F97316'] },   // final      — crimson
   ].map(k => ({ p: k.p, c: k.c.map(_hx) }));
-  const AU_FINAL   = ['#B91C1C', '#E11D48', '#F97316'].map(_hx);            // ≤15 min to next prayer
-  const AU_SUNRISE = ['#B91C1C', '#F97316', '#FACC15'].map(_hx);            // forbidden: 20 min after sunrise
-  const AU_ZENITH  = ['#FFF7CC', '#FACC15', '#F97316', '#B91C1C'].map(_hx); // forbidden: ±5 min around zenith
+  const AU_FINAL   = ['#6B0F2A', '#9F1239', '#E11D48', '#A21CAF'].map(_hx);  // final 15 min: burgundy/ruby/crimson/deep-magenta — urgency via colour, not motion
+  const AU_SUNRISE = ['#9B1B1B', '#E03616', '#F59E0B', '#FFD24A'].map(_hx);  // sunrise radiance: deep-scarlet/vermilion/amber/gold — warm solar bloom, not alarm
+  const AU_ZENITH  = ['#FFFBEA', '#FFF0B8', '#FFE08A', '#F4B12A'].map(_hx);  // zenith: ivory/pale-amber/white-gold/solar-gold — still, bright, architectural
   let _auPal = AU_KEYS[0].c.slice();   // active palette (array of [r,g,b])
   let _auRay = 0;                      // 0 = calm drift; >0 = forbidden radial/solar energy
   let _auMode = 'normal';
@@ -4558,11 +4560,11 @@ window.addEventListener('load', () => {
     const nowH = now.getHours() + now.getMinutes() / 60 + now.getSeconds() / 3600;
     const sr = toH('Sunrise'), mg = toH('Maghrib');
     const z = (sr != null && mg != null) ? (sr + mg) / 2 : null;
-    let pal = _auPal, ray = 0, op = 0.30, blur = 9, sat = 1.5, con = 1.18, bri = 1.06, mode = 'normal';
-    if (sr != null && nowH >= sr && nowH < sr + 20 / 60) {                              // 1. sunrise forbidden
-      pal = AU_SUNRISE; ray = 1; op = 0.42; bri = 1.18; mode = 'forbidden_sunrise';
-    } else if (z != null && nowH >= z - 5 / 60 && nowH <= z + 5 / 60) {                 // 2. zenith forbidden
-      pal = AU_ZENITH; ray = 0.85; op = 0.42; bri = 1.18; mode = 'forbidden_zenith';
+    let pal = _auPal, mode = 'normal';   // intensity = original spec (opacity 1, blur 6); modes differ by COLOUR only
+    if (sr != null && nowH >= sr && nowH < sr + 20 / 60) {                              // 1. sunrise radiance (forbidden)
+      pal = AU_SUNRISE; mode = 'forbidden_sunrise';
+    } else if (z != null && nowH >= z - 5 / 60 && nowH <= z + 5 / 60) {                 // 2. zenith radiance (forbidden)
+      pal = AU_ZENITH; mode = 'forbidden_zenith';
     } else {                                                                            // normal / final-15
       const ORDER = ['Fajr', 'Sunrise', 'Dhuhr', 'Asr', 'Maghrib', 'Isha'];
       const pts = ORDER.map(n => { const h = toH(n); return h == null ? null : { n, h }; }).filter(Boolean);
@@ -4572,18 +4574,18 @@ window.addEventListener('load', () => {
         if (inSeg(a, b)) {
           const span = ((b - a + 24) % 24) || 24, elapsed = (nowH - a + 24) % 24;
           const minsLeft = (span - elapsed) * 60;
-          if (minsLeft <= 15) { pal = AU_FINAL; op = 0.36; bri = 1.12; mode = 'final15'; }   // 3. final 15 min
+          if (minsLeft <= 15) { pal = AU_FINAL; mode = 'final15'; }                            // 3. final 15 min
           else { pal = _normalPal(Math.max(0, Math.min(1, elapsed / span))); }               // 4. normal progress
           break;
         }
       }
     }
-    _auPal = pal; _auRay = ray; _auMode = mode;
-    if (cv) { cv.style.opacity = op; cv.style.filter = `blur(${blur}px) saturate(${sat}) contrast(${con}) brightness(${bri})`; }
-    // share with the Admin-dashboard aura (separate IIFE / canvas)
-    window._auPal = _auPal; window._auRay = _auRay;
+    _auPal = pal; _auRay = 0; _auMode = mode;
+    if (cv) { cv.style.opacity = '1'; cv.style.filter = 'blur(6px)'; }   // original Swansea: opacity 1 + blur 6
+    // share the palette with the Admin-dashboard aura (separate IIFE / canvas)
+    window._auPal = _auPal; window._auRay = 0;
     const dc = document.getElementById('dash-aurora');
-    if (dc) { dc.style.opacity = op; dc.style.filter = `blur(${blur}px) saturate(${sat}) contrast(${con}) brightness(${bri})`; }
+    if (dc) { dc.style.opacity = '1'; dc.style.filter = 'blur(6px)'; }
   }
   function drawAurora(t){
     if (!auroraCtx) return;
@@ -4595,12 +4597,12 @@ window.addEventListener('load', () => {
         const f = Math.sqrt(nx * nx + ny * ny) * A_SPAN;       // 0..1.38 in dial-radii
         // periphery band just outside the Ottoman ring; fades to ~0 before the
         // canvas edge so no square edges, and the gold ring + black centre stay clear
-        let env = Math.exp(-((f - 1.02) * (f - 1.02)) / 0.035);
+        let env = Math.exp(-((f - 1.02) * (f - 1.02)) / 0.035);   // original Swansea band (σ²=0.035)
         const gate = Math.min(Math.max((f - 0.82) / 0.06, 0), 1); env *= gate;
         if (env < 0.014) { d[idx + 3] = 0; continue; }
         // domain-warped fractal turbulence → wispy planetary whorls
-        let wx = nx * 2.05 + 0.42 * Math.sin(ny * 2.3 + t * 0.25);
-        let wy = ny * 2.05 + 0.42 * Math.cos(nx * 2.1 - t * 0.20);
+        let wx = nx * 3.06 + 0.35 * Math.sin(ny * 2.3 + t * 0.25);   // Swansea flow + fineness 1.8 (1.7×1.8=3.06), warp .35
+        let wy = ny * 3.06 + 0.35 * Math.cos(nx * 2.1 - t * 0.20);
         let n = 0, amp = 0.55, fr = 1.0;
         for (let o = 0; o < 4; o++) {
           n += amp * Math.sin(wx * fr + t * 0.12 * (o + 1)) * Math.cos(wy * fr * 1.27 - t * 0.09 * (o + 1));
@@ -4612,7 +4614,7 @@ window.addEventListener('load', () => {
         if (_auRay > 0) { n += _auRay * 0.32 * Math.sin(f * 7.5 - t * 0.6); if (n < 0) n = 0; else if (n > 1) n = 1; }
         // field position drifts; combined with turbulence → palette sample point
         let mix = 0.5 + 0.5 * Math.sin(Math.atan2(ny, nx) - t * 0.05);
-        let s = mix * 0.55 + n * 0.45; if (s < 0) s = 0; else if (s > 1) s = 1;
+        let s = mix * 0.72 + n * 0.28; if (s < 0) s = 0; else if (s > 1) s = 1;   // original field blend
         // sample the dynamic palette (3–4 colours → natural multi-hue aurora)
         const P = _auPal, K = P.length;
         let seg = Math.floor(s * (K - 1)); if (seg > K - 2) seg = K - 2; if (seg < 0) seg = 0;
@@ -4620,7 +4622,10 @@ window.addEventListener('load', () => {
         d[idx] = ca[0] + (cb[0] - ca[0]) * su;
         d[idx + 1] = ca[1] + (cb[1] - ca[1]) * su;
         d[idx + 2] = ca[2] + (cb[2] - ca[2]) * su;
-        d[idx + 3] = env * (0.10 + 0.82 * n * n) * 255;   // steep curve → thin wisps with transparent gaps
+        // wispy filaments (tuned 2026-06-16): ridge fronts blended 85/15 with smooth field
+        const ridge = 1 - Math.abs(2 * n - 1);          // bright along noise fronts, dark between
+        const w = Math.pow(n * 0.15 + ridge * 0.85, 3.0);  // wisp 0.85, sharpness 3.0
+        d[idx + 3] = env * (0.25 + 0.66 * w) * 255;      // haze floor 0.25, brightness 0.66
       }
     }
     auroraCtx.putImageData(auroraImg, 0, 0);
@@ -4887,7 +4892,7 @@ window.addEventListener('load', () => {
         root.setAttribute('opacity', (0.78 + 0.22 * Math.sin(at * 2 * Math.PI / 120)).toFixed(3));  // breathe opacity
       }
     }
-    if (cpA && t - _auroraT >= 0.05) { _auroraT = t; drawAurora(at); }   // cp aurora (admin aura = dashAura loop)
+    if (cpA && t - _auroraT >= 0.05) { _auroraT = t; drawAurora(at); }   // cp aurora — original Swansea cadence (×3)
     requestAnimationFrame(spin);
   }
 
@@ -5226,12 +5231,12 @@ window.addEventListener('load', () => {
         const idx = (y * AW + x) * 4;
         const nx = (x - 64) / 64, ny = (y - 64) / 64;
         const f = Math.sqrt(nx * nx + ny * ny) * A_SPAN;
-        let env = Math.exp(-((f - 0.98) * (f - 0.98)) / 0.032);   // tight band, ~0 by the edge
+        let env = Math.exp(-((f - 0.98) * (f - 0.98)) / 0.032);   // original tight band
         const gate = Math.min(Math.max((f - 0.85) / 0.07, 0), 1); env *= gate;
         if (env < 0.015) { d[idx + 3] = 0; continue; }
         // domain-warped fractal turbulence → wispy aurora curtains
-        let wx = nx * 2.05 + 0.42 * Math.sin(ny * 2.3 + tt * 0.25);
-        let wy = ny * 2.05 + 0.42 * Math.cos(nx * 2.1 - tt * 0.20);
+        let wx = nx * 3.06 + 0.35 * Math.sin(ny * 2.3 + tt * 0.25);   // Swansea flow + fineness 1.8 (1.7×1.8=3.06), warp .35
+        let wy = ny * 3.06 + 0.35 * Math.cos(nx * 2.1 - tt * 0.20);
         let n = 0, amp = 0.55, fr = 1.0;
         for (let o = 0; o < 4; o++) {
           n += amp * Math.sin(wx * fr + tt * 0.12 * (o + 1)) * Math.cos(wy * fr * 1.27 - tt * 0.09 * (o + 1));
@@ -5242,7 +5247,7 @@ window.addEventListener('load', () => {
         const ray = window._auRay || 0;                       // forbidden modes: radial solar/heat energy
         if (ray > 0) { n += ray * 0.32 * Math.sin(f * 7.5 - tt * 0.6); if (n < 0) n = 0; else if (n > 1) n = 1; }
         let mix = 0.5 + 0.5 * Math.sin(Math.atan2(ny, nx) - tt * 0.05);
-        let s = mix * 0.55 + n * 0.45; if (s < 0) s = 0; else if (s > 1) s = 1;
+        let s = mix * 0.72 + n * 0.28; if (s < 0) s = 0; else if (s > 1) s = 1;   // original field blend
         // dynamic timing palette shared from the Clock page (fallback blue-violet)
         const P = window._auPal || [[34, 52, 107], [101, 72, 232], [139, 92, 246]], K = P.length;
         let seg = Math.floor(s * (K - 1)); if (seg > K - 2) seg = K - 2; if (seg < 0) seg = 0;
@@ -5250,7 +5255,10 @@ window.addEventListener('load', () => {
         d[idx] = ca[0] + (cb[0] - ca[0]) * su;
         d[idx + 1] = ca[1] + (cb[1] - ca[1]) * su;
         d[idx + 2] = ca[2] + (cb[2] - ca[2]) * su;
-        d[idx + 3] = env * (0.10 + 0.82 * n * n) * 255;       // steep curve → thin wisps with gaps
+        // wispy filaments (tuned 2026-06-16): ridge fronts blended 85/15 with smooth field
+        const ridge = 1 - Math.abs(2 * n - 1);          // bright along noise fronts, dark between
+        const w = Math.pow(n * 0.15 + ridge * 0.85, 3.0);  // wisp 0.85, sharpness 3.0
+        d[idx + 3] = env * (0.25 + 0.66 * w) * 255;      // haze floor 0.25, brightness 0.66
       }
       ctx.putImageData(img, 0, 0);
     }
