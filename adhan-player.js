@@ -23,7 +23,7 @@
     adhan: RAW + 'adhan.mp3', fajr_warning: RAW + 'fajr_warning.mp3', dhuhr_warning: RAW + 'dhuhr_warning.mp3',
     asr_warning: RAW + 'asr_warning.mp3', maghrib_warning: RAW + 'maghrib_warning.mp3',
     morning_dhikr: RAW + 'morning_dhikr.mp3', evening_dhikr: RAW + 'evening_dhikr.mp3', surah_kahf: RAW + 'surah_kahf.mp3',
-    friday_dua: RAW + 'friday_prayer_BARRY_DUA.mp3', wakeup: RAW + 'wakey_wakey.mp3', suhoor: RAW + 'suhoor_alarm.mp3',
+    friday_prayer: RAW + 'friday_prayer.mp3', wakeup: RAW + 'wakey_wakey.mp3', suhoor: RAW + 'suhoor_alarm.mp3',
     takbeeraat: RAW + 'takbeeraat.mp3', surah_baqarah: REL + 'surah_baqarah.mp3', surah_yasin: REL + 'surah_yasin.mp3',
     surah_mulk: REL + 'surah_mulk.mp3', surah_waqiah: REL + 'surah_waqiah.mp3', surah_sajdah: REL + 'surah_sajdah.mp3'
   };
@@ -40,6 +40,7 @@
     { id: 'warn_maghrib', group: 'warnings', label: 'Maghrib soon', anchor: 'Maghrib', offset: -10, sound: 'maghrib_warning' },
     { id: 'morning_dhikr', group: 'morning_dhikr', label: 'Morning dhikr', anchor: 'time', time: '07:00', sound: 'morning_dhikr', notDay: 5 },
     { id: 'friday_kahf', group: 'friday_kahf', label: 'Surah al-Kahf (Fri)', anchor: 'time', time: '07:00', sound: 'surah_kahf', day: 5 },
+    { id: 'friday_dua', group: 'friday_dua', label: 'Friday dua (before Maghrib)', anchor: 'Maghrib', offset: -31, sound: 'friday_prayer', day: 5 },
     { id: 'evening_dhikr', group: 'evening_dhikr', label: 'Evening dhikr', anchor: 'Maghrib', offset: 30, sound: 'evening_dhikr', cutoff: '21:30' },
     { id: 'wakeup', group: 'wakeup', label: 'Wake-up alarm', anchor: 'time', time: '06:30', sound: 'wakeup' },
     { id: 'suhoor', group: 'suhoor', label: 'Suhoor alarm', anchor: 'Fajr', offset: -40, sound: 'suhoor' },
@@ -52,6 +53,7 @@
   var GROUPS = [
     { id: 'adhan', label: 'Adhan (5 prayers)' }, { id: 'warnings', label: 'Pre-prayer reminders' },
     { id: 'morning_dhikr', label: 'Morning dhikr', timed: 'morning_dhikr' }, { id: 'friday_kahf', label: 'Surah al-Kahf (Fridays)' },
+    { id: 'friday_dua', label: 'Friday dua (before Maghrib)' },
     { id: 'evening_dhikr', label: 'Evening dhikr' }, { id: 'quran', label: "Qur'an programs" },
     { id: 'wakeup', label: 'Wake-up alarm', timed: 'wakeup' }, { id: 'suhoor', label: 'Suhoor alarm (Ramadan)' }
   ];
@@ -59,9 +61,9 @@
   /* ---- settings (per-browser) -------------------------------------------- */
   var DEFAULTS = {
     armed: false, volume: 0.85, quietStart: '22:00', quietEnd: '07:00',
-    groups: { adhan: true, warnings: false, morning_dhikr: false, friday_kahf: false, evening_dhikr: false, quran: false, wakeup: false, suhoor: false },
+    groups: { adhan: true, warnings: false, morning_dhikr: false, friday_kahf: false, friday_dua: true, evening_dhikr: false, quran: false, wakeup: false, suhoor: false },
     // peripheral policy during quiet hours: play=full · quieter=~45% · silent=suppressed
-    night: { adhan: 'play', warnings: 'silent', morning_dhikr: 'quieter', friday_kahf: 'quieter', evening_dhikr: 'quieter', quran: 'quieter', wakeup: 'play', suhoor: 'play' },
+    night: { adhan: 'play', warnings: 'silent', morning_dhikr: 'quieter', friday_kahf: 'quieter', friday_dua: 'quieter', evening_dhikr: 'quieter', quran: 'quieter', wakeup: 'play', suhoor: 'play' },
     times: {}   // per-event HH:MM overrides for fixed-time events (e.g. morning_dhikr, wakeup)
   };
   var cfg;

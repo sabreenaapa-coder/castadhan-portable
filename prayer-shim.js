@@ -108,7 +108,32 @@
     return _realFetch(input, init);
   };
 
-  STATE._ready = loadTimes();
+  /* ---- first visit: use the device's location (user can change it after) - */
+  function cleanCountry(c) { return String(c || '').replace(/\s*\(the\)$/i, ''); }
+  function initLocation() {
+    if (localStorage.getItem('pc_city')) return loadTimes();          // returning visitor → their saved choice
+    return new Promise(function (resolve) {                            // first visit → ask the device, fall back to London
+      function fin() { loadTimes().then(resolve); }
+      if (!navigator.geolocation) return fin();
+      var settled = false, to = setTimeout(function () { if (!settled) { settled = true; fin(); } }, 7000);
+      navigator.geolocation.getCurrentPosition(function (pos) {
+        if (settled) return; settled = true; clearTimeout(to);
+        var lat = pos.coords.latitude, lon = pos.coords.longitude, tz;
+        try { tz = Intl.DateTimeFormat().resolvedOptions().timeZone; } catch (e) {}
+        _realFetch('https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=' + lat + '&longitude=' + lon + '&localityLanguage=en')
+          .then(function (r) { return r.json(); }).then(function (g) {
+            var label = [g.city || g.locality, g.principalSubdivision, cleanCountry(g.countryName)].filter(Boolean).join(', ') || 'Current location';
+            STATE.city = { label: label, lat: lat, lon: lon, country: cleanCountry(g.countryName), tz: tz, method: DEFAULT.method, school: DEFAULT.school, latMethod: '' };
+          }).catch(function () { STATE.city = { label: 'Current location', lat: lat, lon: lon, country: '', tz: tz, method: DEFAULT.method, school: DEFAULT.school, latMethod: '' }; })
+          .then(function () {
+            try { setCity(STATE.city); } catch (e) {}                 // remember it so we don't re-prompt next visit
+            var b = document.getElementById('pc-citybtn'); if (b) b.textContent = '📍 ' + (STATE.city.label || '').split(',')[0];
+            fin();
+          });
+      }, function () { if (settled) return; settled = true; clearTimeout(to); fin(); }, { timeout: 6500, maximumAge: 600000 });
+    });
+  }
+  STATE._ready = initLocation();
   setInterval(function () { loadTimes(); }, 30 * 60 * 1000);
 
   /* ---- city picker UI (search + Asr/Isha rules) -------------------------- */
