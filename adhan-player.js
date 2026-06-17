@@ -78,7 +78,11 @@
     volume: 0.85,
     quietStart: '22:00', quietEnd: '07:00',
     groups: { adhan: true, warnings: false, morning_dhikr: false, friday_kahf: false,
-              evening_dhikr: false, quran: false, wakeup: false, suhoor: false }
+              evening_dhikr: false, quran: false, wakeup: false, suhoor: false },
+    // peripheral policy — what each group does DURING quiet hours:
+    //   play = full volume · quieter = ~45% (neighbour-safe) · silent = suppressed
+    night: { adhan: 'play', warnings: 'silent', morning_dhikr: 'quieter', friday_kahf: 'quieter',
+             evening_dhikr: 'quieter', quran: 'quieter', wakeup: 'play', suhoor: 'play' }
   };
   var cfg;
   function loadCfg() {
@@ -86,6 +90,7 @@
       var s = JSON.parse(localStorage.getItem('pc_player_cfg'));
       cfg = Object.assign({}, DEFAULTS, s || {});
       cfg.groups = Object.assign({}, DEFAULTS.groups, (s && s.groups) || {});
+      cfg.night = Object.assign({}, DEFAULTS.night, (s && s.night) || {});
     } catch (e) { cfg = JSON.parse(JSON.stringify(DEFAULTS)); }
   }
   function saveCfg() { try { localStorage.setItem('pc_player_cfg', JSON.stringify(cfg)); } catch (e) {} }
@@ -113,11 +118,12 @@
 
   /* ---- playback (honours the silent-test hook so logic can be verified
    *      WITHOUT ever sounding the adhan during development) --------------- */
-  function play(sound, label) {
-    if (window.__playerSilent) { (window.__playerLog = window.__playerLog || []).push({ t: new Date().toISOString(), sound: sound, label: label }); banner(label + ' (silent-test)'); return; }
+  function play(sound, label, vol) {
+    if (vol == null) vol = cfg.volume;
+    if (window.__playerSilent) { (window.__playerLog = window.__playerLog || []).push({ t: new Date().toISOString(), sound: sound, label: label, vol: Math.round(vol * 100) / 100 }); banner(label + ' (silent-test)'); return; }
     try { media.pause(); } catch (e) {}
     media.src = URLS[sound] || URLS.adhan;
-    media.volume = Math.max(0, Math.min(1, cfg.volume));
+    media.volume = Math.max(0, Math.min(1, vol));
     media.muted = false;
     var p = media.play();
     if (p && p.catch) p.catch(function () { banner('⚠️ Tap “Enable” first to allow sound'); });
@@ -146,7 +152,7 @@
       else { var base = hhmmToToday(times[ev.anchor], now); if (!base) return; when = new Date(base.getTime() + (ev.offset || 0) * 60000); }
       if (!when) return;
       if (ev.cutoff) { var c = hhmmToToday(ev.cutoff, now); if (c && when > c) return; }
-      out.push({ id: ev.id, label: ev.label, sound: ev.sound, core: !!ev.core, when: when });
+      out.push({ id: ev.id, group: ev.group, label: ev.label, sound: ev.sound, core: !!ev.core, when: when });
     });
     out.sort(function (a, b) { return a.when - b.when; });
     return out;
@@ -163,8 +169,11 @@
         var dt = now - e.when;
         if (dt >= 0 && dt < 5 * 60000) {            // due within the last 5 min (don't replay stale events on a late arm)
           markFired(e.id);
-          if (inQuiet(now) && !e.core) { banner('🔇 ' + e.label + ' — quiet hours'); return; }
-          play(e.sound, e.label);
+          var beh = (cfg.night && cfg.night[e.group]) || (e.core ? 'play' : 'quieter');
+          if (inQuiet(now)) {
+            if (beh === 'silent') { banner('🔇 ' + e.label + ' — silent (quiet hours)'); return; }
+            play(e.sound, e.label, beh === 'quieter' ? cfg.volume * 0.45 : cfg.volume);
+          } else { play(e.sound, e.label, cfg.volume); }
         }
       });
       renderNext(sched, now);
@@ -200,6 +209,7 @@
       '#pc-adhan-modal label.row{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:7px 0;border-bottom:1px solid #1f1f1f}' +
       '#pc-adhan-modal .row .t{display:flex;gap:8px;align-items:center}' +
       '#pc-adhan-modal button.test{background:#1c1c1c;border:.5px solid #333;color:#cfcabb;padding:3px 9px;border-radius:7px;cursor:pointer;font-size:11px}' +
+      '#pc-adhan-modal select.night{background:#0c0c0c;color:#cfcabb;border:.5px solid #333;border-radius:6px;font-size:11px;padding:2px}' +
       '#pc-adhan-modal input[type=time],#pc-adhan-modal input[type=range]{accent-color:#D4AF37}' +
       '#pc-adhan-modal .act{display:flex;gap:10px;justify-content:space-between;margin-top:16px}' +
       '#pc-adhan-modal .arm{flex:1;border:none;border-radius:9px;padding:11px;font-weight:700;cursor:pointer;background:#D4AF37;color:#1a1a1a}' +
@@ -212,9 +222,11 @@
     bannerEl = document.createElement('div'); bannerEl.id = 'pc-adhan-banner'; document.body.appendChild(bannerEl);
 
     modal = document.createElement('div'); modal.id = 'pc-adhan-modal';
+    var nightOpts = '<option value="play">play</option><option value="quieter">quieter</option><option value="silent">silent</option>';
     var groupRows = GROUPS.map(function (g) {
       return '<label class="row"><span class="t"><input type="checkbox" data-g="' + g.id + '"> ' + g.label + '</span>' +
-             '<button class="test" data-test="' + g.id + '">test</button></label>';
+             '<span style="display:flex;gap:6px;align-items:center"><select class="night" data-n="' + g.id + '" title="During quiet hours">' + nightOpts + '</select>' +
+             '<button class="test" data-test="' + g.id + '">test</button></span></label>';
     }).join('');
     modal.innerHTML =
       '<div class="box">' +
@@ -222,7 +234,7 @@
         '<p class="sub">Plays through <b>this device’s</b> speakers while this page stays open. It can’t reach Nest/Cast speakers.</p>' +
         '<label class="row"><span class="t">Volume</span><input type="range" id="pc-vol" min="0" max="1" step="0.05" style="width:150px"></label>' +
         '<label class="row"><span class="t">Quiet hours (only adhan plays)</span><span><input type="time" id="pc-qs" style="background:#0c0c0c;color:#e7e0cf;border:1px solid #2d2d2d;border-radius:6px;padding:3px"> – <input type="time" id="pc-qe" style="background:#0c0c0c;color:#e7e0cf;border:1px solid #2d2d2d;border-radius:6px;padding:3px"></span></label>' +
-        '<div style="margin:12px 0 4px;color:#9a958a;font-size:12px">What to play</div>' +
+        '<div style="margin:12px 0 4px;color:#9a958a;font-size:12px;display:flex;justify-content:space-between;align-items:baseline">What to play <span style="font-size:11px;color:#7a756a">enable · night behaviour</span></div>' +
         groupRows +
         '<div class="act"><button class="arm" id="pc-arm"></button><button class="stop" id="pc-stop">Stop</button></div>' +
         '<p class="note">Tip: leave this tab open on an always-on screen (desktop/TV) for reliable playback. Phones may pause it when locked or in the background. Settings are saved in this browser only.</p>' +
@@ -239,6 +251,7 @@
       modal.querySelector('button[data-test="' + g.id + '"]').addEventListener('click', function () {
         unlock(); var ev = EVENTS.filter(function (x) { return x.group === g.id; })[0]; if (ev) play(ev.sound, 'Test: ' + ev.label);
       });
+      modal.querySelector('select[data-n="' + g.id + '"]').addEventListener('change', function (e) { cfg.night[g.id] = e.target.value; saveCfg(); });
     });
     modal.querySelector('#pc-arm').addEventListener('click', function () { setArmed(!cfg.armed); syncModal(); });
     modal.querySelector('#pc-stop').addEventListener('click', stopAll);
@@ -249,7 +262,7 @@
     modal.querySelector('#pc-vol').value = cfg.volume;
     modal.querySelector('#pc-qs').value = cfg.quietStart;
     modal.querySelector('#pc-qe').value = cfg.quietEnd;
-    GROUPS.forEach(function (g) { modal.querySelector('input[data-g="' + g.id + '"]').checked = !!cfg.groups[g.id]; });
+    GROUPS.forEach(function (g) { modal.querySelector('input[data-g="' + g.id + '"]').checked = !!cfg.groups[g.id]; var ns = modal.querySelector('select[data-n="' + g.id + '"]'); if (ns) ns.value = (cfg.night && cfg.night[g.id]) || 'play'; });
     var arm = modal.querySelector('#pc-arm'); arm.textContent = cfg.armed ? '🔊 Adhan is ON — tap to turn off' : '🔊 Enable adhan on this device';
     arm.style.background = cfg.armed ? '#234d23' : '#D4AF37'; arm.style.color = cfg.armed ? '#bff0bf' : '#1a1a1a';
   }
