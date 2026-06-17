@@ -10,7 +10,7 @@
  *     the old cache cleanly. Bump CACHE_NAME on any v1.x.y release that
  *     changes the shell.
  */
-const CACHE_NAME = 'castadhan-shell-v1.11.3';
+const CACHE_NAME = 'castadhan-shell-v1.11.4';
 const SHELL_URLS = ['/', '/manifest.json'];
 
 self.addEventListener('install', event => {

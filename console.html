@@ -64,9 +64,10 @@
   .clock-container>.clock{z-index:1}
   .dash-aurora{position:absolute;top:50%;left:50%;width:138%;height:138%;transform:translate(-50%,-50%);filter:blur(6px);opacity:1;pointer-events:none;z-index:0}
   /* Admin scene-wedge dial overlays the clock-container; original #clock hidden in the dashboard */
-  .cp-face24-admin{position:absolute;top:50%;left:50%;width:100%;height:100%;transform:translate(-50%,-50%);z-index:2;pointer-events:none}
+  .cp-face24-admin{position:absolute;top:50%;left:50%;width:100%;height:100%;transform:translate(-50%,-50%) translateZ(0);will-change:transform;z-index:2;pointer-events:none}
+  .cp-hands24b{position:absolute;top:50%;left:50%;width:100%;height:100%;transform:translate(-50%,-50%) translateZ(0);will-change:transform;z-index:3;pointer-events:none}
   body:not(.clock-mode):not(.simple-mode):not(.cp-active) .clock-container>.clock{display:none}
-  body.clock-mode .cp-face24-admin,body.simple-mode .cp-face24-admin{display:none}
+  body.clock-mode .cp-face24-admin,body.simple-mode .cp-face24-admin,body.clock-mode .cp-hands24b,body.simple-mode .cp-hands24b{display:none}
   /* operator dashboard: grow the scene-wedge clock as large as the layout allows */
   body:not(.clock-mode):not(.simple-mode):not(.cp-active){--clock:min(72vh,42vw,860px)}
   .zones{position:absolute;inset:0;border-radius:50%;transition:background .5s ease}
@@ -700,8 +701,10 @@ body.cp-active{overflow:hidden;}
   filter:drop-shadow(0 14px 34px rgba(0,0,0,.7));}
 /* clock-style toggle: the 24-hour prayer dial (clockfaceonline style — 0 at top,
    0–23 every hour, filled prayer-period wedges) replaces the Ottoman face. */
-.cp-face24{display:none;position:absolute;top:0;left:0;width:100%;height:100%;}
+.cp-face24{display:none;position:absolute;top:0;left:0;width:100%;height:100%;transform:translateZ(0);will-change:transform;}/* promote the (now static) scene-dial to its own cached GPU layer so the animated aurora/hands don't force it to re-rasterize every frame on weak TVs */
 body.cp-mode24 .cp-face24{display:block;}
+.cp-hands24{display:none;position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;transform:translateZ(0);will-change:transform;}
+body.cp-mode24 .cp-hands24{display:block;}
 body.cp-mode24 .cp-ottoman,body.cp-mode24 .cp-hands{display:none;}
 /* display-settings gear + popover */
 #cp-modetoggle{position:fixed;bottom:16px;right:16px;z-index:4500;
@@ -723,12 +726,8 @@ body.cp-mode24 .cp-ottoman,body.cp-mode24 .cp-hands{display:none;}
   flex-direction:column;align-items:center;gap:7px;animation:cpIn .2s ease;}
 body.cp-playing .cp-now{display:flex;}
 @keyframes cpIn{from{opacity:0;transform:translateY(-4px);}to{opacity:1;transform:translateY(0);}}
-/* gentle twinkle on the ACTIVE dial segment so the eye lands on it */
-@keyframes cp-shimmer{0%,100%{filter:brightness(1) saturate(1.05);}50%{filter:brightness(1.14) saturate(1.2);}}
-.cp-active-wedge{animation:cp-shimmer 4.5s ease-in-out infinite;}
-@media (prefers-reduced-motion:reduce){.cp-active-wedge{animation:none;}}
 /* inactive segments: sharp but dark & desaturated (NO blur — keeps the detail) */
-.cp-inactive-wedge{filter:brightness(0.3) saturate(0.45) contrast(1.12);opacity:0.74;}
+.cp-inactive-wedge{opacity:0.18;}/* dim via opacity (also set as an SVG opacity ATTRIBUTE in drawF24, since some TV browsers honour the attribute but not the CSS class); darker so dimmed wedges read truly dark on bright TV panels */
 .cp-now .lbl{color:#cfcabb;font-size:clamp(11px,1.4vw,13px);}
 .cp-stop{background:linear-gradient(#d84a3a,#9f241b);color:#fff;border:none;
   border-radius:30px;padding:9px 30px;font-weight:600;cursor:pointer;
@@ -840,7 +839,7 @@ body.cp-playing .cp-now{display:flex;}
                very back, confined to the periphery; the standing-wave mandala
                (crisp moiré contour) layers over it; then the Ottoman face;
                then the gliding hands in the transparent black centre. -->
-          <canvas id="cp-aurora" class="cp-aurora" width="128" height="128" aria-hidden="true"></canvas>
+          <canvas id="cp-aurora" class="cp-aurora" width="96" height="96" aria-hidden="true"></canvas>
           <svg class="cp-ring" viewBox="0 0 200 200" aria-hidden="true">
             <g id="cp-orbits"></g>
           </svg>
@@ -863,14 +862,6 @@ body.cp-playing .cp-now{display:flex;}
           <!-- 24-hour prayer dial (clockfaceonline "Time Manager" style): 0 at
                top, 0–23 every hour, filled prayer-period wedges, 24h hour hand -->
           <svg class="cp-face24" viewBox="0 0 200 200" aria-hidden="true">
-            <defs>
-              <!-- gold bloom for the ACTIVE segment rim + halo (spills outward) -->
-              <filter id="cp-goldglow" x="-50%" y="-50%" width="200%" height="200%">
-                <feGaussianBlur in="SourceAlpha" stdDeviation="2.6" result="b"/>
-                <feFlood flood-color="#ffd36b" flood-opacity="0.9"/>
-                <feComposite in2="b" operator="in" result="g"/>
-                <feMerge><feMergeNode in="g"/><feMergeNode in="g"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
-            </defs>
             <g id="cp-f24-wedges"></g>                                       <!-- time-of-day scene sectors -->
             <circle cx="100" cy="100" r="80" fill="none" stroke="rgba(228,193,96,0.72)" stroke-width="1.4"/>
             <circle cx="100" cy="100" r="96" fill="none" stroke="rgba(159,176,196,0.20)" stroke-width="0.7"/>
@@ -879,7 +870,13 @@ body.cp-playing .cp-now{display:flex;}
             <g id="cp-f24-num" fill="#cfe0f0" font-size="6.6" text-anchor="middle" font-family="sans-serif"></g>
             <g id="cp-f24-markers"></g>
             <circle cx="100" cy="100" r="15" fill="rgba(8,10,20,0.5)"/>               <!-- hub backing -->
-            <!-- 24-hour dial: long hour hand reads the time (no minute hand) + thin second -->
+          </svg>
+          <!-- 24h hands in a SEPARATE, filter-free overlay so the scene-dial SVG
+               above stays STATIC (repaints only on the 15s data refresh, not every
+               frame). This stops weak TV GPUs re-rasterizing the whole dial + the
+               gold Gaussian-blur on every tick — the real cause of the 24h jitter.
+               (12h is smooth precisely because its hands are a separate SVG.) -->
+          <svg class="cp-hands24" viewBox="0 0 200 200" aria-hidden="true">
             <g id="cp-h24"><line x1="100" y1="110" x2="100" y2="30" stroke="rgba(4,6,12,0.62)" stroke-width="4.8" stroke-linecap="round"/>
               <line x1="100" y1="110" x2="100" y2="30" stroke="#f4efe2" stroke-width="3.0" stroke-linecap="round"/></g>
             <g id="cp-s24"><line x1="100" y1="113" x2="100" y2="26" stroke="rgba(4,6,12,0.55)" stroke-width="2.3" stroke-linecap="round"/>
@@ -980,17 +977,10 @@ body.cp-playing .cp-now{display:flex;}
 
     <div class="center">
       <div class="clock-container">
-        <canvas id="dash-aurora" class="dash-aurora" width="128" height="128" aria-hidden="true"></canvas>
+        <canvas id="dash-aurora" class="dash-aurora" width="96" height="96" aria-hidden="true"></canvas>
         <!-- Admin scene-wedge dial (same as the Clock page); shown in the dashboard,
              hidden in legacy ?mode=clock/simple which keep the original #clock face -->
         <svg class="cp-face24-admin" viewBox="0 0 200 200" aria-hidden="true">
-          <defs>
-            <filter id="cp-goldglowb" x="-50%" y="-50%" width="200%" height="200%">
-              <feGaussianBlur in="SourceAlpha" stdDeviation="2.6" result="b"/>
-              <feFlood flood-color="#ffd36b" flood-opacity="0.9"/>
-              <feComposite in2="b" operator="in" result="g"/>
-              <feMerge><feMergeNode in="g"/><feMergeNode in="g"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
-          </defs>
           <g id="cp-f24b-wedges"></g>
           <circle cx="100" cy="100" r="80" fill="none" stroke="rgba(228,193,96,0.72)" stroke-width="1.4"/>
           <circle cx="100" cy="100" r="96" fill="none" stroke="rgba(159,176,196,0.20)" stroke-width="0.7"/>
@@ -999,6 +989,11 @@ body.cp-playing .cp-now{display:flex;}
           <g id="cp-f24b-num" fill="#cfe0f0" font-size="6.6" text-anchor="middle" font-family="sans-serif"></g>
           <g id="cp-f24b-markers"></g>
           <circle cx="100" cy="100" r="15" fill="rgba(8,10,20,0.5)"/>
+        </svg>
+        <!-- Admin 24h hands in a separate filter-free overlay (same TV-perf fix as the
+             Clock page): keeps cp-face24-admin static so weak TV GPUs don't re-rasterize
+             the dial + gold blur every frame in operator/admin view. -->
+        <svg class="cp-hands24b" viewBox="0 0 200 200" aria-hidden="true">
           <g id="cp-h24b"><line x1="100" y1="110" x2="100" y2="30" stroke="rgba(4,6,12,0.62)" stroke-width="4.8" stroke-linecap="round"/>
             <line x1="100" y1="110" x2="100" y2="30" stroke="#f4efe2" stroke-width="3.0" stroke-linecap="round"/></g>
           <g id="cp-s24b"><line x1="100" y1="113" x2="100" y2="26" stroke="rgba(4,6,12,0.55)" stroke-width="2.3" stroke-linecap="round"/>
@@ -4520,7 +4515,7 @@ window.addEventListener('load', () => {
      soft warm-gold colour wash confined to the PERIPHERY (the gold ring masks
      the inner part; the centre stays black). ~20fps is ample for sub-deg/s
      motion. Warm/amber with a restrained cool shimmer only at the peaks. ---- */
-  const AW = 128, AH = 128, ACX = 64, ACY = 64, AEDGE = 64;
+  const AW = 96, AH = 96, ACX = 48, ACY = 48, AEDGE = 48;   // 96² (was 128²): ~44% less per-frame math so weak TV GPUs hold framerate; blur hides the lower res
   const A_SPAN = 1.38;   // canvas edge = 1.38 × dial-radius (matches CSS width:138%)
   let auroraCtx = null, auroraImg = null;
   function initAurora(){
@@ -4655,8 +4650,8 @@ window.addEventListener('load', () => {
   const ang0 = (hoursFloat) => (hoursFloat / 24) * 360;   // 0 at top, clockwise
   // Two scene-dial targets: the Clock page (cp) and the Admin dashboard (b).
   // DT() returns the id-set for whichever view is currently visible.
-  const DIAL_CP    = { w:'cp-f24-wedges',  sp:'cp-f24-spokes',  mk:'cp-f24-markers',  num:'cp-f24-num',  ticks:'cp-f24-ticks',  h:'cp-h24',  s:'cp-s24',  glow:'cp-goldglow'  };
-  const DIAL_ADMIN = { w:'cp-f24b-wedges', sp:'cp-f24b-spokes', mk:'cp-f24b-markers', num:'cp-f24b-num', ticks:'cp-f24b-ticks', h:'cp-h24b', s:'cp-s24b', glow:'cp-goldglowb' };
+  const DIAL_CP    = { w:'cp-f24-wedges',  sp:'cp-f24-spokes',  mk:'cp-f24-markers',  num:'cp-f24-num',  ticks:'cp-f24-ticks',  h:'cp-h24',  s:'cp-s24'  };
+  const DIAL_ADMIN = { w:'cp-f24b-wedges', sp:'cp-f24b-spokes', mk:'cp-f24b-markers', num:'cp-f24b-num', ticks:'cp-f24b-ticks', h:'cp-h24b', s:'cp-s24b' };
   function DT(){
     const b = document.body.classList;
     if (b.contains('cp-active')) return _mode24 ? DIAL_CP : null;            // Clock page: scene dial only in 24h
@@ -4741,7 +4736,7 @@ window.addEventListener('load', () => {
       const d = annSector(RIN, ROUT, a0, a1);
       const base = document.createElementNS(SVGNS, 'path');             // solid fallback
       base.setAttribute('d', d); base.setAttribute('fill', fill || 'rgba(159,176,196,0.15)');
-      if (dim) base.setAttribute('class', 'cp-inactive-wedge');
+      if (dim) { base.setAttribute('class', 'cp-inactive-wedge'); base.setAttribute('opacity', '0.18'); }
       wedges.appendChild(base);
       const cpId = 'cpseg' + (_seq++);
       const cp = document.createElementNS(SVGNS, 'clipPath'); cp.setAttribute('id', cpId);
@@ -4753,7 +4748,7 @@ window.addEventListener('load', () => {
       img.setAttribute('width', 160); img.setAttribute('height', 160);
       img.setAttribute('preserveAspectRatio', 'xMidYMid slice');
       img.setAttribute('clip-path', 'url(#' + cpId + ')');
-      if (dim) img.setAttribute('class', 'cp-inactive-wedge');
+      if (dim) { img.setAttribute('class', 'cp-inactive-wedge'); img.setAttribute('opacity', '0.18'); }
       wedges.appendChild(img);
       if (came){
         const lead = document.createElementNS(SVGNS, 'path');           // aged-silver astrolabe "leading"
@@ -4799,10 +4794,14 @@ window.addEventListener('load', () => {
       if (ci >= 0) {
         const a0 = ang0(pts[startIdx].h), a1 = ang0(pts[(ci + 1) % L].h);
         const dA = annSector(RIN, ROUT, a0, a1);
-        const glow = document.createElementNS(SVGNS, 'path');           // gold halo (blurs outward past the bezel)
+        const glow = document.createElementNS(SVGNS, 'path');           // gold halo — filter-free (feGaussianBlur re-rasterized every frame, crushing weak TV GPUs)
         glow.setAttribute('d', dA); glow.setAttribute('fill', 'none');
-        glow.setAttribute('stroke', '#ffd36b'); glow.setAttribute('stroke-width', '2.2');
-        glow.setAttribute('filter', 'url(#' + T.glow + ')'); wedges.appendChild(glow);
+        glow.setAttribute('stroke', 'rgba(255,211,107,0.30)'); glow.setAttribute('stroke-width', '5');
+        wedges.appendChild(glow);
+        const glow2 = document.createElementNS(SVGNS, 'path');          // inner brighter band → soft fade without a blur filter
+        glow2.setAttribute('d', dA); glow2.setAttribute('fill', 'none');
+        glow2.setAttribute('stroke', 'rgba(255,224,150,0.55)'); glow2.setAttribute('stroke-width', '3');
+        wedges.appendChild(glow2);
         const baseA = document.createElementNS(SVGNS, 'path');          // solid fallback
         baseA.setAttribute('d', dA); baseA.setAttribute('fill', PERIOD_WEDGE[pts[ci].n] || 'rgba(159,176,196,0.15)');
         wedges.appendChild(baseA);
@@ -4812,8 +4811,8 @@ window.addEventListener('load', () => {
         const imgA = document.createElementNS(SVGNS, 'image');          // active scene, artwork enlarged ~5%
         const srcA = SCENE[pts[ci].n] || SCENE.Isha;
         imgA.setAttribute('href', srcA); imgA.setAttributeNS('http://www.w3.org/1999/xlink', 'href', srcA);
-        imgA.setAttribute('x', 16); imgA.setAttribute('y', 16);
-        imgA.setAttribute('width', 168); imgA.setAttribute('height', 168);
+        imgA.setAttribute('x', 20); imgA.setAttribute('y', 20);         // fit exactly within the band (was 16/168 = ~5% enlarged, which overflowed r=80 and sliced the moon's top off night.jpg's edge)
+        imgA.setAttribute('width', 160); imgA.setAttribute('height', 160);
         imgA.setAttribute('preserveAspectRatio', 'xMidYMid slice');
         imgA.setAttribute('clip-path', 'url(#cpsegA)');
         imgA.setAttribute('class', 'cp-active-wedge'); wedges.appendChild(imgA);
@@ -4882,7 +4881,7 @@ window.addEventListener('load', () => {
     const cpA = document.body.classList.contains('cp-active');
     if (cpA) { if (_mode24) setHands24(now); else setHands(now); }
     else setHands24(now);                                          // admin dashboard: scene-dial hands
-    if (cpA && t - _mandalaT >= 0.033) {                           // mandala + cp aurora: Clock page only
+    if (cpA && t - _mandalaT >= 0.066) {                           // mandala ~15fps (was 30) — TV-friendly
       _mandalaT = t;
       for (const m of mandalaEls) m.el.setAttribute('d', ringPath(m.cfg.baseR, m.cfg.petals, at));
       const root = $cp('cp-orbits');
@@ -4892,7 +4891,7 @@ window.addEventListener('load', () => {
         root.setAttribute('opacity', (0.78 + 0.22 * Math.sin(at * 2 * Math.PI / 120)).toFixed(3));  // breathe opacity
       }
     }
-    if (cpA && t - _auroraT >= 0.05) { _auroraT = t; drawAurora(at); }   // cp aurora — original Swansea cadence (×3)
+    if (cpA && t - _auroraT >= 0.083) { _auroraT = t; drawAurora(at); }   // cp aurora ~12fps (was 20) — TV-friendly; motion is slow so reads smooth
     requestAnimationFrame(spin);
   }
 
@@ -5219,7 +5218,7 @@ window.addEventListener('load', () => {
   const run = () => {
     const cv = document.getElementById('dash-aurora');
     if (!cv || !cv.getContext) return;
-    const ctx = cv.getContext('2d'); const AW = 128, AH = 128, A_SPAN = 1.38;
+    const ctx = cv.getContext('2d'); const AW = 96, AH = 96, A_SPAN = 1.38;   // 96² (was 128²) — TV-friendly, matches the clock aurora
     const img = ctx.createImageData(AW, AH);
     /* Aurora borealis: domain-warped turbulence (wispy curtains) in a green +
        purple/pink palette. The hue splits across the dial (green one side,
@@ -5229,7 +5228,7 @@ window.addEventListener('load', () => {
       const d = img.data;
       for (let y = 0; y < AH; y++) for (let x = 0; x < AW; x++) {
         const idx = (y * AW + x) * 4;
-        const nx = (x - 64) / 64, ny = (y - 64) / 64;
+        const nx = (x - 48) / 48, ny = (y - 48) / 48;   // centre for 96² canvas
         const f = Math.sqrt(nx * nx + ny * ny) * A_SPAN;
         let env = Math.exp(-((f - 0.98) * (f - 0.98)) / 0.032);   // original tight band
         const gate = Math.min(Math.max((f - 0.85) / 0.07, 0), 1); env *= gate;
@@ -5267,7 +5266,7 @@ window.addEventListener('load', () => {
     const hidden = document.body.classList.contains('cp-active') || document.body.classList.contains('simple-mode');
     if (reduce || hidden) return;     // dashboard clock not the visible view → static
     let t0 = null, last = -1;
-    function loop(ts){ if (t0 == null) t0 = ts; const t = (ts - t0) / 1000 * 3; if (t - last >= 0.05) { last = t; draw(t); } requestAnimationFrame(loop); }
+    function loop(ts){ if (t0 == null) t0 = ts; const t = (ts - t0) / 1000 * 3; if (t - last >= 0.083) { last = t; draw(t); } requestAnimationFrame(loop); }
     requestAnimationFrame(loop);
   };
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', run);
