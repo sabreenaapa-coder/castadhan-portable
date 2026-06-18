@@ -139,6 +139,24 @@ systemctl enable avahi-daemon >/dev/null 2>&1 || true
 systemctl restart avahi-daemon || true
 ok "avahi-daemon running — $HOSTNAME.local should resolve on the LAN"
 
+# Always also answer to the SAME name 'castadhan.local' regardless of the chosen
+# hostname (which may be customised per family member for Tailscale). This gives
+# ONE address to print on a card / type into a TV browser, on every box. Harmless
+# if HOSTNAME is already 'castadhan'; non-fatal — the box still works on
+# <hostname>.local + the numeric IP even if this step is skipped.
+AVAHI_CONF=/etc/avahi/avahi-daemon.conf
+if [ -f "$AVAHI_CONF" ]; then
+  if grep -qE '^[[:space:]]*#?[[:space:]]*host-name=' "$AVAHI_CONF"; then
+    sed -i 's/^[[:space:]]*#\?[[:space:]]*host-name=.*/host-name=castadhan/' "$AVAHI_CONF"
+  elif grep -q '^\[server\]' "$AVAHI_CONF"; then
+    sed -i '/^\[server\]/a host-name=castadhan' "$AVAHI_CONF"
+  else
+    printf '\n[server]\nhost-name=castadhan\n' >> "$AVAHI_CONF"
+  fi
+  systemctl restart avahi-daemon || true
+  ok "mDNS alias set — this box also answers to http://castadhan.local:8786"
+fi
+
 # ---- 6b. install auto-update timer + sudoers stanza -----------------------
 say "Installing auto-update timer"
 install -m 0644 "$SOURCE_DIR/deploy/castadhan-update.service" /etc/systemd/system/castadhan-update.service
