@@ -705,6 +705,9 @@ body.cp-active{overflow:hidden;}
 body.cp-mode24 .cp-face24{display:block;}
 .cp-hands24{display:none;position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;transform:translateZ(0);will-change:transform;}
 body.cp-mode24 .cp-hands24{display:block;}
+/* Marketing cinematic demo (?demo=<seconds>): clean day-sweep frame — hide the fast-spinning second hand + operator chrome */
+body.cp-demo #cp-s24,body.cp-demo #cp-s24b{display:none}
+body.cp-demo #cp-modetoggle,body.cp-demo #cp-adminflip,body.cp-demo .cp-flip{display:none!important}
 body.cp-mode24 .cp-ottoman,body.cp-mode24 .cp-hands{display:none;}
 /* display-settings gear + popover */
 #cp-modetoggle{position:fixed;bottom:16px;right:16px;z-index:4500;
@@ -1046,6 +1049,7 @@ body.cp-playing .cp-now{display:flex;}
     <div class="modal-tabs">
       <!-- S2 FIX (2026-05-23): added IDs so switchTab() can find and highlight active button -->
       <button id="tab-basic"    class="tab-btn active" onclick="switchTab('basic')">Basic</button>
+      <button id="tab-tv"       class="tab-btn"        onclick="switchTab('tv')">📺 TV Display</button>
       <button id="tab-wakeup"   class="tab-btn"        onclick="switchTab('wakeup')">⏰ Wakeup</button>
       <button id="tab-advanced" class="tab-btn"        onclick="switchTab('advanced')">Advanced</button>
       <button id="tab-speakers" class="tab-btn"        onclick="switchTab('speakers')">Speaker Routing</button>
@@ -1528,6 +1532,33 @@ body.cp-playing .cp-now{display:flex;}
       </div>
     </div>
     
+    <div id="tv-tab" class="tab-pane">
+      <div class="settings-grid">
+        <div class="control-group">
+          <h4>📺 Show the clock on your TV</h4>
+          <p style="font-size:.9em;color:var(--silver);line-height:1.5;margin:4px 0 14px;">
+            On your TV's web browser, go to the address below — the prayer clock will fill the screen.
+            Bookmark it so it's one tap next time.
+          </p>
+          <div style="text-align:center;margin:6px 0 4px;">
+            <div style="font-size:.78em;color:#9a958a;margin-bottom:6px;">This CastAdhan's address on your home network</div>
+            <div id="tv-address" style="font-size:1.55em;font-weight:700;color:var(--gold);letter-spacing:.5px;word-break:break-all;">detecting…</div>
+            <button class="control-btn" id="tv-copy" style="margin-top:12px;" onclick="copyTvAddress()">📋 Copy address</button>
+          </div>
+          <div style="font-size:.85em;color:var(--silver);line-height:1.7;margin-top:14px;">
+            <b>On the TV:</b><br>
+            1. Open the TV's web browser.<br>
+            2. Type in the address shown above.<br>
+            3. The clock appears — leave it running.
+          </div>
+          <div id="tv-alt" style="font-size:.8em;color:#8a857a;margin-top:12px;"></div>
+          <div style="font-size:.75em;color:#7a756a;margin-top:8px;">
+            Tip: if it ever stops working (e.g. after the router restarts), reopen this tab to see the current address.
+          </div>
+        </div>
+      </div>
+    </div>
+
     <div id="audio-tab" class="tab-pane">
       <!-- U-5 (v1.6.0): Upload new audio files via the dashboard.
            Drop-zone with click-to-browse fallback. Posts to /api/audio/upload. -->
@@ -3947,11 +3978,46 @@ function closeSettings() {
 
 function switchTab(tabName) {
   document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
-  const tabMap = {'basic':'tab-basic','advanced':'tab-advanced','speakers':'tab-speakers','audio':'tab-audio'};
+  const tabMap = {'basic':'tab-basic','tv':'tab-tv','wakeup':'tab-wakeup','advanced':'tab-advanced','speakers':'tab-speakers','audio':'tab-audio'};
   const tabId = tabMap[tabName];
   if (tabId) $(tabId).classList.add('active');
   document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
   $(`${tabName}-tab`).classList.add('active');
+  if (tabName === 'tv' && typeof populateTvTab === 'function') populateTvTab();
+}
+
+/* ---- TV Display tab: show this box's LAN address so it can be typed into a
+   smart-TV browser. The Pi knows its own IP (eth0/wlan0) via /api/wifi/status,
+   so this works no matter how the dashboard itself was reached (.local, IP,
+   or Tailscale). ---- */
+async function populateTvTab() {
+  const el = document.getElementById('tv-address'); if (!el) return;
+  const port = location.port || '8786';
+  try {
+    const j = await (await fetch('/api/wifi/status')).json();
+    const st = (j && j.status) || {};
+    const ip = (st.eth0 && st.eth0.ip) || (st.wlan0 && st.wlan0.ip) || null;
+    if (ip) {
+      const url = 'http://' + ip + ':' + port;
+      el.textContent = url; el.dataset.url = url;
+      const via = (st.eth0 && st.eth0.ip) ? 'Ethernet' : 'Wi-Fi';
+      const alt = document.getElementById('tv-alt');
+      if (alt) alt.innerHTML = 'Connected via ' + via + '. Some TVs also accept <b>castadhan.local:' + port + '</b>.';
+    } else {
+      el.textContent = 'Not on a network yet — connect Ethernet or Wi-Fi'; el.dataset.url = '';
+    }
+  } catch (e) {
+    el.textContent = location.origin; el.dataset.url = location.origin;   // fallback: the address this page loaded on
+  }
+}
+function copyTvAddress() {
+  const el = document.getElementById('tv-address'); const url = (el && (el.dataset.url || el.textContent)) || '';
+  if (url.indexOf('http') !== 0) return;
+  try {
+    navigator.clipboard.writeText(url).then(() => {
+      const b = document.getElementById('tv-copy'); if (b) { const t = b.textContent; b.textContent = '✓ Copied'; setTimeout(() => { b.textContent = t; }, 1500); }
+    });
+  } catch (e) {}
 }
 
 /* ----------------------- actions ----------------------- */
@@ -5183,6 +5249,72 @@ window.addEventListener('load', () => {
     } else { setHands24(new Date()); }
   }
 
+  /* ---- Marketing cinematic mode: ?demo=<seconds> sweeps a full 24-hour day
+     in <seconds> of real time (default 60). The hour hand makes one complete
+     turn while the dawn→midday→dusk→night scene art, the gold "active period"
+     focus and the aurora palette animate in lock-step — a time-lapse of a whole
+     day. Purely opt-in: no effect at all without the ?demo query param, so the
+     appliance is untouched in normal use. ---- */
+  function cinematicDemo(){
+    const qs = new URLSearchParams(location.search);
+    if (!qs.has('demo')) return;
+    const secs  = Math.max(4, parseFloat(qs.get('demo')) || 60);     // real seconds per virtual day
+    const SPEED = 86400 / secs;                                      // virtual seconds per real second
+    const RealDate = Date;
+    const midnight = (() => { const d = new RealDate(); d.setHours(0, 0, 0, 0); return d.getTime(); })();
+    const clock = () => (window.performance && performance.now) ? performance.now() : RealDate.now();
+    const t0 = clock();
+    let seekMs = null;                                               // when set, the virtual clock is frozen here (used by the GIF/MP4 exporter)
+    const vms = () => seekMs != null ? seekMs : midnight + ((clock() - t0) / 1000 * SPEED * 1000) % 86400000;   // loops 00:00→24:00
+    // Override the no-arg Date so every "now" in the renderer runs on the fast
+    // virtual clock; explicit new Date(args) and Date.parse/UTC stay real.
+    function FakeDate(...a){ return a.length ? new RealDate(...a) : new RealDate(vms()); }
+    FakeDate.prototype = RealDate.prototype;
+    FakeDate.now = () => vms();
+    FakeDate.parse = RealDate.parse; FakeDate.UTC = RealDate.UTC;
+    try { window.Date = FakeDate; } catch (e) {}
+    document.body.classList.add('cp-demo');
+    applyClockMode('24');                                            // force the 24-hour scene dial
+    // Drive the sweep ourselves so it never depends on the spin loop or on
+    // reduced-motion being off: every paint re-lights the scene wedges + gold
+    // "active period" focus + aurora and re-points the hour hand at the virtual
+    // time. rAF gives a buttery foreground recording; the low-rate interval is
+    // a fallback so the sweep survives rAF throttling (background tab / weak TV).
+    let lastPaint = -1;
+    function paint(){
+      const t = clock();
+      if (t - lastPaint < 55) return;                                // ~18fps cap; dedupes rAF + interval
+      lastPaint = t;
+      const now = new FakeDate();
+      try { drawF24(_lastTimes || window.currentPrayers || {}, _lastNext, _lastHist, now); } catch (e) {}
+      try { setHands24(now); } catch (e) {}
+      try { updateAurora(now); } catch (e) {}
+    }
+    (function raf(){ paint(); requestAnimationFrame(raf); })();
+    setInterval(paint, 200);
+    // Offline frame-perfect export hooks (used to render the looping GIF/MP4):
+    // freeze the virtual clock at an exact moment + paint one stable frame.
+    function recomputeNext(now){                                    // next prayer after `now` (wraps to tomorrow's Fajr)
+      const tt = _lastTimes || window.currentPrayers || {};
+      for (const n of ['Fajr', 'Dhuhr', 'Asr', 'Maghrib', 'Isha']){
+        const hm = String(tt[n] || '').match(/(\d{1,2}):(\d{2})/); if (!hm) continue;
+        const w = new RealDate(now); w.setHours(+hm[1], +hm[2], 0, 0);
+        if (w > now) return { name: n, when: w };
+      }
+      const f = String(tt.Fajr || '').match(/(\d{1,2}):(\d{2})/);
+      if (f){ const w = new RealDate(now); w.setDate(w.getDate() + 1); w.setHours(+f[1], +f[2], 0, 0); return { name: 'Fajr', when: w }; }
+      return null;
+    }
+    window.__demoReady = () => !!(_lastTimes || window.currentPrayers);
+    window.__demoSeek  = (msOfDay) => {
+      seekMs = midnight + (((msOfDay % 86400000) + 86400000) % 86400000);
+      lastPaint = -1; paint();                                      // hand + scene + aurora at the frozen instant
+      try { cpNext = recomputeNext(new RealDate(seekMs)); } catch (e) {}
+      try { tickClock(); } catch (e) {}                             // digital time + date + countdown match the frame
+    };
+    window.__demoPlay  = () => { seekMs = null; };
+  }
+
   /* ---- boot ---- */
   function boot(){
     buildMandala();
@@ -5206,8 +5338,9 @@ window.addEventListener('load', () => {
     else requestAnimationFrame(spin);      // smooth gliding hands + mandala + aurora
   }
   const _init = _isAdmin ? initAdminDial : boot;
-  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', _init);
-  else _init();
+  const _start = () => { _init(); cinematicDemo(); };
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', _start);
+  else _start();
 })();
 
 /* ── Aura halo behind the Admin dashboard clock — same pink/purple standing-wave
