@@ -284,7 +284,13 @@ DEFAULT_CONFIG = {
         # behaviour on every existing Pi.
         'isha_method_always_apply': False,
         'fajr_at_start_when_isha_capped': True,  # When Isha cap fires today, play Fajr at raw API time
-        'twilight_scan_frequency_days': 7
+        'twilight_scan_frequency_days': 7,
+        # B-Belgium-62: opt-in, per box. Cast audio from the PUBLIC internet URL
+        # (GitHub) instead of the Pi's local HTTP server. For boxes whose router
+        # blocks the speaker from reaching the Pi over the LAN (AP / client
+        # isolation) — the speaker streams the adhan over the internet instead.
+        # Default False everywhere = local serving, fully offline-capable.
+        'cast_media_from_internet': False
     },
     # v1.9.8.1: Quran Programs defaults. _deep_merge_defaults() will inject this
     # block on any existing install where config.yaml was preserved across the
@@ -2595,7 +2601,20 @@ def _play_custom_audio(audio_id: str, force: bool = False):
 
 
 def _custom_audio_local_url(audio_id: str) -> str:
-    """Build the URL the Cast device will fetch — served by /media/custom/<id>.mp3."""
+    """Build the URL the Cast device will fetch — served by /media/custom/<id>.mp3.
+
+    B-Belgium-62: when cast_media_from_internet is set, hand the speaker the
+    scheduled-audio's PUBLIC source URL (the surahs' release asset) — or, for the
+    bundled Surah Kahf, its GitHub raw URL — so it streams over the internet
+    instead of fetching from the Pi (fixes router AP / client isolation)."""
+    if RULES.get("cast_media_from_internet"):
+        ent = (CFG.get("scheduled_audio") or {}).get(audio_id) or {}
+        au = (ent.get("audio_url") or "").strip()
+        if au.startswith("http://") or au.startswith("https://"):
+            return au
+        bp = (AUDIO.get(audio_id) or "").lstrip("/")   # 'bundled' (Surah Kahf) lives in the repo audio/ tree
+        if bp and os.path.isfile(os.path.join(ROOT, bp)):
+            return "https://raw.githubusercontent.com/sabreenaapa-coder/castadhan-portable/main/" + quote(bp)
     ip = "127.0.0.1"
     try:
         s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -2693,7 +2712,18 @@ def _quiet_test_custom_audio(audio_id: str):
 
 
 def local_media_url(relpath: str) -> str:
-    """Get local media URL with better IP detection"""
+    """Get local media URL with better IP detection.
+
+    B-Belgium-62: when cast_media_from_internet is set (opt-in, per box), hand the
+    Cast device the PUBLIC https URL on GitHub for repo-bundled audio instead of
+    the Pi's local server — so the speaker streams the file over the internet and
+    never needs to reach the Pi. Fixes boxes whose router blocks the speaker->Pi
+    path (AP / client isolation). Only used for files present in the repo tree."""
+    rel = relpath.lstrip("/")
+
+    if RULES.get("cast_media_from_internet") and os.path.isfile(os.path.join(ROOT, rel)):
+        return "https://raw.githubusercontent.com/sabreenaapa-coder/castadhan-portable/main/" + quote(rel)
+
     ip = "127.0.0.1"
     try:
         # Try to get the actual network IP
@@ -2707,7 +2737,6 @@ def local_media_url(relpath: str) -> str:
         except Exception:
             pass
 
-    rel = relpath.lstrip("/")
     # Check if compatible version should be used
     if not relpath.endswith('_compatible.mp3'):
         compatible_rel = rel.replace('.mp3', '_compatible.mp3')
