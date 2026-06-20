@@ -63,3 +63,9 @@ castadhan-telegram.env
 # web app and consumed by castadhan-update.path. Never a source artifact.
 .update-requested
 .claude/
+
+# Large source audio (originals before transcode) + replacement drop folder.
+# These are big and not served directly — the served files live in audio/ and the
+# release pack. Keep the raw masters local only.
+audio-pack/
+_incoming_audio/
