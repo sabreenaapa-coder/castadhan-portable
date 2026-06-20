@@ -62,6 +62,9 @@ import urllib.request
 
 BASE_URL = "http://127.0.0.1:8786"
 INSTALL_DIR = "/opt/castadhan-portable"
+# Source dir for STATIC source-grep checks: the install dir on a Pi, or this
+# file's own directory in a dev checkout — so the static checks run anywhere.
+SRC_DIR = INSTALL_DIR if os.path.isdir(INSTALL_DIR) else os.path.dirname(os.path.abspath(__file__))
 results = []   # (severity, category, name, status, detail)
 
 def t(severity, category, name, ok, detail=""):
@@ -84,6 +87,20 @@ def read(path):
 
 def run(cmd, timeout=8):
     return subprocess.run(cmd, shell=isinstance(cmd, str), capture_output=True, text=True, timeout=timeout)
+
+def src(rel):
+    """Read a SOURCE file (app.py, console.html, deploy/*, VERSION …) for static
+    regression checks, from SRC_DIR — the install dir on a Pi, the repo dir in a
+    dev checkout. Read-only; never plays audio."""
+    return read(os.path.join(SRC_DIR, rel))
+
+def _fn_body(text, defline):
+    """Slice a Python function body: from `defline` to the next top-level `def `."""
+    i = text.find(defline)
+    if i < 0:
+        return ""
+    j = text.find("\ndef ", i + len(defline))
+    return text[i: j if j > 0 else len(text)]
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Layer 1 — System health
@@ -981,12 +998,210 @@ def L13_volume_policy():
         err("HIGH", cat, "volume-policy-overall", e)
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Layer 14 — Incident regression net (2026-06-20 coverage-audit gap closure)
+# Each check guards a documented B-Belgium incident that previously had NO
+# regression test. STATIC checks read SRC_DIR (install dir on a Pi / repo dir in
+# a dev checkout) so they run anywhere; RUNTIME checks hit the local API + state
+# (Pi only — they ERROR gracefully off-box). SAFE: all read-only, never plays audio.
+# ─────────────────────────────────────────────────────────────────────────────
+def L14_incident_net():
+    cat = "L14 incident-net"
+    try: app = src("app.py")
+    except Exception as e: err("HIGH", cat, "b-source-app-readable", e); app = ""
+    try: html = src("console.html")
+    except Exception: html = ""
+
+    # B-Belgium-10 / Lesson 32 (CRITICAL): the app.py SCHEMA default for the speaker
+    # include-filter must be '' — a non-empty default silently re-poisons config on
+    # merge so discovery returns 0 speakers (the 25-May silent-Maghrib mechanism).
+    if app:
+        vals = [v for (_q, v) in re.findall(r"include_if_name_contains['\"]?\s*:\s*(['\"])(.*?)\1", app)]
+        bad = [v for v in vals if v.strip() != ""]
+        t("CRITICAL", cat, "b10-include-default-empty", bool(vals) and not bad,
+          "include_if_name_contains default must be '' (found %r)" % (bad[:1] or vals[:1]))
+
+    # B-Belgium-17 / O37 (HIGH): shipped default high_latitude_method must be
+    # static_offset (combine_prayers silently skips Isha for new low-lat installs).
+    if app:
+        m = re.search(r"high_latitude_method['\"]?\s*:\s*(['\"])(.*?)\1", app)
+        t("HIGH", cat, "b17-hilat-default-static-offset", bool(m) and m.group(2) == "static_offset",
+          "default high_latitude_method=%s (expect static_offset)" % (m.group(2) if m else "?"))
+
+    # B-Belgium-3 (HIGH): Stop All must force-stop via quit_app(), not no-op when
+    # _general_casts is empty (audio kept playing while UI said "stopped 0 devices").
+    if app:
+        t("HIGH", cat, "b3-stopall-uses-quit-app", "quit_app" in _fn_body(app, "def stop_all_audio("),
+          "stop_all_audio must call quit_app() as a forceful fallback")
+
+    # B-Belgium-36 (HIGH): every add_job with a FIXED id (not a timestamped one-shot)
+    # must pass replace_existing=True, or first-run save raises ConflictingIdError and
+    # the scheduler dies (no prayers fire).
+    if app:
+        risky = []
+        guards = ("not in existing", "get_job(", "not in current", "existing_ids", "if not sched")
+        for mt in re.finditer(r"add_job\(", app):
+            seg = app[mt.start(): mt.start() + 700].split("\n\n")[0]
+            before = app[max(0, mt.start() - 280): mt.start()]
+            # Safe if: timestamped one-shot id, OR replace_existing=True, OR guarded by an
+            # "id not in existing" existence check before the call. Otherwise risky.
+            if "id=" in seg and "replace_existing" not in seg \
+               and not ("strftime" in seg or "%Y%m%d" in seg) \
+               and not any(g in before for g in guards):
+                risky.append(seg.split("\n")[0][:36])
+        t("HIGH", cat, "b36-addjob-replace-existing", not risky,
+          "fixed-id add_job needs replace_existing or an existence guard: %s" % (risky[:2] or "none"))
+
+    # B-Belgium-37 (HIGH): Settings save must snapshot config-* inputs DYNAMICALLY —
+    # a static whitelist silently dropped isha_static_offset / isha_max_time edits.
+    if html:
+        t("HIGH", cat, "b37-settings-snapshot-dynamic",
+          "_captureFormSnapshot" in html and 'id^="config-"' in html,
+          "Settings snapshot must scan [id^=config-] dynamically, not a whitelist")
+
+    # B-Belgium-38 (HIGH): the isha_method_always_apply rule must exist (the UK-summer
+    # Maghrib+N override was gated only on persistent_twilight_active before).
+    if app:
+        t("HIGH", cat, "b38-isha-always-apply-rule", "isha_method_always_apply" in app,
+          "config rule isha_method_always_apply must exist")
+
+    # B-Belgium-48 (HIGH): cast_rediscovery cron must NOT fire on :00 or :30 — those
+    # collide with on-the-half-hour prayer jamats and can knock out a firing.
+    if app:
+        line = next((l for l in app.splitlines() if "cast_rediscovery" in l and "add_job" in l), "")
+        m = re.search(r"minute=(['\"])(.*?)\1", line)
+        mins = [x.strip() for x in m.group(2).split(",")] if m else []
+        t("HIGH", cat, "b48-rediscovery-avoids-prayer-minutes",
+          bool(m) and not (set(mins) & {"0", "30"}),
+          "cast_rediscovery minute=%s must avoid :00/:30" % (m.group(2) if m else "?"))
+
+    # B-Belgium-42 (HIGH): every audio-playing function must log to play_history —
+    # directly via _log_play, or via _play_to_targets (which logs). 10 of 13 players
+    # were once silent, giving false "everything fired" confidence for weeks.
+    if app:
+        players = ["play_takbeeraat_all", "play_twilight", "play_adhan_all",
+                   "play_sunrise_warning", "play_asr_warning", "play_dhuhr_warning",
+                   "play_maghrib_warning", "play_morning_dhikr", "play_evening_content",
+                   "play_friday_prayer", "play_wakeup", "play_suhoor_alarm"]
+        missing = [p for p in players
+                   if (b := _fn_body(app, "def %s(" % p)) and "_log_play" not in b and "_play_to_targets" not in b]
+        t("HIGH", cat, "b42-all-players-log-history", not missing,
+          "play fns not logging history: %s" % (missing or "none"))
+
+    # B-Belgium-15 / B-Belgium-20 (HIGH): the next-prayer CARD must use the EFFECTIVE
+    # (shifted) time, not raw aladhan time — else it shows e.g. 03:42 while the alarm
+    # fires at 05:11 (contributed to the 27-May Eid no-fire).
+    if html:
+        t("HIGH", cat, "b15-card-uses-effective-time",
+          "effective_when_iso" in html and "effective_time_pretty" in html,
+          "next-prayer card must read effective_when_iso / effective_time_pretty")
+
+    # B-Belgium-44 (HIGH): the updater download must --retry + surface curl's exit code
+    # (a bare `curl -s` silently swallowed mid-stream failures for days).
+    try:
+        upd = src("deploy/castadhan-update.sh")
+        t("HIGH", cat, "b44-updater-curl-retry",
+          "--retry" in upd and ("--retry-all-errors" in upd or "curl exit" in upd),
+          "castadhan-update.sh download must use --retry + capture the exit code")
+    except Exception as e:
+        err("HIGH", cat, "b44-updater-curl-retry", e)
+
+    # B-Belgium-31 (HIGH): setup-pi.sh must set the WiFi regulatory country, or a fresh
+    # Pi's wlan0 stays 'unavailable' and the WiFi-wizard scan is empty (P0 dead-end).
+    # B-Belgium-32 (MEDIUM): iw + rfkill must be apt-installed (the unblock runcmd needs them).
+    # B-Belgium-33 (LOW): constant castadhan.local avahi alias present.
+    try:
+        setup = src("deploy/setup-pi.sh")
+        t("HIGH", cat, "b31-setup-sets-wifi-country", "country" in setup and "wlan0" in setup,
+          "setup-pi.sh must configure the WiFi regulatory country")
+        t("MEDIUM", cat, "b32-iw-rfkill-installed", "iw" in setup and "rfkill" in setup,
+          "setup-pi.sh must apt-install iw + rfkill")
+        t("LOW", cat, "b33-avahi-castadhan-alias",
+          "host-name=castadhan" in setup or "castadhan.local" in setup,
+          "setup-pi.sh should register the castadhan.local avahi alias")
+    except Exception as e:
+        err("HIGH", cat, "b31-setup-wifi", e)
+
+    # B-Belgium-30 (MEDIUM): committed updater defaults must point at the REAL repo,
+    # not a placeholder (a shipped placeholder broke fresh installs).
+    try:
+        defs = src("deploy/castadhan-update.defaults")
+        t("MEDIUM", cat, "b30-update-defaults-real-repo",
+          'GITHUB_REPO="sabreenaapa-coder/castadhan-portable"' in defs,
+          "GITHUB_REPO must be set to the real repo")
+    except Exception as e:
+        err("MEDIUM", cat, "b30-update-defaults-real-repo", e)
+
+    # B-Belgium-29 (MEDIUM): add_by_ip must PERSIST to known_speakers.json (it once
+    # returned ok but the speaker vanished after a known_speakers reset).
+    if app:
+        i = app.find("/api/speakers/add_by_ip")
+        body = app[i:i + 2600] if i >= 0 else ""
+        t("MEDIUM", cat, "b29-add-by-ip-persists", "known_speakers" in body,
+          "add_by_ip endpoint must persist to known_speakers.json")
+
+    # B-Belgium-62 / B-Belgium-63 (LOW): on weak TV browsers the scene wedges must dim
+    # via the SVG opacity ATTRIBUTE (not only a CSS class), or they render full-bright.
+    if html:
+        t("LOW", cat, "b62-wedge-dim-opacity-attr",
+          "setAttribute('opacity'" in html or 'setAttribute("opacity"' in html,
+          "drawF24 must set the SVG opacity attribute for wedge dimming")
+
+    # ── Runtime checks (Pi only — read live state; ERROR gracefully off-box) ──
+
+    # B-Belgium-41 / B-Belgium-46 (MEDIUM): no orphan speaker keys in ui_state.json —
+    # every volumes key must map to a known/discovered speaker (orphans persist forever).
+    try:
+        ui = json.loads(read(INSTALL_DIR + "/ui_state.json"))
+        known = set()
+        try:
+            ks = json.loads(read(INSTALL_DIR + "/known_speakers.json"))
+            known |= set(ks.keys()) if isinstance(ks, dict) else {e.get("name") for e in ks if isinstance(e, dict)}
+        except Exception:
+            pass
+        try:
+            _c, st = http_json("/api/speaker/status")
+            known |= set((st.get("status") or {}).keys())
+        except Exception:
+            pass
+        orphans = sorted((set((ui.get("volumes") or {}).keys()) - {"__default"}) - known)
+        t("MEDIUM", cat, "b41-no-orphan-ui-keys", not orphans,
+          "orphan ui_state speaker keys: %s" % (orphans[:3] or "none"))
+    except Exception as e:
+        err("MEDIUM", cat, "b41-no-orphan-ui-keys", e)
+
+    # B-Belgium-34 (MEDIUM): no two speakers share an IP (add_by_ip used to duplicate
+    # a speaker after a later rediscovery).
+    try:
+        ks = json.loads(read(INSTALL_DIR + "/known_speakers.json"))
+        ips = [(v.get("ip") if isinstance(v, dict) else v) for v in ks.values()] if isinstance(ks, dict) \
+              else [e.get("ip") for e in ks if isinstance(e, dict)]
+        ips = [i for i in ips if i]
+        dups = sorted({i for i in ips if ips.count(i) > 1})
+        t("MEDIUM", cat, "b34-no-duplicate-speaker-ips", not dups,
+          "duplicate speaker IPs: %s" % (dups or "none"))
+    except Exception as e:
+        err("MEDIUM", cat, "b34-no-duplicate-speaker-ips", e)
+
+    # B-Belgium-45 (MEDIUM): fleet version-drift signal — warn if this box's VERSION is
+    # behind the latest GitHub release (drift was previously invisible). Network read.
+    try:
+        local_v = src("VERSION").strip()
+        req = urllib.request.Request(
+            "https://api.github.com/repos/sabreenaapa-coder/castadhan-portable/releases/latest",
+            headers={"Accept": "application/vnd.github+json", "User-Agent": "castadhan-sanity"})
+        tag = (json.loads(urllib.request.urlopen(req, timeout=10).read().decode()).get("tag_name") or "").lstrip("v")
+        t("MEDIUM", cat, "b45-version-not-drifted", bool(tag) and local_v == tag,
+          "local VERSION=%s latest release=%s" % (local_v, tag or "?"))
+    except Exception as e:
+        err("MEDIUM", cat, "b45-version-not-drifted", e)
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Run everything
 # ─────────────────────────────────────────────────────────────────────────────
 for fn in [L1_system, L2_config, L3_discovery, L4_scheduler, L5_api,
            L6_ui, L7_audio, L7b_scheduled_audio,
            L8_religion, L9_autoupdate, L9b_wifi_wizard, L10_tailscale, L11_history,
-           L12_connectivity, L13_volume_policy]:
+           L12_connectivity, L13_volume_policy, L14_incident_net]:
     try:
         fn()
     except Exception as e:
