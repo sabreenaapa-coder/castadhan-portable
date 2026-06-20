@@ -77,6 +77,14 @@ DEFAULT_POLICY = {
     "category_ratios": dict(_DEFAULT_RATIOS),
     "types": {k: dict(v) for k, v in _DEFAULT_TYPES.items()},
     "default_type": dict(_DEFAULT_TYPE),
+    # v1.12 "volume mixer" — optional per-sound volume knobs (% of the speaker master).
+    # adhan_volumes is keyed by prayer name (fajr/dhuhr/asr/maghrib/isha) so the same
+    # adhan file can be loud at Fajr and quieter at the rest. type_volumes is keyed by
+    # the audio_type string (incl. "scheduled:<id>" recitations). Both override only the
+    # DAYTIME ratio; the quiet-hours axis (ATTENUATE/SUPPRESS) is unchanged, so a clip
+    # set loud in the day is still neighbour-safe at night. Empty = use category ratios.
+    "adhan_volumes": {},
+    "type_volumes": {},
 }
 
 _DURATION_PERIPHERAL_THRESHOLD_S = 60  # non-adhan clips longer than this, if unmapped, are peripheral
@@ -90,6 +98,16 @@ def _parse_hhmm(s, fallback):
         return fallback
 
 
+def _pct_ratio(v):
+    """A 0–100 % volume knob -> a ratio of the speaker master (0.0–1.0). A sound never
+    exceeds the master, so values are clamped to [0, 100]. Returns None if unparseable
+    (caller then falls back to the category ratio)."""
+    try:
+        return max(0, min(int(round(float(v))), 100)) / 100.0
+    except Exception:
+        return None
+
+
 def _merge(policy):
     """Shallow-merge a caller policy over DEFAULT_POLICY so partial configs work."""
     if not policy:
@@ -101,6 +119,9 @@ def _merge(policy):
     p["types"] = {**DEFAULT_POLICY["types"], **(policy.get("types") or {})}
     p["default_type"] = policy.get("default_type") or DEFAULT_POLICY["default_type"]
     p["quiet_hours"] = {**DEFAULT_POLICY["quiet_hours"], **(policy.get("quiet_hours") or {})}
+    # v1.12 mixer overrides — normalise prayer keys to lowercase for robust lookup.
+    p["adhan_volumes"] = {str(k).strip().lower(): v for k, v in (policy.get("adhan_volumes") or {}).items()}
+    p["type_volumes"] = dict(policy.get("type_volumes") or {})
     return p
 
 
@@ -126,6 +147,19 @@ def _classify(audio_type, policy, duration_s):
             and duration_s > _DURATION_PERIPHERAL_THRESHOLD_S):
         return {"category": "PERIPHERAL", "quiet": "SUPPRESS"}
     return policy["default_type"]
+
+
+def default_volume_pct(audio_type):
+    """Default play volume (% of master) for an audio_type under the gift profile — used
+    to seed each volume-mixer knob at today's behaviour. Unmapped types (incl.
+    "scheduled:<id>" recitations) default to PERIPHERAL, matching the resolver."""
+    spec = _DEFAULT_TYPES.get(audio_type)
+    if spec is None:
+        return int(round(_DEFAULT_RATIOS["PERIPHERAL"] * 100))
+    ratio = spec.get("ratio")
+    if ratio is None:
+        ratio = _DEFAULT_RATIOS.get(spec.get("category", "CORE"), 1.0)
+    return int(round(ratio * 100))
 
 
 def resolve_play_volume(audio_type, speaker_base_volume, profile_config=None,
@@ -161,9 +195,20 @@ def resolve_play_volume(audio_type, speaker_base_volume, profile_config=None,
         category = spec.get("category", "CORE")
         behaviour = spec.get("quiet", "ALLOW")
         ratios = p["category_ratios"]
-        # A type may pin its own volume ratio (e.g. suhoor at 0.5) that overrides
-        # its category ratio; otherwise it rides the category ratio.
-        ratio = spec.get("ratio")
+        # Daytime volume ratio, in precedence order (the "volume mixer"):
+        #   1. per-prayer adhan knob  (Fajr loud, other adhans quieter)
+        #   2. explicit per-type knob (any sound file, incl. "scheduled:<id>" recitations)
+        #   3. a type's pinned ratio  (e.g. suhoor at 0.5)
+        #   4. the category ratio     (CORE/SECONDARY/PERIPHERAL default)
+        # Only the DAYTIME level is affected; the quiet-hours behaviour below is unchanged
+        # so a clip turned up in the day is still attenuated/suppressed at night.
+        ratio = None
+        if audio_type in ("adhan", "adhan_compatible") and prayer_name:
+            ratio = _pct_ratio((p.get("adhan_volumes") or {}).get(str(prayer_name).strip().lower()))
+        if ratio is None:
+            ratio = _pct_ratio((p.get("type_volumes") or {}).get(audio_type))
+        if ratio is None:
+            ratio = spec.get("ratio")
         if ratio is None:
             ratio = ratios.get(category, 1.0)
         category_volume = base * ratio

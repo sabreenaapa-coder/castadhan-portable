@@ -5158,7 +5158,8 @@ def play_adhan_all(target: Optional[str] = None, prayer_name: Optional[str] = No
         return  # _ensure_speakers already logged + recorded
 
     try:
-        _play_to_targets(AUDIO["adhan"], target=target, audio_type="adhan")
+        # Pass prayer_name so the volume mixer can play e.g. Fajr loud, other adhans quieter.
+        _play_to_targets(AUDIO["adhan"], target=target, audio_type="adhan", prayer_name=prayer_name)
 
         # Chain follow-up audio based on context.
         #
@@ -6302,6 +6303,86 @@ def api_list_audio_files():
     except Exception as e:
         log.error(f"Error listing audio files: {e}")
         return jsonify({"ok": False, "error": str(e)}), 500
+
+def _volume_mixer_catalog():
+    """Per-sound 'volume mixer' catalog: every controllable sound with its default %
+    (today's behaviour) and the current saved %. Keys are the EXACT strings the resolver
+    sees — prayer names for the adhan, audio_type for everything else (including
+    'scheduled:<id>' recitations enumerated live from config)."""
+    vp_cfg = CFG.get("volume_policy") or {}
+    av = vp_cfg.get("adhan_volumes") or {}
+    tv = vp_cfg.get("type_volumes") or {}
+    def adhan_item(key, label):
+        return {"key": key, "label": label, "default": 100, "current": int(av.get(key, 100))}
+    def type_item(t, label):
+        d = volume_policy.default_volume_pct(t)
+        return {"key": t, "label": label, "default": d, "current": int(tv.get(t, d))}
+    groups = [
+        {"group": "Adhan (per prayer)", "icon": "🕌", "kind": "adhan", "items": [
+            adhan_item("fajr", "Fajr"), adhan_item("dhuhr", "Dhuhr"), adhan_item("asr", "Asr"),
+            adhan_item("maghrib", "Maghrib"), adhan_item("isha", "Isha")]},
+        {"group": "Prayer warnings", "icon": "🔔", "kind": "type", "items": [
+            type_item("fajr_warning", "Fajr warning"), type_item("dhuhr_warning", "Dhuhr warning"),
+            type_item("asr_warning", "Asr warning"), type_item("maghrib_warning", "Maghrib warning"),
+            type_item("twilight", "Twilight (Isha combined)")]},
+    ]
+    sa = CFG.get("scheduled_audio") or {}
+    rec = [type_item(f"scheduled:{aid}", (ent.get("name") or str(aid).replace("_", " ").title()))
+           for aid, ent in sa.items()]
+    if rec:
+        groups.append({"group": "Recitations (Qur’an programs)", "icon": "📖", "kind": "type", "items": rec})
+    groups.append({"group": "Dhikr & duas", "icon": "📿", "kind": "type", "items": [
+        type_item("morning_dhikr", "Morning dhikr"), type_item("evening_dhikr", "Evening dhikr"),
+        type_item("friday_prayer", "Friday dua (Dua of the Soul)")]})
+    groups.append({"group": "Alarms & Eid", "icon": "⏰", "kind": "type", "items": [
+        type_item("suhoor_alarm", "Suhoor alarm"), type_item("wakeup", "Wake-up alarm"),
+        type_item("takbeeraat", "Eid takbeeraat")]})
+    return {"enabled": bool(vp_cfg.get("enabled", True)), "groups": groups}
+
+
+@app.route("/api/volume_mixer", methods=["GET"])
+def api_volume_mixer_get():
+    try:
+        return jsonify({"ok": True, **_volume_mixer_catalog()})
+    except Exception as e:
+        log.error(f"volume_mixer catalog error: {e}")
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route("/api/volume_mixer", methods=["POST"])
+def api_volume_mixer_set():
+    """Save per-sound volume knobs. Body: {adhan_volumes:{prayer:pct}, type_volumes:{type:pct}}.
+    The UI sends the FULL set each time, so maps are replaced (not merged) — letting a knob
+    reset by sending its default. Values clamp 0–100. Live-applied (the resolver reads CFG
+    at play time) and persisted to config.yaml, no restart needed."""
+    try:
+        data = request.get_json(force=True) or {}
+        def clean(m):
+            out = {}
+            for k, v in (m or {}).items():
+                try:
+                    out[str(k)] = max(0, min(int(round(float(v))), 100))
+                except Exception:
+                    continue
+            return out
+        vp = CFG.setdefault("volume_policy", {})
+        if "adhan_volumes" in data:
+            vp["adhan_volumes"] = {k.strip().lower(): v for k, v in clean(data["adhan_volumes"]).items()}
+        if "type_volumes" in data:
+            vp["type_volumes"] = clean(data["type_volumes"])
+        if "enabled" in data:
+            vp["enabled"] = bool(data["enabled"])
+        tmp_path = CFG_PATH + ".tmp"
+        with open(tmp_path, "w") as f:
+            yaml.dump(CFG, f, default_flow_style=False, indent=2)
+        os.replace(tmp_path, CFG_PATH)
+        log.info("🎚️ Volume mixer saved: %d adhan + %d sound knobs",
+                 len(vp.get("adhan_volumes", {})), len(vp.get("type_volumes", {})))
+        return jsonify({"ok": True, **_volume_mixer_catalog()})
+    except Exception as e:
+        log.error(f"volume_mixer save error: {e}")
+        return jsonify({"ok": False, "error": str(e)}), 500
+
 
 def deep_update(base: dict, update: dict) -> None:
     """Recursively update nested dictionary"""

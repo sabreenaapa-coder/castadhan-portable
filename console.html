@@ -166,6 +166,13 @@
   .tab-btn.active {color: var(--gold);border-bottom: 2px solid var(--gold);}
   .tab-pane {display: none;}
   .tab-pane.active {display: block;}
+  /* Volume mixer (v1.12) */
+  .vol-group {margin: 4px 0 2px;}
+  .vol-group-h {font-weight: 700; color: var(--gold); font-size: .92em; margin: 14px 0 6px; padding-bottom: 4px; border-bottom: 1px solid rgba(255,255,255,.09);}
+  .vol-row {display: flex; align-items: center; gap: 10px; margin: 7px 0;}
+  .vol-label {flex: 0 0 44%; font-size: .9em; color: var(--silver); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;}
+  .vol-slider {flex: 1; accent-color: var(--gold); min-width: 80px;}
+  .vol-val {flex: 0 0 46px; text-align: right; font-variant-numeric: tabular-nums; font-size: .85em; color: var(--gold);}
   
   /* Settings Grid */
   .settings-grid {display: grid;grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));gap: 15px;}
@@ -1053,6 +1060,7 @@ body.cp-playing .cp-now{display:flex;}
       <button id="tab-wakeup"   class="tab-btn"        onclick="switchTab('wakeup')">⏰ Wakeup</button>
       <button id="tab-advanced" class="tab-btn"        onclick="switchTab('advanced')">Advanced</button>
       <button id="tab-speakers" class="tab-btn"        onclick="switchTab('speakers')">Speaker Routing</button>
+      <button id="tab-volume"   class="tab-btn"        onclick="switchTab('volume')">🎚️ Volume</button>
       <button id="tab-audio"    class="tab-btn"        onclick="switchTab('audio')">Audio Files</button>
     </div>
     
@@ -1554,6 +1562,25 @@ body.cp-playing .cp-now{display:flex;}
           <div id="tv-alt" style="font-size:.8em;color:#8a857a;margin-top:12px;"></div>
           <div style="font-size:.75em;color:#7a756a;margin-top:8px;">
             Tip: if it ever stops working (e.g. after the router restarts), reopen this tab to see the current address.
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div id="volume-tab" class="tab-pane">
+      <div class="settings-grid">
+        <div class="control-group">
+          <h4>🎚️ Volume mixer — every sound, its own level</h4>
+          <p style="font-size:.9em;color:var(--silver);line-height:1.5;margin:4px 0 12px;">
+            Set how loud each sound plays, as a % of the speaker's master volume — e.g. keep
+            <b>Fajr</b> at 100% and turn the other adhans or recitations down. Quiet-hours
+            protection still applies at night, so anything you turn up stays neighbour-safe after 10pm.
+          </p>
+          <div id="vol-mixer" style="margin-top:6px;">Loading…</div>
+          <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:16px;">
+            <button class="control-btn" onclick="saveVolumeMixer()">💾 Save volume mixer</button>
+            <button class="control-btn" onclick="resetVolumeMixer()">↩︎ Reset to defaults</button>
+            <span id="vol-mixer-status" style="font-size:.85em;color:var(--silver);"></span>
           </div>
         </div>
       </div>
@@ -3978,12 +4005,13 @@ function closeSettings() {
 
 function switchTab(tabName) {
   document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
-  const tabMap = {'basic':'tab-basic','tv':'tab-tv','wakeup':'tab-wakeup','advanced':'tab-advanced','speakers':'tab-speakers','audio':'tab-audio'};
+  const tabMap = {'basic':'tab-basic','tv':'tab-tv','wakeup':'tab-wakeup','advanced':'tab-advanced','speakers':'tab-speakers','volume':'tab-volume','audio':'tab-audio'};
   const tabId = tabMap[tabName];
   if (tabId) $(tabId).classList.add('active');
   document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
   $(`${tabName}-tab`).classList.add('active');
   if (tabName === 'tv' && typeof populateTvTab === 'function') populateTvTab();
+  if (tabName === 'volume' && typeof loadVolumeMixer === 'function') loadVolumeMixer();
 }
 
 /* ---- TV Display tab: show this box's LAN address so it can be typed into a
@@ -4018,6 +4046,68 @@ function copyTvAddress() {
       const b = document.getElementById('tv-copy'); if (b) { const t = b.textContent; b.textContent = '✓ Copied'; setTimeout(() => { b.textContent = t; }, 1500); }
     });
   } catch (e) {}
+}
+
+/* ---- Volume mixer (v1.12): a slider per sound file. Fetches the catalog from
+   /api/volume_mixer (defaults + current %), renders grouped sliders, saves the full
+   set back. adhan sliders are keyed by prayer; everything else by audio_type. ---- */
+async function loadVolumeMixer() {
+  const wrap = document.getElementById('vol-mixer'); if (!wrap) return;
+  wrap.innerHTML = 'Loading…';
+  try {
+    const j = await (await fetch('/api/volume_mixer')).json();
+    if (!j || !j.ok) throw new Error((j && j.error) || 'failed');
+    renderVolumeMixer(j);
+  } catch (e) {
+    wrap.innerHTML = '<span style="color:#e08a8a;">Could not load the mixer: ' + e.message + '</span>';
+  }
+}
+function renderVolumeMixer(j) {
+  const wrap = document.getElementById('vol-mixer');
+  let html = '';
+  (j.groups || []).forEach(g => {
+    html += '<div class="vol-group"><div class="vol-group-h">' + (g.icon || '') + ' ' + g.group + '</div>';
+    (g.items || []).forEach(it => {
+      html += '<div class="vol-row">'
+        + '<span class="vol-label" title="' + it.key + '">' + it.label + '</span>'
+        + '<input type="range" min="0" max="100" step="5" value="' + it.current + '" class="vol-slider"'
+        + ' data-kind="' + g.kind + '" data-key="' + encodeURIComponent(it.key) + '" data-default="' + it.default + '"'
+        + ' oninput="this.nextElementSibling.textContent=this.value+\'%\'">'
+        + '<span class="vol-val">' + it.current + '%</span>'
+        + '</div>';
+    });
+    html += '</div>';
+  });
+  wrap.innerHTML = html;
+}
+async function saveVolumeMixer() {
+  const adhan_volumes = {}, type_volumes = {};
+  document.querySelectorAll('#vol-mixer .vol-slider').forEach(s => {
+    const key = decodeURIComponent(s.dataset.key), val = parseInt(s.value, 10);
+    if (s.dataset.kind === 'adhan') adhan_volumes[key] = val; else type_volumes[key] = val;
+  });
+  const st = document.getElementById('vol-mixer-status'); if (st) st.textContent = 'Saving…';
+  try {
+    const r = await fetch('/api/volume_mixer', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ adhan_volumes, type_volumes })
+    });
+    const j = await r.json();
+    if (!j || !j.ok) throw new Error((j && j.error) || 'failed');
+    if (st) st.textContent = '✓ Saved — applies to the next time each sound plays';
+    if (typeof showToast === 'function') showToast('🎚️ Volume mixer saved');
+  } catch (e) {
+    if (st) st.textContent = '✗ ' + e.message;
+    if (typeof showToast === 'function') showToast('Error saving volume mixer');
+  }
+}
+function resetVolumeMixer() {
+  document.querySelectorAll('#vol-mixer .vol-slider').forEach(s => {
+    s.value = s.dataset.default;
+    if (s.nextElementSibling) s.nextElementSibling.textContent = s.dataset.default + '%';
+  });
+  const st = document.getElementById('vol-mixer-status');
+  if (st) st.textContent = 'Reset to defaults — press Save to apply';
 }
 
 /* ----------------------- actions ----------------------- */
