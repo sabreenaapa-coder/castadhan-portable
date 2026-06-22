@@ -4790,8 +4790,8 @@ window.addEventListener('load', () => {
     const m = now.getMinutes() + s / 60;
     const h = (now.getHours() % 12) + m / 60;
     setRot('cp-hHand', (h / 12) * 360);
-    setRot('cp-mHand', (m / 60) * 360);
-    setRot('cp-sHand', (s / 60) * 360);
+    setRot('cp-mHand', _windMinAngle != null ? _windMinAngle : (m / 60) * 360);
+    setRot('cp-sHand', _windSecAngle != null ? _windSecAngle : (s / 60) * 360);
   }
 
   /* ---- 24-hour prayer-dial face (toggleable via the settings gear) ----
@@ -4799,6 +4799,77 @@ window.addEventListener('load', () => {
      coloured by status, hour hand making one turn per day. */
   let _mode24 = false;
   let _lastTimes = null, _lastNext = null, _lastHist = {};
+  // Wind-up flourish state: during the wind ALL hands read _windTime (one virtual time
+  // sweeping from midnight to now), so they move together; the scene dial is re-rendered
+  // at that virtual time whenever the hand crosses into a new prayer wedge, so the lit
+  // "active period" image absorbs the earlier wedges exactly as it does live.
+  let _windTime = null, _windRAF = null, _windWedges = null, _windWedgeKey = null;
+  let _windSecAngle = null, _windMinAngle = null;   // during the wind the fast hands sweep ≤1 turn (driven by progress, not virtual seconds)
+  function _clockNow(){ return _windTime || new Date(); }
+
+  /* Which prayer-period wedge an angle (0 at top, clockwise) falls in. _windWedges
+     ([{a0,a1,name}] per period, with wrap) is published by drawF24; used only to detect
+     when the winding hand crosses a wedge boundary (→ re-render the dial just then, not
+     every frame → TV-safe). */
+  function _wedgeAt(deg){
+    const W = _windWedges; if (!W || W.length < 2) return null;
+    deg = ((deg % 360) + 360) % 360;
+    for (const w of W){
+      if (w.a0 < w.a1 ? (deg >= w.a0 && deg < w.a1) : (deg >= w.a0 || deg < w.a1)) return w;
+    }
+    return null;
+  }
+  const _windAngle = (d) => ((d.getHours() + d.getMinutes() / 60) / 24) * 360;   // hour-hand angle, 0 at top
+
+  /* On reload / a 12·24·admin change, wind the clock from midnight to the real time at
+     72°/sec (5s per 360° of the hour hand); before 6am one extra full turn first so the
+     short pre-dawn sweep is still visible. ALL hands move together (one virtual time), and
+     the scene dial is re-rendered at that virtual time whenever the hand crosses into a new
+     wedge — so the lit "active period" image absorbs the earlier wedges and the upcoming
+     wedges stay dim, the same rules as live. Reduced-motion skips the sweep (TV-safe). */
+  function windUpClock(testNow){
+    if (_windRAF){ cancelAnimationFrame(_windRAF); _windRAF = null; }
+    _windWedgeKey = null; _windSecAngle = null; _windMinAngle = null;
+    const use24 = !document.body.classList.contains('cp-active') || _mode24;   // admin/24h dial vs 12h Ottoman
+    const real = (testNow instanceof Date) ? testNow : new Date();
+    const drawNormal = (d) => {
+      if (use24){ drawF24(_lastTimes || window.currentPrayers || {}, _lastNext, _lastHist, d); setHands24(d); }
+      else setHands(d);
+    };
+    if (_reduce){ _windTime = null; drawNormal(real); return; }                 // no sweep → just show the real time
+    const period = use24 ? 86400000 : 43200000;          // ms one hand-turn spans
+    const mid = new Date(real); mid.setHours(0, 0, 0, 0);
+    const span0 = (real - mid) % period;
+    const extra = (real.getHours() < 6) ? period : 0;     // pre-6am: one full turn first so the wind is visible
+    const span = span0 + extra;
+    const durMs = (span / period) * 360 / 72 * 1000;      // 72°/sec
+    if (durMs < 80){ _windTime = null; drawNormal(real); return; }              // negligible sweep
+    const startV = real.getTime() - span, t0 = performance.now();
+    // The fast hands sweep at most ONE turn — not hundreds. Drive the second hand (and the
+    // 12h minute hand) from the wind progress p (0° → their live angle at arrival), instead
+    // of from the fast-forwarding virtual seconds. ≤360° total, landing on the real position.
+    const endT = new Date(Date.now() + durMs);                                  // ≈ wall-clock at arrival
+    const secTarget = ((endT.getSeconds() + endT.getMilliseconds() / 1000) / 60) * 360;
+    const minTarget = ((endT.getMinutes() + endT.getSeconds() / 60) / 60) * 360;
+    const render = (d, p) => {
+      _windSecAngle = secTarget * p;                                            // one turn max, in step with the wind
+      _windMinAngle = minTarget * p;
+      if (use24){
+        const wk = (_wedgeAt(_windAngle(d)) || {}).name || null;               // re-render the dial only on a wedge crossing
+        if (wk !== _windWedgeKey){ _windWedgeKey = wk; drawF24(_lastTimes || window.currentPrayers || {}, _lastNext, _lastHist, d); }
+        setHands24(d);                                                          // hour winds; second sweeps ≤1 turn — together
+      } else setHands(d);                                                       // 12h: hour winds; minute + second ≤1 turn — together
+    };
+    _windTime = new Date(startV); render(_windTime, 0);   // snap to midnight (all hands at the top)
+    const step = (ts) => {
+      const p = Math.min(1, (ts - t0) / durMs);
+      _windTime = new Date(startV + p * span); render(_windTime, p);
+      if (p < 1) _windRAF = requestAnimationFrame(step);
+      else { _windTime = null; _windSecAngle = null; _windMinAngle = null; _windRAF = null; drawNormal(new Date()); }  // arrived → live dial
+    };
+    _windRAF = requestAnimationFrame(step);
+  }
+  window.__windUp = windUpClock;   // test/demo hook (re-trigger the wind-up flourish)
 
   /* 24-hour prayer dial — clockfaceonline "Time Manager" style: 0 at top,
      12 at bottom, 0–23 every hour clockwise; filled prayer-period wedges
@@ -4872,6 +4943,11 @@ window.addEventListener('load', () => {
     const SCENE = { Isha: 'static/scenes/night.jpg', Fajr: 'static/scenes/dawn.jpg',
                     Sunrise: 'static/scenes/morning.jpg', Dhuhr: 'static/scenes/midday.jpg',
                     Asr: 'static/scenes/afternoon.jpg', Maghrib: 'static/scenes/dusk.jpg' };
+    // publish each period's wedge {angle range (with wrap), scene src} so the wind's
+    // travelling "light up" can show that wedge's own picture at full brightness
+    _windWedges = (pts.length >= 2)
+      ? pts.map((p, i) => ({ a0: ang0(p.h), a1: ang0(pts[(i + 1) % pts.length].h), src: SCENE[p.n] || SCENE.Isha, name: p.n }))
+      : null;
     // PRESENT-FOCUSED dial: the current period's image fills its own wedge + every
     // wedge EARLIER in today's order (Fajr→Sunrise→Dhuhr→Asr→Maghrib→Isha); the
     // NEXT prayer's wedge is never absorbed (so it stays readable). Fajr, having no
@@ -5008,7 +5084,7 @@ window.addEventListener('load', () => {
     const m = now.getMinutes() + s / 60;
     const h = now.getHours() + m / 60;
     setRot(T.h, ang0(h));                   // long hour hand reads the time (one turn/day, 0 at top)
-    setRot(T.s, (s / 60) * 360);            // no minute hand on the 24-hour dial
+    setRot(T.s, _windSecAngle != null ? _windSecAngle : (s / 60) * 360);
   }
   function applyClockMode(mode){
     _mode24 = (mode === '24');
@@ -5025,6 +5101,7 @@ window.addEventListener('load', () => {
       const mode = _mode24 ? '12' : '24';                  // switch to the other style
       try { localStorage.setItem('cp_clockmode', mode); } catch (e) {}
       applyClockMode(mode);
+      windUpClock();                        // wind from midnight on a 12·24 switch
     });
   }
 
@@ -5033,7 +5110,7 @@ window.addEventListener('load', () => {
     if (_spin0 == null) _spin0 = ts;
     const t = (ts - _spin0) / 1000;
     const at = t * 3;                  // animation time — decorative motion runs 3× (hands stay real-time)
-    const now = new Date();
+    const now = _clockNow();           // virtual time during a wind-up, else real now
     const cpA = document.body.classList.contains('cp-active');
     if (cpA) { if (_mode24) setHands24(now); else setHands(now); }
     else setHands24(now);                                          // admin dashboard: scene-dial hands
@@ -5334,9 +5411,10 @@ window.addEventListener('load', () => {
     setInterval(render, 15000);
     if (!reduce) {
       let t0 = null;
-      const loop = (ts) => { if (t0 == null) t0 = ts; setHands24(new Date()); requestAnimationFrame(loop); };
+      const loop = (ts) => { if (t0 == null) t0 = ts; setHands24(_clockNow()); requestAnimationFrame(loop); };
       requestAnimationFrame(loop);
     } else { setHands24(new Date()); }
+    windUpClock();                        // wind from midnight on admin load
   }
 
   /* ---- Marketing cinematic mode: ?demo=<seconds> sweeps a full 24-hour day
@@ -5426,6 +5504,7 @@ window.addEventListener('load', () => {
     _reduce = !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
     if (_reduce) { if (_mode24) setHands24(new Date()); else setHands(new Date()); drawAurora(0); }  // static
     else requestAnimationFrame(spin);      // smooth gliding hands + mandala + aurora
+    windUpClock();                         // wind from midnight on clock-page load
   }
   const _init = _isAdmin ? initAdminDial : boot;
   const _start = () => { _init(); cinematicDemo(); };
