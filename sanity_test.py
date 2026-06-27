@@ -397,6 +397,20 @@ def L5_api():
           f"keys: {sorted(np.keys())}")
     except Exception as e: err("HIGH", cat, "next-prayer-enriched", e)
 
+    # Fleet MVP — /api/today exposes today's per-prayer adhan result for the fleet
+    # aggregator (deploy/fleet/fleet_status.py). Contract: {played:int, of:5,
+    # problem:bool, per_prayer:{Fajr..Isha}}. Same play_history source as the digest.
+    try:
+        code, data = http_json("/api/today")
+        prayers = {"Fajr", "Dhuhr", "Asr", "Maghrib", "Isha"}
+        ok = (code == 200 and isinstance(data.get("played"), int)
+              and data.get("of") == 5
+              and isinstance(data.get("problem"), bool)
+              and prayers.issubset((data.get("per_prayer") or {}).keys()))
+        t("MEDIUM", cat, "today-endpoint", ok,
+          f"played={data.get('played')}/{data.get('of')} problem={data.get('problem')}")
+    except Exception as e: err("MEDIUM", cat, "today-endpoint", e)
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Layer 6 — UI surface (regression checks for HTML/JS bugs)
 # ─────────────────────────────────────────────────────────────────────────────
