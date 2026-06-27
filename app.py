@@ -1132,6 +1132,41 @@ def api_version():
     """Return the running version + device id of CastAdhan."""
     return jsonify({"ok": True, "version": _read_version_file(), "device_id": get_device_id()})
 
+
+@app.route("/api/today")
+def api_today():
+    """Fleet aggregator hook: today's per-prayer adhan result, computed from
+    play_history.jsonl (same logic as the daily Telegram digest). Read-only — lets
+    a central hub roll up every family Pi without SSH. Statuses mirror _log_play:
+    PASS/DISCOVERY_RECOVERED/SILENT_EXPECTED = healthy; FAIL/NO_SPEAKERS/FAIL_VERIFIED
+    = problem. See ~/Context decision-log/castadhan fleet observability."""
+    prayers = ["Fajr", "Dhuhr", "Asr", "Maghrib", "Isha"]
+    today = date.today().isoformat()
+    results = {p: None for p in prayers}
+    try:
+        with open(_PLAY_HISTORY_FILE) as f:
+            hist = [json.loads(ln) for ln in f if ln.strip()]
+    except FileNotFoundError:
+        hist = list(_play_history)
+    except Exception as e:
+        log.error(f"/api/today: history read failed, using in-memory ring: {e}")
+        hist = list(_play_history)
+    for entry in hist:
+        try:
+            if entry.get("audio_type") == "adhan" and (entry.get("ts_local") or "").startswith(today):
+                if entry.get("prayer_name") in results:
+                    results[entry["prayer_name"]] = entry.get("status")
+        except Exception:
+            continue
+    good = {"PASS", "DISCOVERY_RECOVERED", "SILENT_EXPECTED"}
+    bad = {"FAIL", "NO_SPEAKERS", "FAIL_VERIFIED"}
+    played = sum(1 for p in prayers if results[p] in good)
+    problem = any(results[p] in bad for p in prayers)
+    return jsonify({"played": played, "of": len(prayers), "problem": problem,
+                    "per_prayer": results, "device_id": get_device_id(),
+                    "version": _read_version_file()})
+
+
 @app.route("/api/notify/test", methods=["POST"])
 def api_notify_test():
     """v1.8.0: send a test Telegram message to verify the integration."""
