@@ -74,18 +74,20 @@ WPA
 fi
 ok "WiFi credentials removed (wifi-prebake.sh will install the recipient's)"
 
-# ---- 4b. forget the BUILDER's Tailscale identity + notification secrets -----
-# Without this, every clone inherits YOUR tailnet node + auth key (identity clash
-# the moment two boot, plus the key leaks) and YOUR Telegram bot token/chat
-# (recipients' boxes would ping your phone). Each gift enrols fresh on first boot
-# from its own SD-card auth key; the builder's must not travel in the image.
-say "Wiping Tailscale identity + notification secrets"
+# ---- 4b. wipe the Tailscale NODE IDENTITY (keep the baked auto-enrol key) ----
+# The reusable, tag-scoped auth key at /etc/default/castadhan-tailscale is baked into
+# the golden image ON PURPOSE: every clone auto-enrols on first boot as
+# castadhan-<hardware-serial> (see setup-pi.sh), so you keep Tailscale-in on all of
+# them with zero per-card work. What MUST NOT travel is the node *identity*
+# (tailscaled.state) — else every clone collides as the same machine. We also drop
+# the builder's Telegram secrets (recipients' boxes would otherwise ping your phone).
+say "Wiping Tailscale node identity (keeping the baked auto-enrol key)"
 command -v tailscale >/dev/null 2>&1 && tailscale logout 2>/dev/null || true
 systemctl stop tailscaled 2>/dev/null || true
-rm -f /var/lib/tailscale/tailscaled.state 2>/dev/null || true
-rm -f /etc/default/castadhan-tailscale /boot/castadhan-tailscale.env /boot/firmware/castadhan-tailscale.env 2>/dev/null || true
-rm -f /etc/default/castadhan-telegram 2>/dev/null || true
-ok "Tailscale node identity + Telegram/notify secrets removed"
+rm -f /var/lib/tailscale/tailscaled.state 2>/dev/null || true            # node identity — fresh per clone
+rm -f /boot/castadhan-tailscale.env /boot/firmware/castadhan-tailscale.env 2>/dev/null || true
+rm -f /etc/default/castadhan-telegram 2>/dev/null || true                # builder's Telegram secrets
+ok "Tailscale identity wiped; baked auto-enrol key kept; Telegram secrets removed"
 
 # ---- 5. SSH host keys regenerate on next boot -------------------------------
 say "Removing SSH host keys (regenerated on next boot)"

@@ -280,7 +280,7 @@ ok "auto-update timer + manual-update watcher enabled (daily 04:00 + 10 min afte
 # son's Pi).
 say "Tailscale auto-enrolment"
 TS_AUTHKEY="${TS_AUTHKEY:-}"
-TS_HOSTNAME="${TS_HOSTNAME:-$(hostname)}"
+TS_HOSTNAME="${TS_HOSTNAME:-}"
 TS_EXTRA_ARGS="${TS_EXTRA_ARGS:---ssh}"
 
 # Source candidate files (if env var not already set)
@@ -296,6 +296,19 @@ if [ -z "$TS_AUTHKEY" ] && [ -f /boot/firmware/castadhan-tailscale.env ]; then
   # Pi OS Bookworm moved /boot to /boot/firmware
   # shellcheck disable=SC1091
   . /boot/firmware/castadhan-tailscale.env
+fi
+
+# Hostname: an explicit TS_HOSTNAME (env or file) wins; otherwise derive a unique,
+# stable name from the Pi's hardware serial so every cloned unit self-identifies on
+# the tailnet as castadhan-<serial> with zero per-card naming (golden-image friendly).
+if [ -z "$TS_HOSTNAME" ]; then
+  SERIAL=$(awk -F': ' '/^Serial/{print $2}' /proc/cpuinfo 2>/dev/null | tail -1)
+  [ -z "$SERIAL" ] && SERIAL=$(tr -d '\0' < /sys/firmware/devicetree/base/serial-number 2>/dev/null)
+  if [ -n "$SERIAL" ]; then
+    TS_HOSTNAME="castadhan-$(printf '%s' "$SERIAL" | tr -cd '0-9a-f' | tail -c 8)"
+  else
+    TS_HOSTNAME="$(hostname)"
+  fi
 fi
 
 if [ -z "$TS_AUTHKEY" ]; then
