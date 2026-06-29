@@ -25,6 +25,7 @@ audio:
   barry_dua: audio/friday_prayer_BARRY_DUA.mp3
   dhuhr_warning: audio/dhuhr_warning.mp3
   evening_dhikr: audio/evening_dhikr.mp3
+  fajr_adhan: audio/fajr_adhan.mp3
   fajr_warning: audio/fajr_warning.mp3
   friday_prayer: audio/friday_prayer.mp3
   maghrib_warning: audio/maghrib_warning.mp3

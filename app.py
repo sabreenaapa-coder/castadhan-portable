@@ -5187,6 +5187,11 @@ def play_adhan_all(target: Optional[str] = None, prayer_name: Optional[str] = No
 
     log.info(f"Playing Adhan for {prayer_name} on all enabled speakers")
 
+    # Per-prayer adhan: Fajr uses its own recording if configured (audio.fajr_adhan),
+    # otherwise the standard adhan. audio_type stays "adhan" so the volume mixer
+    # (per-prayer volumes) is unaffected.
+    adhan_file = AUDIO["fajr_adhan"] if (prayer_name == "Fajr" and AUDIO.get("fajr_adhan")) else AUDIO["adhan"]
+
     # O21: auto-retry discovery once; if still 0, log CRITICAL + record NO_SPEAKERS.
     casts = _ensure_speakers("adhan", prayer_name)
     if not casts:
@@ -5194,7 +5199,7 @@ def play_adhan_all(target: Optional[str] = None, prayer_name: Optional[str] = No
 
     try:
         # Pass prayer_name so the volume mixer can play e.g. Fajr loud, other adhans quieter.
-        _play_to_targets(AUDIO["adhan"], target=target, audio_type="adhan", prayer_name=prayer_name)
+        _play_to_targets(adhan_file, target=target, audio_type="adhan", prayer_name=prayer_name)
 
         # Chain follow-up audio based on context.
         #
@@ -5219,7 +5224,7 @@ def play_adhan_all(target: Optional[str] = None, prayer_name: Optional[str] = No
             # corrupt metadata), the default 0 would overlap the adhan with
             # the takbeeraat — embarrassing on Eid morning. Floor protects us.
             if should_play_takbeerat_after_adhan(prayer_name=prayer_name, when=now):
-                adhan_len = _audio_duration_seconds(AUDIO["adhan"])
+                adhan_len = _audio_duration_seconds(adhan_file)
                 if not adhan_len or adhan_len < 60:
                     adhan_len = 180  # safe default ≈ 3 min
                 fire_at = now + timedelta(seconds=adhan_len + 0.5)

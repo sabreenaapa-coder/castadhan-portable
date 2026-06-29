@@ -53,6 +53,9 @@ say "Cleaning per-Pi state"
 rm -f "$INSTALL_DIR/castadhan.log"  "$INSTALL_DIR/castadhan.log."*
 rm -f "$INSTALL_DIR/ui_state.json"  "$INSTALL_DIR/ui_state.json.lock"
 rm -f "$INSTALL_DIR/prayer_times_cache.json"
+rm -f "$INSTALL_DIR/known_speakers.json"      # builder's discovered Cast speakers (names+IPs) — wizard re-scans for the new owner
+rm -f "$INSTALL_DIR/play_history.jsonl"       # builder's play history
+rm -f "$INSTALL_DIR/.update-requested"        # stale "update now" flag
 rm -rf "$INSTALL_DIR/__pycache__"
 rm -rf "$INSTALL_DIR/backups"
 ok "state files cleared"
@@ -70,6 +73,19 @@ country=GB
 WPA
 fi
 ok "WiFi credentials removed (wifi-prebake.sh will install the recipient's)"
+
+# ---- 4b. forget the BUILDER's Tailscale identity + notification secrets -----
+# Without this, every clone inherits YOUR tailnet node + auth key (identity clash
+# the moment two boot, plus the key leaks) and YOUR Telegram bot token/chat
+# (recipients' boxes would ping your phone). Each gift enrols fresh on first boot
+# from its own SD-card auth key; the builder's must not travel in the image.
+say "Wiping Tailscale identity + notification secrets"
+command -v tailscale >/dev/null 2>&1 && tailscale logout 2>/dev/null || true
+systemctl stop tailscaled 2>/dev/null || true
+rm -f /var/lib/tailscale/tailscaled.state 2>/dev/null || true
+rm -f /etc/default/castadhan-tailscale /boot/castadhan-tailscale.env /boot/firmware/castadhan-tailscale.env 2>/dev/null || true
+rm -f /etc/default/castadhan-telegram 2>/dev/null || true
+ok "Tailscale node identity + Telegram/notify secrets removed"
 
 # ---- 5. SSH host keys regenerate on next boot -------------------------------
 say "Removing SSH host keys (regenerated on next boot)"
