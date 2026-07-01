@@ -20,7 +20,7 @@
   var RAW = 'https://raw.githubusercontent.com/sabreenaapa-coder/castadhan-portable/main/audio/';
   var REL = 'https://github.com/sabreenaapa-coder/castadhan-portable/releases/download/audio-pack-v1/';
   var URLS = {
-    adhan: RAW + 'adhan.mp3', fajr_warning: RAW + 'fajr_warning.mp3', dhuhr_warning: RAW + 'dhuhr_warning.mp3',
+    adhan: RAW + 'adhan.mp3', fajr_adhan: 'audio/fajr_adhan.mp3', fajr_warning: RAW + 'fajr_warning.mp3', dhuhr_warning: RAW + 'dhuhr_warning.mp3',
     asr_warning: RAW + 'asr_warning.mp3', maghrib_warning: RAW + 'maghrib_warning.mp3',
     morning_dhikr: RAW + 'morning_dhikr.mp3', evening_dhikr: RAW + 'evening_dhikr.mp3', surah_kahf: RAW + 'surah_kahf.mp3',
     friday_prayer: RAW + 'friday_prayer.mp3', wakeup: RAW + 'wakey_wakey.mp3', suhoor: RAW + 'suhoor_alarm.mp3',
@@ -30,7 +30,7 @@
 
   /* ---- event catalogue. anchor: prayer name or 'time'. offset minutes (neg=before). day 0=Sun..6=Sat. */
   var EVENTS = [
-    { id: 'adhan_fajr', group: 'adhan', label: 'Fajr adhan', anchor: 'Fajr', offset: 0, sound: 'adhan', core: true },
+    { id: 'adhan_fajr', group: 'adhan', label: 'Fajr adhan', anchor: 'Fajr', offset: 0, sound: 'fajr_adhan', core: true },
     { id: 'adhan_dhuhr', group: 'adhan', label: 'Dhuhr adhan', anchor: 'Dhuhr', offset: 0, sound: 'adhan', core: true },
     { id: 'adhan_asr', group: 'adhan', label: 'Asr adhan', anchor: 'Asr', offset: 0, sound: 'adhan', core: true },
     { id: 'adhan_maghrib', group: 'adhan', label: 'Maghrib adhan', anchor: 'Maghrib', offset: 0, sound: 'adhan', core: true },
