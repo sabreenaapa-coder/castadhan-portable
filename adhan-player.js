@@ -248,7 +248,7 @@
         '<div id="pc-sched"></div>' +
         '<div style="margin-top:6px;text-align:right"><button class="reset" id="pc-resetaudio">Reset custom audio to defaults</button></div>' +
         '<div class="act"><button class="arm" id="pc-arm"></button><button class="stop" id="pc-stop">Stop</button></div>' +
-        '<p class="note">Tip: leave this tab open on an always-on screen (desktop/TV) for reliable playback. Phones may pause it when locked or backgrounded. Settings &amp; uploaded audio are stored in this browser only.</p>' +
+        '<p class="note">Tip: leave this tab open on an always-on screen (desktop/TV) for reliable playback. Phones may pause it when locked or backgrounded. Settings &amp; uploaded audio are stored in this browser only. <a href="#cp-homeunit" id="pc-homeunit-link" style="color:#D4AF37;text-decoration:underline">The CastAdhan home unit</a> does all of this on real speakers — even when every phone in the house is asleep.</p>' +
       '</div>';
     document.body.appendChild(modal);
 
@@ -269,6 +269,12 @@
     modal.querySelector('#pc-resetaudio').addEventListener('click', function () { idbClear(function () { Object.keys(customURL).forEach(function (k) { try { URL.revokeObjectURL(customURL[k]); } catch (e) {} }); customURL = {}; updateCustBtns(); banner('Custom audio cleared'); }); });
     modal.querySelector('#pc-arm').addEventListener('click', function () { setArmed(!cfg.armed); syncModal(); });
     modal.querySelector('#pc-stop').addEventListener('click', stopAll);
+    var huLink = modal.querySelector('#pc-homeunit-link');
+    if (huLink) huLink.addEventListener('click', function (e) {
+      e.preventDefault(); modal.style.display = 'none';
+      if (window.__cpGoHomeUnit) window.__cpGoHomeUnit();
+      else { var s = document.getElementById('cp-homeunit'); if (s) s.scrollIntoView(); }
+    });
 
     setArmed(cfg.armed);
   }
