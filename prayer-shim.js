@@ -134,6 +134,11 @@
     });
   }
   STATE._ready = initLocation();
+  STATE._ready.then(function () {                                    // first load failed → quiet note in the clock view
+    if (!STATE.error) return;
+    function note() { var o = document.getElementById('cp-offline'); if (o && !o.textContent) o.textContent = 'Prayer times unavailable — check your connection and reload.'; }
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', note); else note();
+  });
   setInterval(function () { loadTimes(); }, 30 * 60 * 1000);
 
   /* ---- city picker UI (search + Asr/Isha rules) -------------------------- */
