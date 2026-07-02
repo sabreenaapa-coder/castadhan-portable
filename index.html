@@ -28,16 +28,43 @@
 #cp-homeinvite .chev{display:inline-block;animation:cpBob 2.8s ease-in-out infinite}
 @keyframes cpBob{0%,100%{transform:translateY(0)}50%{transform:translateY(3px)}}
 @media (prefers-reduced-motion:reduce){#cp-homeinvite .chev{animation:none}}
-#cp-homeunit{max-width:620px;margin:0 auto;padding:56px 20px 96px;color:#e7e0cf;font-family:"Segoe UI",system-ui,-apple-system,Roboto,sans-serif}
-#cp-homeunit .hu-card{background:rgba(20,20,20,.6);border:1px solid rgba(212,175,55,.3);border-radius:10px;padding:clamp(26px,4vw,42px) clamp(20px,4vw,44px)}
-#cp-homeunit h2{color:#d4af37;font-weight:300;letter-spacing:.18em;text-transform:uppercase;font-size:clamp(15px,2.2vw,19px);text-align:center;margin:0 0 18px}
-#cp-homeunit .hu-lead{color:#cfcabb;font-size:clamp(13px,1.6vw,15px);line-height:1.75;text-align:center;margin:0 0 26px}
-#cp-homeunit .hu-line{padding:11px 0;border-top:1px solid rgba(212,175,55,.18);font-size:clamp(12px,1.5vw,14px);line-height:1.5;text-align:center}
-#cp-homeunit .hu-line:last-of-type{border-bottom:1px solid rgba(212,175,55,.18)}
-#cp-homeunit .hu-close{margin:26px 0 0;text-align:center;color:#9a958a;font-style:italic;font-size:clamp(12px,1.5vw,13px)}
-#cp-homeunit .hu-ask{margin:18px 0 0;text-align:center}
-#cp-homeunit .hu-ask a{color:#d4af37;text-decoration:none;border-bottom:1px solid rgba(212,175,55,.4);font-size:13px;padding-bottom:1px}
-#cp-homeunit .hu-ask a:hover{border-bottom-color:#d4af37}
+#cp-homeunit{color:#e7e0cf;font-family:"Segoe UI",system-ui,-apple-system,Roboto,sans-serif}
+#cp-root{scroll-snap-type:y proximity}
+.hu-chapter{position:relative;min-height:100vh;min-height:100svh;display:flex;align-items:center;justify-content:center;box-sizing:border-box;padding:clamp(56px,12vh,132px) clamp(22px,6vw,64px);overflow:hidden;scroll-snap-align:start}
+.hu-bg{position:absolute;inset:0;background-size:cover;background-position:center;opacity:.30;transform:scale(1.06);transition:opacity 1.2s ease,transform 8s ease}
+.hu-chapter.in .hu-bg{opacity:.42;transform:scale(1)}
+.hu-veil{position:absolute;inset:0;background:radial-gradient(125% 95% at 50% 42%,rgba(12,12,12,.28),rgba(12,12,12,.80) 70%,#0c0c0c),linear-gradient(rgba(12,12,12,0) 0,rgba(12,12,12,0) 60%,#0c0c0c 100%)}
+.hu-inner{position:relative;z-index:2;max-width:580px;text-align:center;transition:opacity .9s ease,transform .9s ease}
+#cp-homeunit.hu-js .hu-inner{opacity:0;transform:translateY(22px)}
+#cp-homeunit.hu-js .hu-chapter.in .hu-inner{opacity:1;transform:none}
+.hu-eyebrow{display:block;color:#d4af37;font-weight:400;letter-spacing:.32em;text-transform:uppercase;font-size:clamp(10px,1.3vw,12px);margin:0 0 22px}
+.hu-title{color:#f2ead5;font-weight:300;letter-spacing:.01em;line-height:1.14;font-size:clamp(30px,6vw,56px);margin:0}
+.hu-cover-sub{color:#d4af37;font-weight:300;letter-spacing:.16em;text-transform:uppercase;font-size:clamp(12px,1.7vw,15px);margin:22px 0 0}
+.hu-body{color:#d8d2c2;font-weight:300;line-height:1.65;font-size:clamp(16px,2.4vw,23px);margin:0}
+.hu-body.lead{font-size:clamp(17px,2.7vw,26px);color:#e9e2d1;line-height:1.6}
+.hu-body+.hu-body{margin-top:16px}
+.hu-close{color:#cfc8b6;font-style:italic;font-weight:300;line-height:1.55;font-size:clamp(16px,2.3vw,22px);margin:0}
+.hu-scroll-cue{position:absolute;left:0;right:0;bottom:clamp(20px,4vh,42px);text-align:center;color:#9a958a;font-size:11px;letter-spacing:.2em;text-transform:uppercase;z-index:2;line-height:1.7}
+.hu-scroll-cue .chev{display:inline-block;animation:cpBob 2.8s ease-in-out infinite}
+.hu-contact{display:flex;flex-wrap:wrap;gap:16px 22px;justify-content:center;align-items:center;margin:32px 0 0}
+.hu-btn{display:inline-block;color:#d4af37;text-decoration:none;border:1px solid rgba(212,175,55,.5);border-radius:999px;padding:12px 28px;font-size:14px;letter-spacing:.04em;transition:background .25s ease,border-color .25s ease}
+.hu-btn:hover{background:rgba(212,175,55,.1);border-color:#d4af37}
+.hu-copy{background:none;border:0;color:#cfc8b6;font:inherit;font-size:13px;letter-spacing:.04em;cursor:pointer;border-bottom:1px solid rgba(212,175,55,.35);padding:2px 0}
+.hu-copy:hover{color:#f2ead5;border-bottom-color:#d4af37}
+.hu-copy.copied{color:#d4af37;border-bottom-color:transparent}
+.hu-nav{position:fixed;top:50%;right:clamp(12px,2vw,26px);transform:translateY(-50%);z-index:5200;display:flex;flex-direction:column;align-items:center;gap:14px;opacity:0;pointer-events:none;transition:opacity .5s ease}
+body.hu-active .hu-nav{opacity:1;pointer-events:auto}
+.hu-rail{position:relative;width:2px;height:120px;background:rgba(212,175,55,.18);border-radius:2px;overflow:hidden}
+.hu-rail i{position:absolute;left:0;top:0;width:100%;height:0;background:#d4af37;border-radius:2px;transition:height .25s ease}
+.hu-dots{display:flex;flex-direction:column;gap:11px}
+.hu-dot{width:8px;height:8px;border-radius:50%;border:0;padding:0;background:rgba(212,175,55,.28);cursor:pointer;transition:background .3s ease,transform .3s ease}
+.hu-dot.on{background:#d4af37;transform:scale(1.35)}
+.hu-count{position:fixed;top:clamp(14px,3vh,26px);right:clamp(16px,2.8vw,32px);z-index:5200;color:#9a958a;font-size:12px;letter-spacing:.14em;opacity:0;transition:opacity .5s ease}
+body.hu-active .hu-count{opacity:.7}
+body.hu-active #cp-modetoggle,body.hu-active #pc-citybtn,body.hu-active #pc-adhan-chip{opacity:0;pointer-events:none;transition:opacity .4s ease}
+#cp-modetoggle,#pc-citybtn,#pc-adhan-chip{transition:opacity .4s ease}
+@media (max-width:640px){.hu-rail{height:84px}.hu-nav{right:10px;gap:11px}}
+@media (prefers-reduced-motion:reduce){.hu-bg{transition:none;transform:none;opacity:.38}#cp-homeunit.hu-js .hu-inner{opacity:1;transform:none;transition:none}.hu-scroll-cue .chev{animation:none}}
 body.cp-demo #cp-homeinvite,body.cp-demo #cp-homeunit{display:none!important}</style>
 <script src="prayer-shim.js"></script>
 <script src="adhan-player.js"></script>
@@ -142,18 +169,128 @@ body.cp-demo #cp-homeinvite,body.cp-demo #cp-homeunit{display:none!important}</s
 
   <div id="cp-homeinvite" role="button" tabindex="0" aria-label="About the CastAdhan home unit">There is a version of this that never sleeps <span class="chev">⌄</span></div>
   <section id="cp-homeunit">
-    <div class="hu-card">
-      <h2>The CastAdhan home unit</h2>
-      <p class="hu-lead">This page is the clock. The home unit is the same clock with a voice — a small, quiet box that calls the adhan through the Google speakers you already own. Every prayer, every day, even when every phone in the house is asleep.</p>
-      <div class="hu-line">Plays the adhan on real speakers throughout the home</div>
-      <div class="hu-line">Qur&rsquo;an, morning and evening dhikr, and Suhoor alarms on your schedule</div>
-      <div class="hu-line">This clock on your TV, all day</div>
-      <div class="hu-line">No subscriptions, no accounts — set up once in three minutes</div>
-      <p class="hu-close">Designed with the care, concern and sincerity of a Muslim father.</p>
-      <p class="hu-ask"><a href="mailto:sabreenaapa@gmail.com?subject=CastAdhan%20home%20unit">Ask about a unit</a></p>
+
+    <!-- fixed nav — nested inside #cp-homeunit so demo/cp-demo views hide it automatically -->
+    <div class="hu-count" id="hu-count" aria-hidden="true">01 / 06</div>
+    <div class="hu-nav" aria-hidden="true">
+      <div class="hu-rail"><i id="hu-rail-fill"></i></div>
+      <div class="hu-dots" id="hu-dots"></div>
     </div>
+
+    <!-- 1 · Cover -->
+    <div class="hu-chapter" data-title="The home unit">
+      <div class="hu-bg" style="background-image:url('static/scenes/night.jpg')"></div><div class="hu-veil"></div>
+      <div class="hu-inner">
+        <span class="hu-eyebrow">The CastAdhan home unit</span>
+        <h2 class="hu-title">The same clock,<br>with a voice</h2>
+        <p class="hu-cover-sub">Every prayer &middot; every day</p>
+      </div>
+      <div class="hu-scroll-cue">Scroll<br><span class="chev">⌄</span></div>
+    </div>
+
+    <!-- 2 · The voice -->
+    <div class="hu-chapter" data-title="The voice">
+      <div class="hu-bg" style="background-image:url('static/scenes/dawn.jpg')"></div><div class="hu-veil"></div>
+      <div class="hu-inner">
+        <span class="hu-eyebrow">This page is the clock</span>
+        <p class="hu-body lead">The home unit is the same clock with a voice — a small, quiet box that calls the adhan through the Google speakers you already own. Every prayer, every day, even when every phone in the house is asleep.</p>
+      </div>
+    </div>
+
+    <!-- 3 · Real speakers -->
+    <div class="hu-chapter" data-title="Every prayer">
+      <div class="hu-bg" style="background-image:url('static/scenes/morning.jpg')"></div><div class="hu-veil"></div>
+      <div class="hu-inner">
+        <span class="hu-eyebrow">Every prayer</span>
+        <p class="hu-body lead">Plays the adhan on real speakers throughout the home.</p>
+      </div>
+    </div>
+
+    <!-- 4 · Throughout the day -->
+    <div class="hu-chapter" data-title="Throughout the day">
+      <div class="hu-bg" style="background-image:url('static/scenes/afternoon.jpg')"></div><div class="hu-veil"></div>
+      <div class="hu-inner">
+        <span class="hu-eyebrow">Throughout the day</span>
+        <p class="hu-body">Qur&rsquo;an, morning and evening dhikr, and Suhoor alarms on your schedule.</p>
+        <p class="hu-body">And this clock on your TV, all day.</p>
+      </div>
+    </div>
+
+    <!-- 5 · Set up once -->
+    <div class="hu-chapter" data-title="Set up once">
+      <div class="hu-bg" style="background-image:url('static/scenes/dusk.jpg')"></div><div class="hu-veil"></div>
+      <div class="hu-inner">
+        <span class="hu-eyebrow">Set up once</span>
+        <p class="hu-body lead">No subscriptions, no accounts — set up once in three minutes.</p>
+      </div>
+    </div>
+
+    <!-- 6 · Closing + contact -->
+    <div class="hu-chapter" data-title="A father's care">
+      <div class="hu-bg" style="background-image:url('static/scenes/midday.jpg')"></div><div class="hu-veil"></div>
+      <div class="hu-inner">
+        <p class="hu-close">Designed with the care, concern and sincerity of a Muslim father.</p>
+        <div class="hu-contact">
+          <a class="hu-btn" href="mailto:sabreenaapa@gmail.com?subject=CastAdhan%20home%20unit">Ask about a unit</a>
+          <button class="hu-copy" id="hu-copy" type="button">Copy email address</button>
+        </div>
+      </div>
+    </div>
+
   </section>
-  <script>(function(){var inv=document.getElementById("cp-homeinvite"),sec=document.getElementById("cp-homeunit");if(!inv||!sec)return;function go(){var rm=false;try{rm=window.matchMedia("(prefers-reduced-motion: reduce)").matches}catch(e){}var top=sec.offsetTop;var rt=document.getElementById("cp-root");sec.scrollIntoView({behavior:rm?"auto":"smooth",block:"start"});if(!rm&&rt)setTimeout(function(){if(Math.abs(rt.scrollTop-top)>rt.clientHeight*0.6&&rt.scrollTop<40)rt.scrollTop=top},500)}window.__cpGoHomeUnit=go;inv.addEventListener("click",go);inv.addEventListener("keydown",function(e){if(e.key==="Enter"||e.key===" "){e.preventDefault();go()}})})();</script>
+  <script>(function(){
+    var inv=document.getElementById("cp-homeinvite"),sec=document.getElementById("cp-homeunit");
+    if(!sec)return;
+    var root=document.getElementById("cp-root");
+    var rm=false;try{rm=window.matchMedia("(prefers-reduced-motion: reduce)").matches}catch(e){}
+
+    // keep the existing "never sleeps" invite → scroll to the cover chapter
+    if(inv){function go(){var top=sec.offsetTop;sec.scrollIntoView({behavior:rm?"auto":"smooth",block:"start"});if(!rm&&root)setTimeout(function(){if(Math.abs(root.scrollTop-top)>root.clientHeight*0.6&&root.scrollTop<40)root.scrollTop=top},500)}
+      window.__cpGoHomeUnit=go;inv.addEventListener("click",go);
+      inv.addEventListener("keydown",function(e){if(e.key==="Enter"||e.key===" "){e.preventDefault();go()}});}
+
+    // ---- brochure: dots, progress rail, page counter, reveal-on-enter ----
+    var chapters=[].slice.call(sec.querySelectorAll(".hu-chapter"));
+    var dotsWrap=document.getElementById("hu-dots"),railFill=document.getElementById("hu-rail-fill"),countEl=document.getElementById("hu-count");
+    var n=chapters.length;
+    sec.classList.add("hu-js");
+    function pad(x){return (x<10?"0":"")+x}
+    var cur=-1;
+    function setCur(i){
+      dots.forEach(function(d,j){d.classList.toggle("on",j===i)});
+      if(railFill)railFill.style.height=((i+1)/n*100)+"%";
+      if(countEl)countEl.textContent=pad(i+1)+" / "+pad(n);
+    }
+    // Immediate, explicit activation — used on dot jumps so the destination reveals and tracks
+    // instantly, independent of the IntersectionObserver (which coalesces on programmatic jumps).
+    function activate(i){document.body.classList.add("hu-active");chapters[i].classList.add("in");if(i!==cur){cur=i;setCur(i);}}
+    chapters.forEach(function(ch,i){
+      var b=document.createElement("button");b.className="hu-dot";b.type="button";
+      b.setAttribute("aria-label","Go to section "+(i+1)+" of "+n);
+      b.addEventListener("click",function(){activate(i);ch.scrollIntoView({behavior:rm?"auto":"smooth",block:"start"})});
+      dotsWrap.appendChild(b);
+    });
+    var dots=[].slice.call(dotsWrap.children);
+    // Reveal + track during real (wheel/touch) scrolling. IO reacts to layout, not scroll events.
+    var visible={};
+    var io=new IntersectionObserver(function(ents){
+      ents.forEach(function(e){var i=chapters.indexOf(e.target);if(e.isIntersecting){e.target.classList.add("in");visible[i]=e.intersectionRatio;}else{delete visible[i];}});
+      var keys=Object.keys(visible);
+      document.body.classList.toggle("hu-active",keys.length>0);
+      if(keys.length){var best=keys[0];keys.forEach(function(k){if(visible[k]>visible[best])best=k;});var bi=parseInt(best,10);if(bi!==cur){cur=bi;setCur(bi);}}
+    },{root:root,threshold:[0,.25,.5,.75,1]});
+    chapters.forEach(function(ch){io.observe(ch)});
+    setCur(0);
+
+    // ---- copy email address ----
+    var cp=document.getElementById("hu-copy");
+    if(cp)cp.addEventListener("click",function(){
+      var em="sabreenaapa@gmail.com";
+      function done(){cp.classList.add("copied");cp.textContent="Copied ✓";setTimeout(function(){cp.classList.remove("copied");cp.textContent="Copy email address"},1800);}
+      function fb(){try{var t=document.createElement("textarea");t.value=em;t.style.position="fixed";t.style.opacity="0";document.body.appendChild(t);t.focus();t.select();document.execCommand("copy");document.body.removeChild(t);done();}catch(e){}}
+      if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(em).then(done).catch(fb);}else{fb();}
+    });
+  })();</script>
 
 
   <button id="cp-modetoggle" aria-label="Switch clock style">12-hour clock</button>
