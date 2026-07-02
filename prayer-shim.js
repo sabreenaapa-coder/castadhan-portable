@@ -223,5 +223,24 @@
       });
     });
   }
-  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', injectPicker); else injectPicker();
+  /* ---- demo note (web copy only; admin view — hidden while the clock is up) */
+  function injectDemoNote() {
+    if (localStorage.getItem('pc_demo_note_hidden')) return;
+    var st = document.createElement('style');
+    st.textContent =
+      '#pc-demo-note{position:fixed;top:10px;left:50%;transform:translateX(-50%);z-index:900;display:flex;align-items:center;gap:10px;max-width:min(560px,92vw);background:rgba(20,20,20,.92);border:1px solid rgba(212,175,55,.5);border-radius:10px;padding:7px 12px;color:#e7e0cf;font:12.5px system-ui,sans-serif;box-shadow:0 4px 18px rgba(0,0,0,.5)}' +
+      'body.cp-active #pc-demo-note{display:none}' +
+      '#pc-demo-note b{color:#D4AF37;font-weight:600}' +
+      '#pc-demo-note button{background:none;border:none;color:#9a958a;font-size:15px;cursor:pointer;padding:0 2px;line-height:1}' +
+      '#pc-demo-note button:hover{color:#e7e0cf}';
+    document.head.appendChild(st);
+    var n = el('div');
+    n.id = 'pc-demo-note';
+    n.innerHTML = '<span><b>Demo view</b> — this is the control panel as it appears on a CastAdhan home unit. Changes here aren&rsquo;t saved.</span><button aria-label="Dismiss">✕</button>';
+    n.querySelector('button').addEventListener('click', function () { n.remove(); try { localStorage.setItem('pc_demo_note_hidden', '1'); } catch (e) {} });
+    document.body.appendChild(n);
+  }
+
+  function injectUI() { injectPicker(); injectDemoNote(); }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', injectUI); else injectUI();
 })();
