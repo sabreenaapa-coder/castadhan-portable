@@ -23,11 +23,11 @@
 <style id="pc-web">#cp-adminflip,.cp-flip,.cp-now{display:none!important}
 .hu-btn.hu-btn-solid{background:#d4af37;color:#141210;font-weight:600;border-color:#d4af37}
 .hu-btn.hu-btn-solid:hover{background:#e7c878;border-color:#e7c878;color:#141210}
-.hu-explore{position:fixed;top:clamp(14px,3vh,26px);right:clamp(16px,2.8vw,32px);z-index:5200;padding:9px 20px;font-size:12.5px;opacity:0;pointer-events:none;transition:opacity .5s ease}
-body.hu-active .hu-explore{opacity:1;pointer-events:auto}
-body:has(.hu-dots .hu-dot:last-child.on) .hu-explore{opacity:0;pointer-events:none}
+.hu-explore{position:fixed;top:clamp(14px,3vh,26px);right:clamp(16px,2.8vw,32px);z-index:5200;padding:9px 20px;font-size:12.5px;opacity:1;transition:opacity .5s ease}
+body.hu-active:has(.hu-dots .hu-dot:last-child.on) .hu-explore{opacity:0;pointer-events:none}
 #cp-homeunit .hu-count{top:calc(clamp(14px,3vh,26px) + 52px)}
-@media (max-width:600px){.hu-explore{padding:8px 14px;font-size:11.5px}}
+.cp-corner.right{margin-top:48px}
+@media (max-width:600px){.hu-explore{padding:8px 14px;font-size:11.5px}.cp-corner.right{margin-top:42px}}
 .control-group:has(#wifi-ssid){display:none!important}
 @media (max-width:800px){#cp-modetoggle{bottom:16px;right:135px}}
 #cp-homeinvite{display:block;height:12px;margin:-10px 0 0;padding:0 16px;text-align:center;color:#9a958a;font-size:12px;line-height:1;letter-spacing:.06em;opacity:.55;cursor:pointer}
