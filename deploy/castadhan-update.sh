@@ -215,6 +215,20 @@ if [ -f "$INSTALL_DIR/deploy/castadhan-portable.service" ] \
   log "systemd unit refreshed from release + daemon-reload"
 fi
 
+# B-Belgium-67/68: install/refresh the speaker self-heal timer. This unit is
+# NEW on boxes that predate it, so always install + `enable --now` (idempotent)
+# — that's how the existing fleet gains automatic speaker-IP self-healing on
+# the next auto-update, not just freshly-imaged units.
+if [ -f "$INSTALL_DIR/deploy/castadhan-refresh.service" ]; then
+  install -m 0644 "$INSTALL_DIR/deploy/castadhan-refresh.service" \
+                  /etc/systemd/system/castadhan-refresh.service
+  install -m 0644 "$INSTALL_DIR/deploy/castadhan-refresh.timer" \
+                  /etc/systemd/system/castadhan-refresh.timer
+  systemctl daemon-reload
+  systemctl enable --now castadhan-refresh.timer >/dev/null 2>&1 || true
+  log "speaker self-heal timer installed/refreshed (every 15 min)"
+fi
+
 # ---- 4. Update Python dependencies if requirements changed ------------------
 if [ -f "$INSTALL_DIR/requirements.txt" ]; then
   log "Refreshing Python dependencies"

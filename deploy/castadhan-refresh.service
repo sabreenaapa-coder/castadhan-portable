@@ -1,0 +1,27 @@
+[Unit]
+Description=CastAdhan Portable — self-heal speaker IPs (refresh known_speakers.json)
+Documentation=file:///opt/castadhan-portable/refresh-known-speakers.py
+After=castadhan-portable.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=castadhan
+Group=castadhan
+WorkingDirectory=/opt/castadhan-portable
+ExecStart=/opt/castadhan-portable/venv/bin/python3 /opt/castadhan-portable/refresh-known-speakers.py
+# Log to journald (queryable via `journalctl -u castadhan-refresh`).
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=castadhan-refresh
+TimeoutStartSec=90
+
+# Modest hardening — writes only known_speakers.json in its own dir.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+ReadWritePaths=/opt/castadhan-portable
+
+[Install]
+WantedBy=multi-user.target

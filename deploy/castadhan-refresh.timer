@@ -1,0 +1,12 @@
+[Unit]
+Description=CastAdhan Portable — refresh speaker IPs every 15 minutes
+Requires=castadhan-refresh.service
+
+[Timer]
+# First run 3 min after boot (let the app + network settle), then every 15 min.
+OnBootSec=3min
+OnUnitActiveSec=15min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

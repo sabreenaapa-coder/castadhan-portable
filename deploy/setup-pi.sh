@@ -262,6 +262,21 @@ systemctl enable castadhan-update.path >/dev/null 2>&1 || true
 systemctl start castadhan-update.path >/dev/null 2>&1 || true
 ok "auto-update timer + manual-update watcher enabled (daily 04:00 + 10 min after boot)"
 
+# ---- 6b. speaker self-heal timer (B-Belgium-67/68) -------------------------
+# The app finds speakers by name over mDNS, but that live discovery is
+# unreliable on some hosts (Ubuntu boxes find 0; some Pis flap), so it falls
+# back to known_hosts (static IPs). Those silently break when the router
+# re-leases the speakers to new DHCP addresses -> NO_SPEAKERS -> missed adhans.
+# This timer re-finds speakers by name via get_chromecasts() every 15 min,
+# keeps known_speakers.json current, and nudges /api/rediscover. Every unit
+# now self-heals its speaker IPs.
+install -m 0644 "$SOURCE_DIR/deploy/castadhan-refresh.service" /etc/systemd/system/castadhan-refresh.service
+install -m 0644 "$SOURCE_DIR/deploy/castadhan-refresh.timer"   /etc/systemd/system/castadhan-refresh.timer
+systemctl daemon-reload
+systemctl enable castadhan-refresh.timer >/dev/null
+systemctl start castadhan-refresh.timer
+ok "speaker self-heal timer enabled (every 15 min)"
+
 # ---- 6c. Tailscale auto-enrolment (v1.3.0, O17v3) -------------------------
 # Goal: every fresh-flashed CastAdhan Pi joins the maintainer's tailnet on
 # first boot so future bug fixes can be applied remotely. Without this, every
