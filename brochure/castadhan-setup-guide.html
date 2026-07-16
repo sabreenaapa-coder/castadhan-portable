@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>CastAdhan — Setup Guide (148×148 mm, 8pp)</title>
+<!--
+  CastAdhan in-box SETUP GUIDE — print-ready companion to castadhan-booklet.html.
+  Trim size: 148 × 148 mm square, 8 pages (saddle-stitch: 2 × A3/SRA3 sheets, or
+  home-print 2-up on A4). Copy verified against setup.html + README at v1.15.1;
+  voice: Register 1 (gift recipient), per ~/Context/domains/castadhan/voice.md.
+
+  To export the PDF:
+    "Google Chrome" --headless --print-to-pdf=castadhan-setup-guide.pdf \
+      --no-pdf-header-footer castadhan-setup-guide.html
+
+  For professional print with bleed: set --bleed below to 3mm and ask the printer
+  to trim to 148 mm. Backgrounds already run to the page edge.
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=EB+Garamond:ital,wght@0,400;0,500;1,400&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bleed: 0mm;                     /* set to 3mm for a bleed PDF */
+    --page: calc(148mm + 2*var(--bleed));
+    --ink:   #101418;                 /* near-black with a whisper of blue-green */
+    --ivory: #faf6ec;
+    --gold:  #C9A227;                 /* print gold on ivory */
+    --gold-hi:#D4AF37;                /* console gold on dark */
+    --silver:#9aa3ab;
+    --body:  #2b2f33;
+    --display:"Cormorant Garamond", serif;
+    --text:"EB Garamond", serif;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  @page{ size: calc(148mm + 2*var(--bleed)) calc(148mm + 2*var(--bleed)); margin:0; }
+  html,body{background:#555}
+  body{font-family:var(--text); color:var(--body);}
+
+  .page{
+    width:var(--page); height:var(--page);
+    background:var(--ivory);
+    position:relative; overflow:hidden;
+    page-break-after:always;
+    padding:calc(14mm + var(--bleed));
+    display:flex; flex-direction:column;
+  }
+  @media screen{
+    body{display:flex;flex-wrap:wrap;gap:10px;padding:10px;justify-content:center}
+    .page{box-shadow:0 2px 14px rgba(0,0,0,.5)}
+  }
+
+  /* ---------- shared type ---------- */
+  h1,h2,h3{font-family:var(--display); font-weight:500; color:var(--ink)}
+  .kicker{
+    font-family:var(--display); font-size:8.5pt; letter-spacing:.32em;
+    text-transform:uppercase; color:var(--gold); font-weight:600; margin-bottom:4.5mm;
+  }
+  .page h2{font-size:21pt; line-height:1.12; margin-bottom:5mm; font-weight:500}
+  .page h3{font-size:13.5pt; margin:4mm 0 2.5mm; font-weight:600}
+  .page p{font-size:11pt; line-height:1.62; margin-bottom:3.4mm}
+  .page p b{color:var(--ink); font-weight:500}
+  .flourish{color:var(--gold); font-size:10pt; letter-spacing:.55em; margin:4mm 0; text-indent:.55em; text-align:center}
+  .folio{
+    position:absolute; bottom:calc(7mm + var(--bleed)); left:0; right:0;
+    text-align:center; font-family:var(--display); font-size:8pt;
+    letter-spacing:.28em; color:var(--silver);
+  }
+  .dark{background:var(--ink); color:#e8e4d8}
+  .dark p{color:#cfc9b8}
+  .dark h2{color:var(--ivory)}
+  .spacer{flex:1}
+
+  /* ---------- cover ---------- */
+  .cover{align-items:center; justify-content:center; text-align:center}
+  .cover .dial{width:48mm; height:48mm; margin-bottom:8mm}
+  .cover .wordmark{
+    font-family:var(--display); font-size:26pt; font-weight:400;
+    letter-spacing:.34em; text-transform:uppercase; color:var(--gold-hi); text-indent:.34em;
+  }
+  .cover .kicker{margin:5mm 0 0; color:var(--gold-hi)}
+  .cover .tagline{
+    font-family:var(--display); font-style:italic; font-size:13pt;
+    color:#b9b29c; margin-top:4mm; letter-spacing:.04em;
+  }
+  .cover .rule, .rule{
+    width:26mm; height:.35mm; background:var(--gold); border:0; margin:6mm auto;
+  }
+
+  /* checklist */
+  .need li{
+    list-style:none; font-size:11pt; line-height:1.5; margin-bottom:3.6mm;
+    padding-left:7mm; position:relative;
+  }
+  .need li::before{content:"✓"; position:absolute; left:0; color:var(--gold); font-weight:600}
+  .need li em{display:block; font-size:9.5pt; color:#6c7076; font-style:italic}
+  .need li b{color:var(--ink); font-weight:500}
+
+  /* numbered steps */
+  .steps{counter-reset:step; margin-top:2mm}
+  .steps li{
+    list-style:none; counter-increment:step; position:relative;
+    padding-left:11mm; margin-bottom:4.2mm; font-size:11pt; line-height:1.55;
+  }
+  .steps li::before{
+    content:counter(step); position:absolute; left:0; top:.2mm;
+    width:6.5mm; height:6.5mm; border:.35mm solid var(--gold); border-radius:50%;
+    display:flex; align-items:center; justify-content:center;
+    font-family:var(--display); font-weight:600; font-size:10pt; color:var(--gold);
+  }
+  .steps li b{color:var(--ink); font-weight:500}
+  .url{
+    font-family:"SF Mono", Menlo, Consolas, monospace; font-size:10.5pt;
+    color:var(--ink); background:rgba(201,162,39,.12);
+    padding:.6mm 2mm; border-radius:1.2mm; white-space:nowrap;
+  }
+
+  /* big step number — one large numbered circle per step page */
+  .stepnum{
+    width:13mm; height:13mm; flex:0 0 13mm; border:.5mm solid var(--gold); border-radius:50%;
+    display:flex; align-items:center; justify-content:center;
+    font-family:var(--display); font-weight:500; font-size:19pt; color:var(--gold);
+    margin-bottom:5.5mm;
+  }
+
+  /* FAQ — question in the reader's own words, then a calm answer */
+  .faq dt{
+    font-family:var(--display); font-style:italic; font-size:12.5pt;
+    color:var(--ink); margin-bottom:1.4mm;
+  }
+  .faq dd{font-size:10.5pt; line-height:1.55; margin:0 0 4.6mm}
+  .faq dd b{color:var(--ink); font-weight:500}
+
+  /* back cover */
+  .back{align-items:center; justify-content:flex-end; text-align:center}
+  .back img{width:30mm; height:30mm; margin-bottom:5mm; border-radius:50%}
+  .back .wordmark{
+    font-family:var(--display); font-size:13pt; letter-spacing:.3em; text-indent:.3em;
+    text-transform:uppercase; color:var(--gold-hi);
+  }
+  .back .madewith{
+    font-family:var(--display); font-style:italic; font-size:10.5pt; color:#b9b29c;
+    margin:5mm 0 8mm;
+  }
+</style>
+</head>
+<body>
+
+<!-- ═══════════ PAGE 1 — FRONT COVER ═══════════ -->
+<section class="page dark cover">
+  <!-- the brochure's single-hand 24-hour dial, smaller — the two booklets sit together -->
+  <svg class="dial" viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+    <circle cx="100" cy="100" r="94" fill="none" stroke="#D4AF37" stroke-width="1.1"/>
+    <circle cx="100" cy="100" r="88" fill="none" stroke="#D4AF37" stroke-width=".35" opacity=".55"/>
+    <g stroke="#D4AF37" stroke-width=".8">
+      <line x1="100" y1="12" x2="100" y2="20"/><line x1="100" y1="180" x2="100" y2="188"/>
+      <line x1="12" y1="100" x2="20" y2="100"/><line x1="180" y1="100" x2="188" y2="100"/>
+    </g>
+    <g stroke="#D4AF37" stroke-width=".45" opacity=".8">
+      <line x1="144" y1="23.8" x2="140" y2="30.7"/><line x1="176.2" y1="56" x2="169.3" y2="60"/>
+      <line x1="176.2" y1="144" x2="169.3" y2="140"/><line x1="144" y1="176.2" x2="140" y2="169.3"/>
+      <line x1="56" y1="176.2" x2="60" y2="169.3"/><line x1="23.8" y1="144" x2="30.7" y2="140"/>
+      <line x1="23.8" y1="56" x2="30.7" y2="60"/><line x1="56" y1="23.8" x2="60" y2="30.7"/>
+      <line x1="122.8" y1="14.7" x2="120.7" y2="22.4"/><line x1="162.6" y1="41.6" x2="157" y2="47.2"/>
+      <line x1="185.3" y1="77.2" x2="177.6" y2="79.3"/><line x1="185.3" y1="122.8" x2="177.6" y2="120.7"/>
+      <line x1="162.6" y1="158.4" x2="157" y2="152.8"/><line x1="122.8" y1="185.3" x2="120.7" y2="177.6"/>
+      <line x1="77.2" y1="185.3" x2="79.3" y2="177.6"/><line x1="41.6" y1="162.6" x2="47.2" y2="157"/>
+      <line x1="14.7" y1="122.8" x2="22.4" y2="120.7"/><line x1="14.7" y1="77.2" x2="22.4" y2="79.3"/>
+      <line x1="41.6" y1="41.6" x2="47.2" y2="47.2"/><line x1="77.2" y1="14.7" x2="79.3" y2="22.4"/>
+    </g>
+    <path d="M100 27 a7.5 7.5 0 1 0 5.2 12.9 a6 6 0 1 1 -5.2 -12.9 z" fill="#D4AF37" transform="translate(0,3)"/>
+    <!-- hand pointing to dawn — where every setup begins -->
+    <g transform="rotate(75 100 100)">
+      <line x1="100" y1="100" x2="100" y2="26" stroke="#D4AF37" stroke-width="1.4" stroke-linecap="round"/>
+      <line x1="100" y1="100" x2="100" y2="112" stroke="#D4AF37" stroke-width="1.4" stroke-linecap="round" opacity=".6"/>
+    </g>
+    <circle cx="100" cy="100" r="3" fill="#D4AF37"/>
+    <circle cx="100" cy="100" r="1.2" fill="#101418"/>
+  </svg>
+  <div class="wordmark">CastAdhan</div>
+  <div class="kicker">Setup Guide</div>
+  <hr class="rule">
+  <div class="tagline">Three minutes, three steps.</div>
+</section>
+
+<!-- ═══════════ PAGE 2 — WELCOME / IN THE BOX ═══════════ -->
+<section class="page">
+  <div class="kicker">Assalamu alaikum</div>
+  <p>This little box will fill your home with the adhan, played through your Google speakers. Setting it up takes about three minutes — and you only ever do it once.</p>
+  <h3>In the box</h3>
+  <ul class="need">
+    <li><b>Your CastAdhan box</b><em>a small Raspberry Pi computer, already assembled in its case</em></li>
+    <li><b>Power cable</b></li>
+    <li><b>Ethernet cable</b><em>only needed for the first few minutes</em></li>
+  </ul>
+  <h3>You’ll need</h3>
+  <ul class="need">
+    <li><b>Your home Wi-Fi</b></li>
+    <li><b>One Google Cast or Nest speaker</b><em>such as Nest Mini, Nest Audio, Nest Hub or Google TV — Amazon Alexa devices are not supported</em></li>
+  </ul>
+  <div class="folio">2</div>
+</section>
+
+<!-- ═══════════ PAGE 3 — STEP 1: CONNECT ═══════════ -->
+<section class="page">
+  <div class="kicker">Step One</div>
+  <div class="stepnum">1</div>
+  <h2>Connect</h2>
+  <p>Plug the <b>Ethernet cable</b> into the CastAdhan box, and the other end into a spare socket on your home router — the box your internet comes from.</p>
+  <p>Plug in the <b>power cable</b>.</p>
+  <p><b>Wait one minute.</b> There’s no screen and nothing to press — the box quietly starts up by itself.</p>
+  <div class="folio">3</div>
+</section>
+
+<!-- ═══════════ PAGE 4 — STEP 2: OPEN ═══════════ -->
+<section class="page">
+  <div class="kicker">Step Two</div>
+  <div class="stepnum">2</div>
+  <h2>Open</h2>
+  <p>Make sure your phone is connected to your <b>home Wi-Fi</b>.</p>
+  <p>Then open the web browser on your phone or tablet, and in the address bar type:</p>
+  <p style="text-align:center; margin:5mm 0"><span class="url">http://castadhan.local:8786</span></p>
+  <p>A welcome page appears, greeting you with <i>Assalamu alaikum</i>.</p>
+  <div class="folio">4</div>
+</section>
+
+<!-- ═══════════ PAGE 5 — STEP 3: THE WELCOME WIZARD ═══════════ -->
+<section class="page">
+  <div class="kicker">Step Three</div>
+  <div class="stepnum">3</div>
+  <h2>The Welcome Wizard</h2>
+  <p>The wizard walks you through, one small step at a time:</p>
+  <ol class="steps">
+    <li><b>Where you are</b> — choose your city.</li>
+    <li><b>How times are calculated</b> — if unsure, leave the defaults.</li>
+    <li><b>Your speakers</b> — tick the rooms that should play the adhan, and hear a test adhan if you’d like.</li>
+  </ol>
+  <p>Rather not leave the cable in? Open <b>Settings → 📶 Wi-Fi Setup</b>, join your home Wi-Fi, then unplug the Ethernet — CastAdhan carries on wirelessly.</p>
+  <p><b>No apps to download. No accounts to create.<br>No terminal commands.</b></p>
+  <div class="folio">5</div>
+</section>
+
+<!-- ═══════════ PAGE 6 — IF SOMETHING DOESN'T WORK ═══════════ -->
+<section class="page">
+  <div class="kicker">If Something Doesn’t Work</div>
+  <h2>Don’t Worry</h2>
+  <dl class="faq">
+    <dt>“My phone can’t find castadhan.local.”</dt>
+    <dd>Check your phone is on your home Wi-Fi, and give the box its full minute. If it still doesn’t appear, ask your gift-giver to text you the box’s address, and type that in instead.</dd>
+    <dt>“I can’t hear anything from the box itself.”</dt>
+    <dd>That’s normal — <b>the box itself is silent</b>. The adhan plays through your Google speakers, just like casting music.</dd>
+    <dt>“The wizard can’t find my speakers.”</dt>
+    <dd>Check they’re powered on and on the same Wi-Fi, then tap <b>Scan again</b>. Remember it works with Google Cast and Nest speakers — Amazon Alexa doesn’t work.</dd>
+    <dt>“My Wi-Fi has changed.”</dt>
+    <dd>Tell your gift-giver — they can update the box remotely. You don’t have to do anything.</dd>
+  </dl>
+  <div class="folio">6</div>
+</section>
+
+<!-- ═══════════ PAGE 7 — EVERYDAY USE ═══════════ -->
+<section class="page">
+  <div class="kicker">Every Day</div>
+  <h2>Living with CastAdhan</h2>
+  <p><b>The dashboard is your remote control.</b> Open it from any phone in the house, and add it to your home screen so it opens like an app.</p>
+  <p><b>One tap to pause.</b> If the moment isn’t right — a phone call, a sleeping baby — the <b>Stop</b> button quietly pauses playback.</p>
+  <p><b>The clock on your TV.</b> The <b>📺 TV Display</b> tab shows you how to put the 24-hour prayer clock on your television.</p>
+  <p><b>It looks after itself.</b> The box updates its own software overnight while your family sleeps. You never need to plug it into a computer.</p>
+  <div class="folio">7</div>
+</section>
+
+<!-- ═══════════ PAGE 8 — BACK COVER ═══════════ -->
+<section class="page dark back">
+  <div class="spacer"></div>
+  <img src="castadhan_logo.png" alt="CastAdhan logo">
+  <div class="wordmark">CastAdhan</div>
+  <div class="madewith">Made with love.</div>
+</section>
+
+</body>
+</html>

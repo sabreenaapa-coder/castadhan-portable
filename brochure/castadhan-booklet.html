@@ -1,0 +1,343 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>CastAdhan — Box Booklet (148×148 mm, 16pp)</title>
+<!--
+  CastAdhan in-box booklet — print-ready.
+  Trim size: 148 × 148 mm square, 16 pages (saddle-stitch: 4 × A3/SRA3 sheets, or
+  home-print 2-up on A4). Copy source: CASTADHAN_BROCHURE.md (accepted 2026-07-01),
+  verified against CASTADHAN_FEATURES.md at v1.15.1.
+
+  To export the PDF:
+    "Google Chrome" --headless --print-to-pdf=castadhan-booklet.pdf \
+      --no-pdf-header-footer castadhan-booklet.html
+
+  For professional print with bleed: set --bleed below to 3mm and ask the printer
+  to trim to 148 mm. Backgrounds already run to the page edge.
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=EB+Garamond:ital,wght@0,400;0,500;1,400&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bleed: 0mm;                     /* set to 3mm for a bleed PDF */
+    --page: calc(148mm + 2*var(--bleed));
+    --ink:   #101418;                 /* near-black with a whisper of blue-green */
+    --ivory: #faf6ec;
+    --gold:  #C9A227;                 /* print gold on ivory */
+    --gold-hi:#D4AF37;                /* console gold on dark */
+    --silver:#9aa3ab;
+    --body:  #2b2f33;
+    --display:"Cormorant Garamond", serif;
+    --text:"EB Garamond", serif;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  @page{ size: calc(148mm + 2*var(--bleed)) calc(148mm + 2*var(--bleed)); margin:0; }
+  html,body{background:#555}
+  body{font-family:var(--text); color:var(--body);}
+
+  .page{
+    width:var(--page); height:var(--page);
+    background:var(--ivory);
+    position:relative; overflow:hidden;
+    page-break-after:always;
+    padding:calc(14mm + var(--bleed));
+    display:flex; flex-direction:column;
+  }
+  @media screen{
+    body{display:flex;flex-wrap:wrap;gap:10px;padding:10px;justify-content:center}
+    .page{box-shadow:0 2px 14px rgba(0,0,0,.5)}
+  }
+
+  /* ---------- shared type ---------- */
+  h1,h2,h3{font-family:var(--display); font-weight:500; color:var(--ink)}
+  .kicker{
+    font-family:var(--display); font-size:8.5pt; letter-spacing:.32em;
+    text-transform:uppercase; color:var(--gold); font-weight:600; margin-bottom:4.5mm;
+  }
+  .page h2{font-size:21pt; line-height:1.12; margin-bottom:5mm; font-weight:500}
+  .page p{font-size:11pt; line-height:1.62; margin-bottom:3.4mm}
+  .page p b{color:var(--ink); font-weight:500}
+  .flourish{color:var(--gold); font-size:10pt; letter-spacing:.55em; margin:4mm 0; text-indent:.55em; text-align:center}
+  .folio{
+    position:absolute; bottom:calc(7mm + var(--bleed)); left:0; right:0;
+    text-align:center; font-family:var(--display); font-size:8pt;
+    letter-spacing:.28em; color:var(--silver);
+  }
+  .dark{background:var(--ink); color:#e8e4d8}
+  .dark p{color:#cfc9b8}
+  .dark h2{color:var(--ivory)}
+  .spacer{flex:1}
+
+  /* ---------- cover ---------- */
+  .cover{align-items:center; justify-content:center; text-align:center}
+  .cover .dial{width:62mm; height:62mm; margin-bottom:9mm}
+  .cover .wordmark{
+    font-family:var(--display); font-size:26pt; font-weight:400;
+    letter-spacing:.34em; text-transform:uppercase; color:var(--gold-hi); text-indent:.34em;
+  }
+  .cover .tagline{
+    font-family:var(--display); font-style:italic; font-size:13pt;
+    color:#b9b29c; margin-top:4mm; letter-spacing:.04em;
+  }
+  .cover .rule, .rule{
+    width:26mm; height:.35mm; background:var(--gold); border:0; margin:6mm auto;
+  }
+
+  /* ---------- opening story ---------- */
+  .story p{font-size:11.5pt}
+  .story .lede{
+    font-family:var(--display); font-size:15.5pt; line-height:1.4; color:var(--ink);
+    margin-bottom:5mm;
+  }
+
+  /* quiet centered page */
+  .quiet{justify-content:center; text-align:center}
+  .quiet p{font-family:var(--display); font-size:15pt; line-height:1.75; color:var(--ink)}
+  .quiet .small{font-size:11.5pt; font-family:var(--text); color:var(--body)}
+
+  /* checklist */
+  .need li{
+    list-style:none; font-size:11pt; line-height:1.5; margin-bottom:3.6mm;
+    padding-left:7mm; position:relative;
+  }
+  .need li::before{content:"✓"; position:absolute; left:0; color:var(--gold); font-weight:600}
+  .need li em{display:block; font-size:9.5pt; color:#6c7076; font-style:italic}
+
+  /* numbered steps */
+  .steps{counter-reset:step; margin-top:2mm}
+  .steps li{
+    list-style:none; counter-increment:step; position:relative;
+    padding-left:11mm; margin-bottom:4.2mm; font-size:11pt; line-height:1.55;
+  }
+  .steps li::before{
+    content:counter(step); position:absolute; left:0; top:.2mm;
+    width:6.5mm; height:6.5mm; border:.35mm solid var(--gold); border-radius:50%;
+    display:flex; align-items:center; justify-content:center;
+    font-family:var(--display); font-weight:600; font-size:10pt; color:var(--gold);
+  }
+  .url{
+    font-family:"SF Mono", Menlo, Consolas, monospace; font-size:10.5pt;
+    color:var(--ink); background:rgba(201,162,39,.12);
+    padding:.6mm 2mm; border-radius:1.2mm; white-space:nowrap;
+  }
+
+  /* back cover */
+  .back{align-items:center; justify-content:flex-end; text-align:center}
+  .back img{width:30mm; height:30mm; margin-bottom:5mm; border-radius:50%}
+  .back .wordmark{
+    font-family:var(--display); font-size:13pt; letter-spacing:.3em; text-indent:.3em;
+    text-transform:uppercase; color:var(--gold-hi);
+  }
+  .back .madewith{
+    font-family:var(--display); font-style:italic; font-size:10.5pt; color:#b9b29c;
+    margin:5mm 0 8mm;
+  }
+  /* QR: ink modules on an ivory tile (inverted QRs fail many scanners) */
+  .back .qr-tile{
+    background:var(--ivory); border-radius:2.5mm; padding:3mm;
+    width:28mm; height:28mm; margin-bottom:3mm;
+  }
+  .back .qr-tile img{width:22mm; height:22mm; margin:0; border-radius:0; display:block}
+  .back .qr-caption{
+    font-family:var(--display); font-size:8.5pt; letter-spacing:.14em; color:#b9b29c;
+    text-transform:uppercase; margin-bottom:6mm;
+  }
+</style>
+</head>
+<body>
+
+<!-- ═══════════ PAGE 1 — FRONT COVER ═══════════ -->
+<section class="page dark cover">
+  <!-- single-hand 24-hour dial: midnight (crescent) at top, one slender hand -->
+  <svg class="dial" viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+    <circle cx="100" cy="100" r="94" fill="none" stroke="#D4AF37" stroke-width="1.1"/>
+    <circle cx="100" cy="100" r="88" fill="none" stroke="#D4AF37" stroke-width=".35" opacity=".55"/>
+    <!-- 24 hour ticks -->
+    <g stroke="#D4AF37" stroke-width=".8">
+      <line x1="100" y1="12" x2="100" y2="20"/><line x1="100" y1="180" x2="100" y2="188"/>
+      <line x1="12" y1="100" x2="20" y2="100"/><line x1="180" y1="100" x2="188" y2="100"/>
+    </g>
+    <g stroke="#D4AF37" stroke-width=".45" opacity=".8">
+      <line x1="144" y1="23.8" x2="140" y2="30.7"/><line x1="176.2" y1="56" x2="169.3" y2="60"/>
+      <line x1="176.2" y1="144" x2="169.3" y2="140"/><line x1="144" y1="176.2" x2="140" y2="169.3"/>
+      <line x1="56" y1="176.2" x2="60" y2="169.3"/><line x1="23.8" y1="144" x2="30.7" y2="140"/>
+      <line x1="23.8" y1="56" x2="30.7" y2="60"/><line x1="56" y1="23.8" x2="60" y2="30.7"/>
+      <line x1="122.8" y1="14.7" x2="120.7" y2="22.4"/><line x1="162.6" y1="41.6" x2="157" y2="47.2"/>
+      <line x1="185.3" y1="77.2" x2="177.6" y2="79.3"/><line x1="185.3" y1="122.8" x2="177.6" y2="120.7"/>
+      <line x1="162.6" y1="158.4" x2="157" y2="152.8"/><line x1="122.8" y1="185.3" x2="120.7" y2="177.6"/>
+      <line x1="77.2" y1="185.3" x2="79.3" y2="177.6"/><line x1="41.6" y1="162.6" x2="47.2" y2="157"/>
+      <line x1="14.7" y1="122.8" x2="22.4" y2="120.7"/><line x1="14.7" y1="77.2" x2="22.4" y2="79.3"/>
+      <line x1="41.6" y1="41.6" x2="47.2" y2="47.2"/><line x1="77.2" y1="14.7" x2="79.3" y2="22.4"/>
+    </g>
+    <!-- crescent at midnight -->
+    <path d="M100 27 a7.5 7.5 0 1 0 5.2 12.9 a6 6 0 1 1 -5.2 -12.9 z" fill="#D4AF37" transform="translate(0,3)"/>
+    <!-- single slender hand pointing to ~17h (evening) -->
+    <g transform="rotate(255 100 100)">
+      <line x1="100" y1="100" x2="100" y2="26" stroke="#D4AF37" stroke-width="1.4" stroke-linecap="round"/>
+      <line x1="100" y1="100" x2="100" y2="112" stroke="#D4AF37" stroke-width="1.4" stroke-linecap="round" opacity=".6"/>
+    </g>
+    <circle cx="100" cy="100" r="3" fill="#D4AF37"/>
+    <circle cx="100" cy="100" r="1.2" fill="#101418"/>
+  </svg>
+  <div class="wordmark">CastAdhan</div>
+  <hr class="rule">
+  <div class="tagline">A Home That Remembers Allah</div>
+</section>
+
+<!-- ═══════════ PAGE 2 — THE STORY ═══════════ -->
+<section class="page story">
+  <div class="kicker">Assalamu alaikum</div>
+  <p class="lede">There was once a time when the call to prayer naturally marked the rhythm of everyday&nbsp;life.</p>
+  <p>The adhan echoed through towns and villages, reminding hearts to turn towards Allah. Children grew up hearing it. Families paused together. The remembrance of Allah became part of ordinary life.</p>
+  <p>CastAdhan is designed to gently bring that feeling back into your home.</p>
+  <div class="folio">2</div>
+</section>
+
+<!-- ═══════════ PAGE 3 — THE PROMISE ═══════════ -->
+<section class="page story">
+  <div class="spacer"></div>
+  <p>Working quietly alongside your compatible Google speakers and displays, CastAdhan fills your home with the beautiful rhythm of worship — from the first adhan before dawn to the final remembrance before sleep.</p>
+  <p>Once everything has been set up, it simply takes care of the rest.</p>
+  <p><b>No subscriptions. No monthly fees.</b><br>Just a home that remembers Allah.</p>
+  <div class="spacer"></div>
+  <div class="flourish">◆ ◆ ◆</div>
+  <div class="folio">3</div>
+</section>
+
+<!-- ═══════════ PAGE 4 — EVERY PRAYER ═══════════ -->
+<section class="page">
+  <div class="kicker">Every Prayer</div>
+  <h2>The Adhan, Beautifully Delivered</h2>
+  <p>CastAdhan automatically plays the adhan for each of the five daily prayers, precisely timed for your location throughout the year.</p>
+  <p>Whether you choose one room or your entire home, every speaker can have its own independent volume.</p>
+  <p>Adjust the adhan, Qur’an recitation and daily dhikr independently — so the Fajr call can gently wake the house while the bedtime remembrance plays softly in the children’s room. Every sound, perfectly balanced for your family.</p>
+  <p><b>And it can even be your own voice</b> — record the adhan yourself, so your family is called to prayer by someone who loves them.</p>
+  <div class="folio">4</div>
+</section>
+
+<!-- ═══════════ PAGE 5 — FAMILY LIFE ═══════════ -->
+<section class="page quiet">
+  <div class="kicker">Designed Around Family Life</div>
+  <p>Every family is different.</p>
+  <p>Children sleep.<br>Parents work.<br>Guests visit.</p>
+  <hr class="rule">
+  <p class="small">Choose what plays, when it plays and where it plays — creating a routine that naturally fits around your family’s daily life.</p>
+  <div class="folio">5</div>
+</section>
+
+<!-- ═══════════ PAGE 6 — THROUGHOUT THE DAY ═══════════ -->
+<section class="page">
+  <div class="kicker">Throughout the Day</div>
+  <h2>More Than the Adhan</h2>
+  <p>The remembrance of Allah does not begin and end with the adhan.</p>
+  <p>CastAdhan can gently enrich your home throughout the day with scheduled Qur’an recitation, morning and evening adhkar, bedtime remembrance and carefully timed reminders.</p>
+  <p><b>Pre-prayer windows:</b> receive gentle, quiet reminders before a prayer window closes — helping you catch your Salah before time runs out.</p>
+  <div class="folio">6</div>
+</section>
+
+<!-- ═══════════ PAGE 7 — FRIDAY / RAMADAN ═══════════ -->
+<section class="page">
+  <div class="kicker">The Blessed Days</div>
+  <h2>Every Friday</h2>
+  <p>Welcome the blessed day of Jumu’ah with automatic Surah al-Kahf playback, together with your chosen Friday reminders.</p>
+  <div style="height:4mm"></div>
+  <h2>Ramadan &amp; Eid</h2>
+  <p>During Ramadan, CastAdhan is ready with Suhoor wake-up alarms, seasonal reminders and Eid takbeeraat — helping your family embrace the most blessed days of the Islamic year.</p>
+  <div class="folio">7</div>
+</section>
+
+<!-- ═══════════ PAGE 8 — YOUR HOME, YOUR WAY ═══════════ -->
+<section class="page quiet dark">
+  <div class="kicker">Your Home, Your Way</div>
+  <p style="color:#e8e4d8">Whether you simply want the five daily adhans, or a home gently filled with Qur’an and remembrance throughout the day, CastAdhan adapts to your family’s own routine.</p>
+  <hr class="rule">
+  <p style="font-style:italic; color:#D4AF37">Quietly. Naturally. Beautifully.</p>
+  <div class="folio" style="color:#6d6a5e">8</div>
+</section>
+
+<!-- ═══════════ PAGE 9 — THE CLOCK ═══════════ -->
+<section class="page">
+  <div class="kicker">Beautiful Every Day</div>
+  <h2>The 24-Hour Prayer Clock</h2>
+  <p>Display an elegant prayer clock on your television or smart display and see the entire day at a glance.</p>
+  <p>Featuring a striking <b>single-hand 24-hour dial</b>, each prayer carries its own scene and light — the current hour softly glows over a shifting aurora, transforming time from numbers into a visual landscape.</p>
+  <p>The live countdown to the next prayer, Hijri date and local weather help everyone in the home — from young children to grandparents — understand the day’s journey with a single glance.</p>
+  <div class="folio">9</div>
+</section>
+
+<!-- ═══════════ PAGE 10 — EVERYDAY CONTROL ═══════════ -->
+<section class="page">
+  <div class="kicker">In Your Hands</div>
+  <h2>Simple Everyday Control</h2>
+  <p>Whenever you wish, personalise your home’s schedule, adjust audio or pause playback using the CastAdhan control page from any phone or tablet.</p>
+  <p>Large, clear controls make everyday changes simple without getting in the way. <b>Add the dashboard straight to your phone’s home screen like an app</b> for instant access.</p>
+  <p>A single, one-tap <b>Stop</b> button lets you pause quietly if the moment isn’t right — full control, without fumbling through menus.</p>
+  <div class="folio">10</div>
+</section>
+
+<!-- ═══════════ PAGE 11 — GETTING STARTED ═══════════ -->
+<section class="page">
+  <div class="kicker">Getting Started</div>
+  <h2>Ready in Three Minutes</h2>
+  <ol class="steps">
+    <li>Unbox your CastAdhan. <b>Connect the included Ethernet cable to your home router</b>, then plug in the power. Wait one minute.</li>
+    <li>On your phone or tablet, open <span class="url">castadhan.local:8786</span> in your browser.</li>
+    <li>A simple welcome wizard guides you through connecting your Wi-Fi and choosing your city. Once done, you can even <b>unplug the Ethernet cable</b> — CastAdhan carries on over Wi-Fi.</li>
+  </ol>
+  <p style="margin-top:2mm"><b>No apps to download. No accounts to create.<br>No terminal commands.</b></p>
+  <div class="folio">11</div>
+</section>
+
+<!-- ═══════════ PAGE 12 — WHAT YOU'LL NEED ═══════════ -->
+<section class="page">
+  <div class="kicker">What You’ll Need</div>
+  <h2>Three Simple Things</h2>
+  <ul class="need">
+    <li><b>Your CastAdhan Box</b><em>included — the quiet brain that does all the work</em></li>
+    <li><b>Home Wi-Fi</b></li>
+    <li><b>At least one compatible Google Cast speaker or display</b><em>such as Nest Mini, Nest Audio, Nest Hub or Google TV</em></li>
+  </ul>
+  <div class="spacer"></div>
+  <p style="font-size:9.5pt; color:#6c7076; font-style:italic">Amazon Alexa devices are not currently supported.</p>
+  <div class="folio">12</div>
+</section>
+
+<!-- ═══════════ PAGE 13 — TAKES CARE OF ITSELF ═══════════ -->
+<section class="page">
+  <div class="kicker">Peace of Mind</div>
+  <h2>It Takes Care of Itself</h2>
+  <p>CastAdhan automatically updates its software overnight, every day at 4 a.m. You will never need to download a patch, plug it into a computer, or worry about it falling behind. It simply gets better over time, quietly, while your family sleeps.</p>
+  <p>Built on open-source software with no ongoing subscription costs, it is designed to serve Muslim homes for many years to come.</p>
+  <p>If you ever need help, someone you trust can securely assist with your settings from anywhere — bringing lasting peace of mind.</p>
+  <div class="folio">13</div>
+</section>
+
+<!-- ═══════════ PAGE 14 — CLOSING ═══════════ -->
+<section class="page quiet">
+  <div class="kicker">A Home That Remembers Allah</div>
+  <p>CastAdhan is more than a device.</p>
+  <p class="small" style="margin-top:3mm">It is a quiet companion that helps bring the remembrance of Allah back into everyday family life.</p>
+  <div class="folio">14</div>
+</section>
+
+<!-- ═══════════ PAGE 15 — DUA ═══════════ -->
+<section class="page quiet dark">
+  <p style="color:#e8e4d8">From the first adhan before dawn…</p>
+  <p style="color:#e8e4d8">to the final remembrance before sleep…</p>
+  <hr class="rule">
+  <p style="font-style:italic; color:#D4AF37">may your home be filled with worship, tranquillity and barakah.</p>
+</section>
+
+<!-- ═══════════ PAGE 16 — BACK COVER ═══════════ -->
+<section class="page dark back">
+  <div class="spacer"></div>
+  <img src="castadhan_logo.png" alt="CastAdhan logo">
+  <div class="wordmark">CastAdhan</div>
+  <div class="madewith">Designed with the care, concern and sincerity<br>of a Muslim father.</div>
+  <div class="qr-tile"><img src="site-qr.svg" alt="QR code — the CastAdhan prayer clock on the web"></div>
+  <div class="qr-caption">Try the clock on any screen</div>
+</section>
+
+</body>
+</html>
