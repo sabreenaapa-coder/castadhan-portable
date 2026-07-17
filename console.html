@@ -69,7 +69,10 @@
   body:not(.clock-mode):not(.simple-mode):not(.cp-active) .clock-container>.clock{display:none}
   body.clock-mode .cp-face24-admin,body.simple-mode .cp-face24-admin,body.clock-mode .cp-hands24b,body.simple-mode .cp-hands24b{display:none}
   /* operator dashboard: grow the scene-wedge clock as large as the layout allows */
-  body:not(.clock-mode):not(.simple-mode):not(.cp-active){--clock:min(72vh,42vw,860px)}
+  /* Reserve ~420px of vertical space (title + digital readout + countdown + the fixed
+     Clock/Admin pill) so the dial never grows tall enough to push the "Next:" countdown
+     under the bottom-centre pill on shorter screens. */
+  body:not(.clock-mode):not(.simple-mode):not(.cp-active){--clock:min(72vh,42vw,860px,calc(100vh - 420px))}
   .zones{position:absolute;inset:0;border-radius:50%;transition:background .5s ease}
   .glow{position:absolute;inset:0;border-radius:50%;background:radial-gradient(circle at center, rgba(212,175,55,0.15) 0%, transparent 70%);z-index:2;pointer-events:none;transition:transform 1s linear;}
   .hub{position:absolute;inset:auto;left:50%;top:50%;transform:translate(-50%,-50%);width:16px;height:16px;border-radius:50%;background:var(--gold);border:2px solid var(--bg);z-index:5}
@@ -207,7 +210,14 @@
   .control-btn:hover {background: rgba(212,175,55,0.3);}
   .save-btn {background: rgba(212,175,55,0.3);border: 1px solid var(--gold);color: var(--gold);padding: 6px 12px;border-radius: 4px;cursor: pointer;font-weight:bold;}
   .save-btn:hover {background: rgba(212,175,55,0.5);}
-  
+
+  /* Location autocomplete dropdown */
+  .loc-results {margin-top: 4px; background: #161616; border: 1px solid var(--gold); border-radius: 6px; max-height: 220px; overflow-y: auto; box-shadow: 0 6px 18px rgba(0,0,0,0.5);}
+  .loc-results .loc-item {padding: 8px 10px; cursor: pointer; font-size: 0.85rem; color: var(--fg); border-bottom: 1px solid #262626; line-height: 1.3;}
+  .loc-results .loc-item:last-child {border-bottom: none;}
+  .loc-results .loc-item:hover {background: rgba(212,175,55,0.25);}
+  .loc-results .loc-note {padding: 8px 10px; font-size: 0.8rem; opacity: 0.6; font-style: italic;}
+
   /* Toast */
   .toast {position: fixed;bottom: 20px;left: 50%;transform: translateX(-50%);background: rgba(20, 20, 20, 0.9);color: var(--fg);border: 1px solid var(--gold);border-radius: 5px;padding: 8px 16px;z-index: 100;opacity: 0;transition: opacity 0.3s ease;}
   .toast.show {opacity: 1;}
@@ -1071,7 +1081,8 @@ body.cp-playing .cp-now{display:flex;}
           <h4>📍 Location</h4>
           <div class="setting-item">
             <label>City/Country Search</label>
-            <input type="text" id="location-search" placeholder="e.g., London, UK">
+            <input type="text" id="location-search" placeholder="Start typing a city, e.g. Newtown" autocomplete="off" oninput="onLocationInput()" onkeydown="if(event.key==='Enter'){event.preventDefault();searchLocation();}">
+            <div id="location-results" class="loc-results" style="display:none;"></div>
             <button class="control-btn" onclick="searchLocation()" style="margin-top:5px;">🔍 Search location</button>
             <div style="margin-top:6px;font-size:0.8em;opacity:0.75;line-height:1.35;">Search, then scroll to the bottom and click <strong>💾 Save changes</strong> to apply.</div>
             <!-- S5 FIX (2026-05-23): demoted auto-detect with explicit warning.
@@ -3796,64 +3807,99 @@ async function resetSetup() {
   } catch (e) { showToast('Network error'); }
 }
 
-async function searchLocation() {
-  const query = $('location-search').value;
-  if (!query) return;
-  
-  try {
-    showToast('Searching...');
-    const res = await fetch(`/api/location/search?q=${encodeURIComponent(query)}`);
-    if (!res.ok) {
-      showToast('Search failed');
-      return;
-    }
-    
-    const data = await res.json();
-    if (data && data.length > 0) {
-      const place = data[0];
-      $('config-latitude').value = parseFloat(place.lat);
-      $('config-longitude').value = parseFloat(place.lon);
+// ── Location autocomplete (D): live dropdown so you can confirm the right city ──
+// e.g. typing "Newtown" surfaces every match so you pick the correct one,
+// instead of the old behaviour that silently took the first result.
+let _locSearchTimer = null;
 
-      // S1 FIX (2026-05-23): persist city/country to globals so saveConfig() writes them.
-      // Previously these were only displayed; saveConfig pulled stale globals → location never updated.
-      // Prefer search result; fall back to reverse geocode.
-      // D10 FIX (2026-05-23): Nominatim returns trilingual country names for multilingual states
-      // (e.g. "België / Belgique / Belgien"). Take just the first form for cleaner display.
-      const normalizeCountry = s => (s || '').split('/')[0].trim();
-      configCity    = (place.city    || '').trim();
-      configCountry = normalizeCountry(place.country);
+function hideLocationResults() {
+  const box = $('location-results');
+  if (box) { box.style.display = 'none'; box.innerHTML = ''; }
+}
 
-      // Reverse geocode for nicer city/country display when search result is sparse
-      try {
-        const revRes = await fetch(`/api/location/reverse?lat=${place.lat}&lon=${place.lon}`);
-        if (revRes.ok) {
-          const revData = await revRes.json();
-          if (revData.city)    configCity    = revData.city;
-          if (revData.country) configCountry = normalizeCountry(revData.country);
-        }
-      } catch (e) { /* reverse geocode optional */ }
-
-      $('location-display').textContent = configCity
-        ? `${configCity}, ${configCountry}`
-        : place.name;
-
-      // S3 FIX: auto-select the most likely timezone for this lat/lon
-      // (best-effort — Europe-only mapping here; backend should provide a real /api/tz endpoint later)
-      try {
-        const tz = guessTimezoneFromLatLon(parseFloat(place.lat), parseFloat(place.lon));
-        if (tz && $('config-timezone').querySelector(`option[value="${tz}"]`)) {
-          $('config-timezone').value = tz;
-        }
-      } catch (e) { /* tz guess optional */ }
-
-      showToast(`Found ${configCity || place.name.substring(0, 40)} — now scroll down and click 💾 Save changes to apply.`);
-    } else {
-      showToast('Location not found');
-    }
-  } catch (err) {
-    console.error('Search error:', err);
-    showToast('Search failed');
+function renderLocationResults(list) {
+  const box = $('location-results');
+  if (!box) return;
+  box.innerHTML = '';
+  if (!list || !list.length) {
+    box.innerHTML = '<div class="loc-note">No matches — try adding a country, e.g. "Newtown, Wales".</div>';
+    box.style.display = 'block';
+    return;
   }
+  list.slice(0, 8).forEach(place => {
+    const item = document.createElement('div');
+    item.className = 'loc-item';
+    item.textContent = place.name || [place.city, place.country].filter(Boolean).join(', ') || `${place.lat}, ${place.lon}`;
+    item.onclick = () => applyLocationChoice(place);
+    box.appendChild(item);
+  });
+  box.style.display = 'block';
+}
+
+async function runLocationSearch(query) {
+  try {
+    const res = await fetch(`/api/location/search?q=${encodeURIComponent(query)}`);
+    if (!res.ok) { hideLocationResults(); return []; }
+    const data = await res.json();
+    return Array.isArray(data) ? data : [];
+  } catch (e) { hideLocationResults(); return []; }
+}
+
+// Debounced live search as the user types.
+function onLocationInput() {
+  const query = ($('location-search').value || '').trim();
+  clearTimeout(_locSearchTimer);
+  if (query.length < 2) { hideLocationResults(); return; }
+  _locSearchTimer = setTimeout(async () => {
+    renderLocationResults(await runLocationSearch(query));
+  }, 300);
+}
+
+// Apply a chosen place: set fields + globals, refine via reverse-geocode, guess tz.
+// D10 FIX (2026-05-23): Nominatim returns trilingual country names (e.g. "België / Belgique / Belgien") — take the first.
+async function applyLocationChoice(place) {
+  const normalizeCountry = s => (s || '').split('/')[0].trim();
+  $('config-latitude').value = parseFloat(place.lat);
+  $('config-longitude').value = parseFloat(place.lon);
+  // S1 FIX (2026-05-23): persist city/country to globals so saveConfig() writes them.
+  configCity    = (place.city || '').trim();
+  configCountry = normalizeCountry(place.country);
+
+  // Reverse geocode for nicer city/country display when the search result is sparse
+  try {
+    const revRes = await fetch(`/api/location/reverse?lat=${place.lat}&lon=${place.lon}`);
+    if (revRes.ok) {
+      const revData = await revRes.json();
+      if (revData.city)    configCity    = revData.city;
+      if (revData.country) configCountry = normalizeCountry(revData.country);
+    }
+  } catch (e) { /* reverse geocode optional */ }
+
+  $('location-display').textContent = configCity ? `${configCity}, ${configCountry}` : (place.name || '');
+
+  // S3 FIX: auto-select the most likely timezone for this lat/lon (best-effort)
+  try {
+    const tz = guessTimezoneFromLatLon(parseFloat(place.lat), parseFloat(place.lon));
+    if (tz && $('config-timezone').querySelector(`option[value="${tz}"]`)) {
+      $('config-timezone').value = tz;
+    }
+  } catch (e) { /* tz guess optional */ }
+
+  // Reflect the confirmed choice in the box and close the list
+  $('location-search').value = configCity ? `${configCity}, ${configCountry}` : (place.name || '');
+  hideLocationResults();
+  showToast(`Selected ${configCity || place.name || 'location'} — now scroll down and click 💾 Save changes to apply.`);
+}
+
+// Button / Enter: show the picker. Single match applies directly; multiple → let the user choose.
+async function searchLocation() {
+  const query = ($('location-search').value || '').trim();
+  if (!query) return;
+  showToast('Searching…');
+  const list = await runLocationSearch(query);
+  if (!list.length) { renderLocationResults([]); return; }
+  if (list.length === 1) { applyLocationChoice(list[0]); }
+  else { renderLocationResults(list); }
 }
 
 function getExclusions() {
