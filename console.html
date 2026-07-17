@@ -1072,7 +1072,8 @@ body.cp-playing .cp-now{display:flex;}
           <div class="setting-item">
             <label>City/Country Search</label>
             <input type="text" id="location-search" placeholder="e.g., London, UK">
-            <button class="control-btn" onclick="searchLocation()" style="margin-top:5px;">🔍 Search & Set</button>
+            <button class="control-btn" onclick="searchLocation()" style="margin-top:5px;">🔍 Search location</button>
+            <div style="margin-top:6px;font-size:0.8em;opacity:0.75;line-height:1.35;">Search, then scroll to the bottom and click <strong>💾 Save changes</strong> to apply.</div>
             <!-- S5 FIX (2026-05-23): demoted auto-detect with explicit warning.
                  IP geolocation returns the ISP's POP (e.g. TalkTalk → Birkenhead/Chester) not the user's actual city. -->
             <button class="control-btn" onclick="autoDetectLocation()"
@@ -1691,7 +1692,7 @@ const T = {
     sec_schedule: 'Schedule', sec_evening: 'Evening & Ramadan',
     sec_high_latitude: 'High Latitude (Isha Rule)',
     sec_speaker_defaults: 'Speaker Defaults', sec_updates: 'Updates',
-    lbl_search_loc: 'City/Country Search', lbl_search_btn: '🔍 Search & Set',
+    lbl_search_loc: 'City/Country Search', lbl_search_btn: '🔍 Search location',
     lbl_autodetect: '📡 Auto-Detect from IP', lbl_autodetect_warn: '(often inaccurate — prefer Search)',
     lbl_autodetect_startup: 'Auto-detect location on every startup',
     lbl_lat: 'Latitude', lbl_lon: 'Longitude', lbl_tz: 'Timezone',
@@ -3845,7 +3846,7 @@ async function searchLocation() {
         }
       } catch (e) { /* tz guess optional */ }
 
-      showToast(`Found: ${place.name.substring(0, 50)}...`);
+      showToast(`Found ${configCity || place.name.substring(0, 40)} — now scroll down and click 💾 Save changes to apply.`);
     } else {
       showToast('Location not found');
     }
