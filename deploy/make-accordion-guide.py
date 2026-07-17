@@ -99,6 +99,7 @@ SHEET = "A3"          # "A4" or "A3"
 PANEL = 70.0          # folded square size
 STRIP = "V"           # strip orientation: "H" panels in a row, "V" in a column
 GRID_ROWS, GRID_COLS = 1, 5   # how the copies are tiled. V strips => go in COLS
+GUTTER = 6.0          # spacer between copies (printer wants 6 mm, trim marks in it)
 MARGIN = 7.0          # minimum outer sheet margin
 # Good A3 recipes:  V/70/1x5 = 5 copies @70mm ;  V/67/1x6 = 6 @67mm ;
 #                   H/90/3x1 = 3 @90mm      ;  H/96/2x1 = 2 @96mm (largest)
@@ -109,14 +110,17 @@ DESIGN = 96.0                     # one panel is drawn at 96 mm, then scaled...
 S = PANEL / DESIGN                # ...by this factor, so type stays proportional
 # one copy's footprint: a strip is 4 panels long in its orientation
 FW, FH = (PANEL * N, PANEL) if STRIP == "H" else (PANEL, PANEL * N)
-BLOCK_W = FW * GRID_COLS
-BLOCK_H = FH * GRID_ROWS
+PITCH_X = FW + GUTTER             # copy-to-copy step, incl. the gutter
+PITCH_Y = FH + GUTTER
+BLOCK_W = FW * GRID_COLS + GUTTER * (GRID_COLS - 1)
+BLOCK_H = FH * GRID_ROWS + GUTTER * (GRID_ROWS - 1)
 MX = (SHEET_W - BLOCK_W) / 2      # block (all copies) origin, centred on sheet
 MY = (SHEET_H - BLOCK_H) / 2
 COPIES = GRID_ROWS * GRID_COLS
 assert MX >= MARGIN - 0.05 and MY >= MARGIN - 0.05, (
-    f"{GRID_ROWS}x{GRID_COLS} {STRIP}-strips @ {PANEL}mm won't fit {SHEET}: "
-    f"block {BLOCK_W:.0f}x{BLOCK_H:.0f}mm, margins {MX:.1f}/{MY:.1f} < {MARGIN}")
+    f"{GRID_ROWS}x{GRID_COLS} {STRIP}-strips @ {PANEL}mm + {GUTTER}mm gutters "
+    f"won't fit {SHEET}: block {BLOCK_W:.0f}x{BLOCK_H:.0f}mm, "
+    f"margins {MX:.1f}/{MY:.1f} < {MARGIN}")
 
 DARK = "#101418"
 GOLD = "#c9a54a"
@@ -247,24 +251,31 @@ def _mm(v):
     return f"{v:.3f}mm"
 
 
-def guides():
-    """Solid cut lines (full sheet, for the guillotine) + faint dashed fold
-    lines on every copy + a V/M fold legend + corner registration targets."""
+def _crop_marks(ox, oy, w, h):
+    """Four corner trim marks around one copy, sitting in the gutter / margin
+    (never touching the artwork) so each strip is cut out cleanly on all sides."""
+    g, ln, th = 0.8, 2.0, 0.25          # gap from trim, tick length, thickness
     out = []
-    # --- CUT lines on the copy grid, run edge-to-edge for guillotine align ----
-    for j in range(GRID_COLS + 1):                  # vertical cuts
-        x = MX + j * FW
-        out.append(f'<div class="cut v" style="left:{_mm(x)};top:0;'
-                   f'height:{_mm(SHEET_H)}"></div>')
-    for i in range(GRID_ROWS + 1):                  # horizontal cuts
-        y = MY + i * FH
-        out.append(f'<div class="cut h" style="top:{_mm(y)};left:0;'
-                   f'width:{_mm(SHEET_W)}"></div>')
-    # --- FOLD lines: 3 faint dashed creases inside each copy ------------------
+    for cx, outward_x in ((ox, -1), (ox + w, +1)):
+        for cy, outward_y in ((oy, -1), (oy + h, +1)):
+            hx = cx - g - ln if outward_x < 0 else cx + g
+            out.append(f'<div class="tick" style="left:{_mm(hx)};'
+                       f'top:{_mm(cy - th/2)};width:{_mm(ln)};height:{_mm(th)}"></div>')
+            vy = cy - g - ln if outward_y < 0 else cy + g
+            out.append(f'<div class="tick" style="left:{_mm(cx - th/2)};'
+                       f'top:{_mm(vy)};width:{_mm(th)};height:{_mm(ln)}"></div>')
+    return "".join(out)
+
+
+def guides():
+    """Corner TRIM marks around every copy (in the 6 mm gutters) + faint dashed
+    fold creases inside each copy + a V/M fold legend + registration targets."""
+    out = []
     for i in range(GRID_ROWS):
         for j in range(GRID_COLS):
-            ox, oy = MX + j * FW, MY + i * FH
-            for k in (1, 2, 3):
+            ox, oy = MX + j * PITCH_X, MY + i * PITCH_Y
+            out.append(_crop_marks(ox, oy, FW, FH))
+            for k in (1, 2, 3):                     # fold creases inside the copy
                 if STRIP == "H":                    # vertical creases
                     out.append(f'<div class="foldline v" style="'
                                f'left:{_mm(ox + k * PANEL)};top:{_mm(oy)};'
@@ -280,7 +291,7 @@ def guides():
             out.append(f'<div class="foldlbl" style="left:{_mm(MX + k*PANEL - 3)};'
                        f'top:{_mm(min(MY + FH + 1.6, SHEET_H - 3.5))};">{lab}</div>')
         else:
-            out.append(f'<div class="foldlbl" style="left:{_mm(max(MX - 5, 1))};'
+            out.append(f'<div class="foldlbl" style="left:{_mm(max(MX - 5.5, 1))};'
                        f'top:{_mm(MY + k*PANEL - 2)};">{lab}</div>')
     # --- registration targets (identical spot on front & back) ---------------
     for (rx, ry) in [(MARGIN - 2, MARGIN - 2),
@@ -363,10 +374,8 @@ h2 {{ font-size:11pt; text-transform:uppercase; letter-spacing:.6px; color:#8a7a
 .back .scan {{ font-size:9.5pt; color:#cdbf95; }}
 .back .wm.sm {{ font-size:13pt; margin-top:5mm; color:#efe7d2; }}
 
-/* cut + fold guides (sheet coordinates, NOT scaled) */
-.cut {{ position:absolute; }}
-.cut.v {{ width:0; border-left:.25mm solid #8f9499; }}
-.cut.h {{ height:0; border-top:.25mm solid #8f9499; }}
+/* trim + fold guides (sheet coordinates, NOT scaled) */
+.tick {{ position:absolute; background:#111; }}
 .foldline {{ position:absolute; }}
 .foldline.v {{ width:0; border-left:.2mm dashed rgba(60,50,40,.28); }}
 .foldline.h {{ height:0; border-top:.2mm dashed rgba(60,50,40,.28); }}
@@ -390,15 +399,15 @@ def tiled_sheet(label, sides, note):
     strips = []
     for i in range(GRID_ROWS):
         for j in range(GRID_COLS):
-            x, y = MX + j * FW, MY + i * FH
+            x, y = MX + j * PITCH_X, MY + i * PITCH_Y
             panels = "".join(f'<div class="panel">{fn()}</div>' for fn in sides)
             strips.append(
                 f'<div class="{cls}" style="left:{_mm(x)};top:{_mm(y)};'
                 f'width:{_mm(FW)};height:{_mm(FH)}">{panels}</div>')
     slug = (f'<div class="slug">CastAdhan Accordion &middot; <b>{label}</b> '
             f'&middot; {SHEET} &middot; {COPIES}-up &middot; {PANEL:.0f} mm fold '
-            f'&middot; print 100% &middot; duplex, flip on SHORT edge &middot; {note}'
-            f'</div>')
+            f'&middot; {GUTTER:.0f} mm gutters, trim marks &middot; print 100% '
+            f'&middot; duplex, flip on SHORT edge &middot; {note}</div>')
     return f'<div class="sheet">{"".join(strips)}{guides()}{slug}</div>'
 
 
@@ -432,4 +441,5 @@ for name in outs:
 print(f"\n{COPIES} copies per {SHEET} sheet. 4-panel accordion, folds to "
       f"{PANEL:.0f} mm square.")
 print(f"PRINT: {SHEET} landscape, 100% scale, DUPLEX flip on SHORT edge.")
-print("Guillotine on the solid grey cut lines; concertina-fold on the dashed lines.")
+print(f"{GUTTER:.0f} mm gutters between strips; guillotine to the corner trim marks;")
+print("concertina-fold on the dashed lines.")

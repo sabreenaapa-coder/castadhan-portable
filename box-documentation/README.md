@@ -63,10 +63,11 @@ always lands each back panel behind its front panel.
 **Print & finish**
 - **Landscape, 100 % scale** (never "fit to page"), **DUPLEX, flip on the SHORT
   edge** (left↔right, like turning a page — *not* top-to-bottom).
-- **Guillotine** on the **solid grey cut lines** — they run to the sheet edge so
-  the blade can line up. Each cut releases one folded-size square strip.
+- Strips are separated by a **6 mm gutter** (set by `GUTTER`) with **corner trim
+  marks** in each gutter. **Guillotine to the trim marks** — the 6 mm gutters are
+  waste. Each strip releases one folded-size square accordion.
 - **Concertina-fold** on the **faint dashed fold lines** printed on each copy;
-  the `V` / `M` letters under the block show valley / mountain direction.
+  the `V` / `M` letters beside the block show valley / mountain direction.
   Cover ends up on top, back cover underneath.
 
 **Why the back aligns with the front:** the panels are equal width, so a
