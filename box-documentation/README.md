@@ -90,10 +90,16 @@ short edge.
 
 ## 02 — Booklet (Box Brochure)
 
-The story + features booklet. Dark covers (`#101418`) with gold; ivory interior.
+The story + features booklet: **120 × 120 mm** square (12 cm), 16 pp saddle-stitch.
+Dark covers (`#101418`) with gold; ivory interior.
 
-- `castadhan-booklet.pdf` — **print-ready export.**
+- `castadhan-booklet-print.pdf` — ⭐ **press file** — 136 mm media, 120 mm trim,
+  3 mm bleed, crop marks, 16 single pages in reading order. **Send this to the printer.**
+- `PRINT-SPEC.md` — the spec sheet to hand the print shop (size, bleed, stock, notes).
+- `castadhan-booklet.pdf` — 148 mm master render, no bleed — **proof only**.
 - `castadhan-booklet.html` — layout source (edit copy here, then re-export).
+- `castadhan-booklet-print.html` — generated press HTML (do not hand-edit;
+  produced by `deploy/make-booklet-print.py`).
 - `CASTADHAN_BROCHURE-copy-source.md` — the accepted copy (source of truth).
 - `castadhan_logo.png` — back-cover logo. `site-qr.svg` — back-cover QR to the
   public clock site. `_backcover.png` — back-cover artwork.
