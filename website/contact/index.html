@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Contact — Mustafa Yunis</title>
+<meta name="description" content="A single, secure way to make contact — no personal details, no noise.">
+<meta name="theme-color" content="#090910">
+<meta name="robots" content="noindex">
+<link rel="icon" href="/assets/mark.svg" type="image/svg+xml">
+<link rel="canonical" href="https://mustafayunis.co.uk/contact/">
+<link rel="stylesheet" href="/assets/site.css">
+<style> :root{ --accent:#d9b45a; --accent-glow:rgba(42,33,64,.5); }
+  .contact-grid{ display:grid; grid-template-columns:1.05fr 1fr; gap:clamp(36px,7vw,96px); align-items:start; padding-bottom:clamp(50px,9vh,110px); }
+  @media (max-width:860px){ .contact-grid{ grid-template-columns:1fr; gap:44px; } }
+
+  .contact-lede h1{ font-family:var(--serif); font-size:clamp(2.4rem,6vw,4.4rem); line-height:1.0; letter-spacing:-.015em; }
+  .contact-lede h1 em{ font-style:italic; color:var(--gold); }
+  .contact-lede p{ color:var(--bone-70); font-family:var(--serif); font-size:clamp(1.1rem,1.8vw,1.4rem); line-height:1.5; max-width:38ch; margin-top:1.2em; }
+  .contact-note{ margin-top:2.2em; border-left:1px solid var(--line); padding-left:1.4em; }
+  .contact-note p{ font-family:var(--sans); font-size:.9rem; color:var(--bone-45); line-height:1.6; max-width:44ch; }
+  .alt{ margin-top:1.8em; font-size:.9rem; color:var(--bone-45); }
+  .alt .mail{ background:none; border:0; color:var(--gold); border-bottom:1px solid var(--line); cursor:pointer;
+              font:inherit; padding:0 0 .1em; letter-spacing:.02em; transition:border-color .4s var(--ease); }
+  .alt .mail:hover{ border-color:var(--gold); }
+  .mail-addr{ color:var(--gold); border-bottom:1px solid var(--gold); }
+
+  /* form */
+  form.contact{ display:grid; gap:1.4em; }
+  .field{ display:grid; gap:.5em; }
+  .field label{ font-size:.72rem; letter-spacing:.18em; text-transform:uppercase; color:var(--bone-45); }
+  .field input, .field textarea, .field select{
+    width:100%; background:rgba(236,231,221,.03); color:var(--bone);
+    border:1px solid var(--line); border-radius:2px; padding:.85em .95em;
+    font:inherit; font-size:1rem; transition:border-color .4s var(--ease), background .4s var(--ease);
+  }
+  .field textarea{ min-height:150px; resize:vertical; line-height:1.55; }
+  .field input:focus, .field textarea:focus, .field select:focus{
+    outline:none; border-color:rgba(217,180,90,.6); background:rgba(217,180,90,.04);
+  }
+  .field select{ appearance:none; background-image:linear-gradient(45deg,transparent 50%,var(--bone-45) 50%),linear-gradient(135deg,var(--bone-45) 50%,transparent 50%);
+    background-position:calc(100% - 20px) 55%, calc(100% - 14px) 55%; background-size:6px 6px, 6px 6px; background-repeat:no-repeat; }
+  .hp{ position:absolute; left:-9999px; width:1px; height:1px; overflow:hidden; }
+  .submit-row{ display:flex; align-items:center; gap:20px; flex-wrap:wrap; margin-top:.4em; }
+  button.send{
+    display:inline-flex; align-items:center; gap:.7em; cursor:pointer;
+    font:inherit; font-size:.82rem; letter-spacing:.16em; text-transform:uppercase; color:var(--bone);
+    padding:.95em 1.7em; border:1px solid var(--line); border-radius:2px;
+    background:linear-gradient(180deg, rgba(217,180,90,.10), rgba(217,180,90,.02));
+    transition:border-color .5s var(--ease), background .5s var(--ease), opacity .3s;
+  }
+  button.send:hover{ border-color:rgba(217,180,90,.7); }
+  button.send .arrow{ color:var(--gold); transition:transform .5s var(--ease); }
+  button.send:hover .arrow{ transform:translateX(4px); }
+  button.send[disabled]{ opacity:.5; cursor:default; }
+  .form-msg{ font-size:.9rem; min-height:1.4em; }
+  .form-msg.ok{ color:var(--gold); }
+  .form-msg.err{ color:var(--ember); }
+  .privacy{ font-size:.78rem; color:var(--bone-28); line-height:1.6; margin-top:.4em; max-width:46ch; }
+</style>
+</head>
+<body class="proj">
+
+<div class="proj-atmos" aria-hidden="true"></div>
+
+<header class="nav">
+  <a class="mark" href="/" aria-label="Mustafa Yunis — home">
+    <img class="glyph" src="/assets/mark.svg" alt="" width="20" height="20">
+    <span><b>Mustafa&nbsp;Yunis</b></span>
+  </a>
+  <nav class="nav-links" aria-label="Primary">
+    <a href="/work/">Work</a>
+    <a href="/contact/" aria-current="page">Contact</a>
+  </nav>
+</header>
+
+<main>
+  <div class="wrap">
+    <div style="padding-top:20vh"></div>
+    <div class="contact-grid">
+
+      <div class="contact-lede">
+        <p class="eyebrow reveal" style="margin-bottom:1.6em">One channel</p>
+        <h1 class="reveal" data-delay="60">Say something <em>worth</em> saying.</h1>
+        <p class="reveal" data-delay="120">A collaboration, a commission, a question about the work — this reaches me directly. Everything else, the gallery already answers.</p>
+
+        <div class="contact-note reveal" data-delay="180">
+          <p>This is the only way in, on purpose. No personal address, number or location appears anywhere on this site — messages arrive through a dedicated channel and nothing about you is stored beyond what you choose to write.</p>
+        </div>
+
+        <p class="alt reveal" data-delay="220">
+          Prefer email? There is a dedicated address for this site —
+          <button class="mail" data-user="hello" data-domain="mustafayunis.co.uk" aria-label="Reveal the contact email address">reveal address</button>.
+        </p>
+      </div>
+
+      <div class="reveal" data-delay="140">
+        <!--
+          SETUP: point action= at your form endpoint (Formspree, Web3Forms,
+          Cloudflare Pages Function, etc). The form degrades to a normal POST
+          if JavaScript is off. No endpoint is hard-coded so nothing personal
+          ships in the repo. Replace REPLACE_WITH_FORM_ENDPOINT below.
+        -->
+        <form class="contact" id="contactForm"
+              action="REPLACE_WITH_FORM_ENDPOINT" method="POST" novalidate>
+          <div class="field">
+            <label for="name">Name</label>
+            <input id="name" name="name" type="text" autocomplete="name" required maxlength="120">
+          </div>
+          <div class="field">
+            <label for="email">Email or handle to reach you</label>
+            <input id="email" name="email" type="text" autocomplete="email" required maxlength="160">
+          </div>
+          <div class="field">
+            <label for="subject">This is about</label>
+            <select id="subject" name="subject">
+              <option>A project or commission</option>
+              <option>Collaboration</option>
+              <option>A question about the work</option>
+              <option>CastAdhan enquiry</option>
+              <option>Something else</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="message">Message</label>
+            <textarea id="message" name="message" required maxlength="4000" placeholder="Keep it brief — I read every one."></textarea>
+          </div>
+          <!-- honeypot: real people leave this empty -->
+          <div class="hp" aria-hidden="true">
+            <label for="company">Company (leave blank)</label>
+            <input id="company" name="company" type="text" tabindex="-1" autocomplete="off">
+          </div>
+          <div class="submit-row">
+            <button class="send" type="submit">Send message <span class="arrow" aria-hidden="true">→</span></button>
+            <span class="form-msg" id="formMsg" role="status" aria-live="polite"></span>
+          </div>
+          <p class="privacy">By sending, you agree only to be replied to. No tracking, no list, no third parties — just a message and an answer.</p>
+        </form>
+      </div>
+
+    </div>
+  </div>
+</main>
+
+<footer class="foot">
+  <div class="wrap">
+    <p class="cred">Ideas made <i>tangible.</i></p>
+    <nav aria-label="Footer"><a href="/">Home</a><a href="/work/">Work</a><a href="/contact/">Contact</a></nav>
+    <p class="fine">© <span data-year></span> Mustafa Yunis · mustafayunis.co.uk</p>
+  </div>
+</footer>
+
+<script src="/assets/site.js" defer></script>
+<script src="/assets/contact.js" defer></script>
+</body>
+</html>
