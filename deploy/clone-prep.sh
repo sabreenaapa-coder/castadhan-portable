@@ -62,8 +62,22 @@ ok "state files cleared"
 
 # ---- 4. forget WiFi (handled separately by wifi-prebake before imaging) ----
 say "Wiping WiFi credentials"
-# Raspberry Pi OS Bookworm uses NetworkManager keyfiles
-rm -f /etc/NetworkManager/system-connections/*.nmconnection 2>/dev/null || true
+# Raspberry Pi OS Bookworm uses NetworkManager keyfiles.
+# BUG FIX (2026-07-30): a blanket `rm -f *.nmconnection` here also deletes the
+# Ethernet profile, killing eth0 mid-script — the box goes fully unreachable
+# (no IP at all) until a physical power-cycle. Only ever surfaced now because
+# we tried to keep working over the same SSH session after this step instead
+# of power-cycling immediately after. Scope the delete to WiFi profiles only,
+# via nmcli's own type field, so Ethernet is never touched.
+if command -v nmcli >/dev/null 2>&1; then
+  nmcli -t -f TYPE,FILENAME connection show 2>/dev/null | \
+    awk -F: '$1 == "802-11-wireless" && $2 != "" {print $2}' | \
+    while IFS= read -r f; do rm -f "$f" 2>/dev/null || true; done
+else
+  # No nmcli present — fall back to the old blanket wipe (only place this can
+  # ever run is a non-NetworkManager image, where there's no eth0 profile to lose).
+  rm -f /etc/NetworkManager/system-connections/*.nmconnection 2>/dev/null || true
+fi
 # Older releases use wpa_supplicant
 if [ -f /etc/wpa_supplicant/wpa_supplicant.conf ]; then
   cat > /etc/wpa_supplicant/wpa_supplicant.conf <<'WPA'
