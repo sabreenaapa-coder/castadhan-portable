@@ -250,6 +250,29 @@ else
   ok "WiFi regulatory domain already set ($CURRENT_CC) — leaving as is"
 fi
 
+# v1.16.1: the B-Belgium-31 fix above only addressed the regulatory domain, but
+# the golden image also ships with wlan0's radio disabled at TWO further layers
+# that keep NetworkManager reporting it as "unavailable" (so `nmcli wifi list`
+# silently returns zero networks — no error, just an empty list — and the
+# WiFi Setup wizard looks "broken" for every single clone):
+#   1. rfkill soft-block on the WiFi radio (kernel level)
+#   2. NetworkManager's OWN separate radio switch, persisted in
+#      /var/lib/NetworkManager/NetworkManager.state as WirelessEnabled=false
+# Both settings are persisted by their respective subsystems once flipped, so
+# this only needs to run once per unit (idempotent — safe on every boot).
+# Confirmed root cause + fix 2026-07-30 while investigating "WiFi search does
+# nothing" reported across the whole fleet.
+say "Unblocking WiFi radio (rfkill + NetworkManager)"
+if command -v rfkill >/dev/null 2>&1; then
+  rfkill unblock wifi >/dev/null 2>&1 || true
+fi
+nmcli radio wifi on >/dev/null 2>&1 || true
+if [ "$(nmcli radio wifi 2>/dev/null)" = "enabled" ]; then
+  ok "WiFi radio enabled (rfkill unblocked + NetworkManager radio on)"
+else
+  warn "WiFi radio still not reporting enabled — WiFi wizard may not find networks"
+fi
+
 # `at` command is needed for the post-update cleanup of rollback dir
 apt-get install -y --no-install-recommends at >/dev/null 2>&1 || true
 systemctl enable --now atd >/dev/null 2>&1 || true
