@@ -1,0 +1,21 @@
+[Unit]
+Description=CastAdhan Portable — WiFi onboarding hotspot (captive-portal fallback)
+Documentation=file:///opt/castadhan-portable/deploy/castadhan-hotspot.sh
+# NetworkManager owns wlan0; we must not race it.
+After=NetworkManager.service
+Wants=NetworkManager.service
+# Only meaningful on a CastAdhan image.
+ConditionPathExists=/opt/castadhan-portable/deploy/castadhan-hotspot.sh
+
+[Service]
+Type=simple
+# Runs as root: needs to manage the NetworkManager AP and bind :80 for the
+# captive responder. The script is fail-safe — any error exits without
+# touching the existing network config.
+ExecStart=/usr/bin/bash /opt/castadhan-portable/deploy/castadhan-hotspot.sh
+# If it dies unexpectedly, retry — but not in a tight loop.
+Restart=on-failure
+RestartSec=30
+
+[Install]
+WantedBy=multi-user.target

@@ -8,7 +8,11 @@ deploy/
 ├── README_DEPLOY.md             # this file
 ├── setup-pi.sh                  # one-shot installer (run once on a fresh Pi)
 ├── clone-prep.sh                # scrubs per-Pi state before SD imaging
-├── wifi-prebake.sh              # bakes recipient's WiFi into the SD card
+├── wifi-prebake.sh              # bakes recipient's WiFi into the SD card (Path 1)
+├── castadhan-hotspot.sh         # self-setup WiFi hotspot / captive portal (Path 2)
+├── castadhan-hotspot.service    # runs the hotspot orchestrator on boot
+├── castadhan-captive.py         # port-80 responder that auto-opens the setup page
+├── captive-dnsmasq-shared.conf  # DNS hijack, loaded only while the setup AP is up
 ├── castadhan-portable.service   # main systemd unit (auto-start, auto-restart)
 ├── castadhan-update.service     # one-shot updater unit
 ├── castadhan-update.timer       # daily 04:00 + boot+10min check
@@ -47,10 +51,17 @@ deploy/
 ┌─────────────────────────────────────────────────────────────┐
 │  RECIPIENT (3 minutes)                                      │
 │                                                             │
-│  1. Plug Pi into power                                      │
-│  2. Wait 60 s                                               │
-│  3. Open http://castadhan.local:8786 on phone               │
-│  4. Walk through the 5-step welcome wizard                  │
+│  If you PRE-BAKED their WiFi (or they use an Ethernet cable):│
+│    1. Plug Pi into power → it joins their network by itself  │
+│    2. Wait 60 s                                              │
+│    3. Open http://castadhan.local:8786, do the 5-step wizard │
+│                                                             │
+│  If you did NOT pre-bake and there's no cable:              │
+│    1. Plug Pi into power, wait ~90 s                         │
+│    2. On their phone, join WiFi "CastAdhan Setup"           │
+│    3. A page pops up → pick home WiFi, type password         │
+│    4. Pi joins their WiFi; open http://castadhan.local:8786  │
+│                                                             │
 │  5. Done forever                                            │
 └─────────────────────────────────────────────────────────────┘
 ```
@@ -193,6 +204,62 @@ For each gift:
 
 ---
 
+## Step 4b — How each gift gets online (WiFi)
+
+Every gift unit now has **two** ways onto the recipient's WiFi. Use whichever fits.
+
+### Path 1 — Pre-bake (recommended, zero-touch for the recipient)
+
+If you know the recipient's home WiFi name + password, bake it in during Step 4
+(`wifi-prebake.sh`). The unit auto-joins on first boot — the recipient literally
+just plugs in power. **This is the best experience for a non-technical recipient
+and should be the default whenever you can get their WiFi details.**
+
+> Do **not** ship an "Ethernet-only" golden image any more. `setup-pi.sh` unblocks
+> the WiFi radio and sets the regulatory domain, so leave `wlan0` usable. Ethernet
+> still works if they have a cable — it's just no longer required.
+
+### Path 2 — Self-setup hotspot (fallback, no prior info needed)
+
+If you **don't** know their WiFi (e.g. a generic unit for a stranger, or you
+forgot to pre-bake), the unit handles it itself. On first boot, if it finds no
+network within ~90 s and it's a fresh unit, it broadcasts an **open access point
+called `CastAdhan Setup`**. The recipient:
+
+1. joins `CastAdhan Setup` from their phone,
+2. a setup page pops up automatically (captive portal),
+3. picks their home WiFi and types the password,
+4. the unit joins their WiFi and the hotspot disappears.
+
+Built from: `castadhan-hotspot.sh` (orchestrator + AP), `castadhan-captive.py`
+(port-80 responder that auto-opens the page), `captive-dnsmasq-shared.conf` (DNS
+hijack while the AP is up), and the `/wifi-setup` page + `/api/wifi/*` endpoints
+in the app. Installed + enabled by `setup-pi.sh`.
+
+It is **fail-safe and tightly gated**: it only ever broadcasts on a *fresh*
+unit (no saved WiFi profile, first-run wizard not completed) that has *no*
+network. A unit that's already set up and merely offline for a moment (router
+reboot) never drops into setup mode.
+
+### ⚠️ Bench-test the hotspot before you ship a batch (one-time, ~10 min)
+
+The hotspot path uses WiFi AP mode, which depends on the exact Pi + kernel, so
+**verify it once on a spare Pi before mass-cloning** (do NOT trust it untested on
+a unit going to someone's house):
+
+- [ ] On a fresh unit with **no Ethernet and no pre-baked WiFi**, power on and wait ~90 s
+- [ ] On a phone, confirm the **`CastAdhan Setup`** network appears and you can join it
+- [ ] Confirm the setup page **auto-opens** (captive sheet) — if not, browse to `http://10.42.0.1:8786/wifi-setup`
+- [ ] Confirm the network dropdown lists your WiFi (served from the pre-scan cache)
+- [ ] Enter your WiFi password → the AP drops and the Pi joins your WiFi
+- [ ] Confirm the Pi is reachable at `http://castadhan.local:8786` on your normal WiFi afterwards
+- [ ] Reboot the now-configured unit with WiFi in range → it rejoins WiFi and does **not** re-broadcast `CastAdhan Setup`
+- [ ] Wrong-password test: enter a bad password → page shows an error / lets you retry
+
+If any step fails, check `journalctl -u castadhan-hotspot -b` on the Pi.
+
+---
+
 ## Step 5 — What the recipient sees
 
 1. They open the box, plug in the Pi
@@ -259,6 +326,7 @@ Before you commit to the golden image:
 - [ ] Power-cycle the router — Pi rejoins WiFi cleanly
 - [ ] `castadhan-update.sh` runs without errors:  
       `sudo systemctl start castadhan-update.service && journalctl -u castadhan-update -n 20`
+- [ ] **WiFi self-setup hotspot** works end-to-end — run the bench test in **Step 4b** on a spare Pi
 
 ---
 

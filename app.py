@@ -70,7 +70,7 @@ def _import_pydub():
         return False
 
 # ---------------- Global Process Lock (Kernel-Enforced Singleton) ----------------
-LOCKFILE = "/tmp/castadhan.lock"
+LOCKFILE = os.environ.get("CASTADHAN_LOCKFILE", "/tmp/castadhan.lock")
 _global_lock_f = None
 
 def acquire_global_lock():
@@ -968,6 +968,21 @@ def console_page():
         return redirect("/setup")
     console_path = os.path.join(ROOT, "console.html")
     if os.path.exists(console_path):
+        # Default view is config-driven. Fleet/gift units default to the family-facing
+        # clock (send the file untouched — zero change to that path). An operator can set
+        # app.default_view: admin per unit, in which case we inject a tiny global the
+        # console reads on load so the bare "/" lands on the dashboard. Config is preserved
+        # across updates, so the preference survives.
+        default_view = str((CFG.get("app") or {}).get("default_view", "clock")).strip().lower()
+        if default_view == "admin":
+            try:
+                with open(console_path, encoding="utf-8") as fh:
+                    html = fh.read()
+                inject = '<script>window.CP_DEFAULT_VIEW="admin";</script>'
+                html = html.replace("</head>", inject + "\n</head>", 1) if "</head>" in html else inject + html
+                return Response(html, mimetype="text/html")
+            except Exception as e:
+                log.warning(f"default_view inject failed, serving unmodified console: {e}")
         return send_from_directory(ROOT, "console.html")
     else:
         # Return a simple status page if console.html doesn't exist
@@ -1320,6 +1335,16 @@ def api_wifi_scan():
                 "band": "5 GHz" if freq_i >= 5000 else "2.4 GHz",
             })
         networks.sort(key=lambda n: n["signal"], reverse=True)
+        # Fallback (v1.16.2): a single-radio Pi can't scan while it is hosting
+        # the "CastAdhan Setup" onboarding AP, so nmcli returns nothing. Serve
+        # the list that castadhan-hotspot.sh cached just before the AP came up.
+        if not networks:
+            try:
+                cached = json.load(open("/var/lib/castadhan/wifi-scan.json"))
+                if isinstance(cached, list) and cached:
+                    return jsonify({"ok": True, "networks": cached, "source": "cache"})
+            except Exception:
+                pass
         return jsonify({"ok": True, "networks": networks})
     except subprocess.TimeoutExpired:
         return jsonify({"ok": False, "error": "WiFi scan timed out"}), 504
@@ -1381,6 +1406,128 @@ def api_wifi_connect():
     except Exception as e:
         log.error(f"WiFi connect endpoint error: {e}")
         return jsonify({"ok": False, "error": str(e)}), 500
+
+@app.route("/wifi-setup")
+def wifi_setup_page():
+    """v1.16.2: self-contained WiFi onboarding page.
+
+    Shown by the captive portal (deploy/castadhan-captive.py + castadhan-hotspot.sh)
+    when a FRESH unit has no network and is broadcasting the "CastAdhan Setup"
+    access point. A recipient joins that AP from their phone, this page auto-opens,
+    they pick their home WiFi and type the password. Reuses /api/wifi/scan (with the
+    hotspot's cached network list as a fallback) and /api/wifi/connect. Kept fully
+    dependency-free — no external CSS/JS/fonts — so it renders with no internet."""
+    return Response(_WIFI_SETUP_HTML, mimetype="text/html")
+
+# Self-contained onboarding page (no external resources — works with no internet).
+_WIFI_SETUP_HTML = """<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Connect your CastAdhan to WiFi</title>
+<style>
+  :root { --ink:#0E1217; --gold:#BFA046; --gold-bright:#E7C878; --line:#e6e3da; }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+         background:#faf9f5; color:var(--ink); line-height:1.5;
+         padding:max(20px,env(safe-area-inset-top)) 20px 40px; }
+  .card { max-width:460px; margin:0 auto; background:#fff; border:1px solid var(--line);
+          border-radius:16px; padding:24px; box-shadow:0 6px 24px rgba(14,18,23,.06); }
+  h1 { font-size:1.4rem; margin:.2rem 0 .1rem; }
+  .sub { color:#6b6b6b; margin:0 0 20px; font-size:.95rem; }
+  label { display:block; font-weight:600; margin:16px 0 6px; }
+  select, input[type=text], input[type=password] {
+    width:100%; padding:14px; font-size:1.05rem; border:1.5px solid var(--line);
+    border-radius:12px; background:#fff; -webkit-appearance:none; }
+  select:focus, input:focus { outline:none; border-color:var(--gold); }
+  .row { display:flex; gap:10px; align-items:center; }
+  .row > select { flex:1; }
+  .linkbtn { background:none; border:none; color:#8a7a2e; font-weight:600;
+             padding:8px 4px; font-size:.9rem; cursor:pointer; }
+  .showpw { margin-top:8px; font-size:.9rem; color:#6b6b6b; display:flex; align-items:center; gap:8px; }
+  button.primary { width:100%; margin-top:24px; padding:16px; font-size:1.15rem; font-weight:700;
+    color:var(--ink); background:linear-gradient(180deg,var(--gold-bright),var(--gold));
+    border:none; border-radius:12px; cursor:pointer; }
+  button.primary:disabled { opacity:.55; cursor:default; }
+  #msg { margin-top:18px; padding:14px; border-radius:12px; font-size:.98rem; display:none; }
+  #msg.info { display:block; background:#eef4fb; border:1px solid #cfe0f3; }
+  #msg.ok   { display:block; background:#eaf7ee; border:1px solid #bfe6ca; }
+  #msg.err  { display:block; background:#fdeeee; border:1px solid #f2c9c9; }
+  .manual { margin-top:10px; }
+  .hint { font-size:.85rem; color:#8a8a8a; margin-top:6px; }
+</style></head>
+<body>
+  <div class="card">
+    <h1>\U0001F54C Connect your prayer clock</h1>
+    <p class="sub">Pick your home WiFi and enter the password. That's the only setup step.</p>
+
+    <label for="ssid">Your WiFi network</label>
+    <div class="row">
+      <select id="ssid"><option value="">Scanning…</option></select>
+      <button type="button" class="linkbtn" onclick="scan()">Rescan</button>
+    </div>
+    <div class="manual">
+      <button type="button" class="linkbtn" onclick="toggleManual()">Can't see your network? Type it</button>
+      <input type="text" id="ssid_manual" placeholder="WiFi name (SSID)" style="display:none;margin-top:6px;">
+    </div>
+
+    <label for="pw">WiFi password</label>
+    <input type="password" id="pw" placeholder="(leave blank for an open network)" autocomplete="off">
+    <label class="showpw"><input type="checkbox" id="showpw" onchange="togglePw()"> Show password</label>
+
+    <button type="button" class="primary" id="go" onclick="connect()">Connect</button>
+    <div id="msg"></div>
+    <p class="hint">When you press Connect, your phone will leave “CastAdhan Setup” — that's normal and means it worked.</p>
+  </div>
+
+<script>
+  var sel = document.getElementById('ssid');
+  var manual = document.getElementById('ssid_manual');
+  function setMsg(t, cls){ var m=document.getElementById('msg'); m.textContent=t; m.className=cls; }
+  function togglePw(){ var p=document.getElementById('pw'); p.type=document.getElementById('showpw').checked?'text':'password'; }
+  function toggleManual(){ manual.style.display = manual.style.display==='none' ? 'block' : 'none'; if(manual.style.display==='block') manual.focus(); }
+  function chosenSsid(){ return (manual.style.display!=='none' && manual.value.trim()) ? manual.value.trim() : sel.value; }
+
+  function scan(){
+    setMsg('Looking for nearby WiFi networks…','info');
+    sel.innerHTML='<option value="">Scanning…</option>';
+    fetch('/api/wifi/scan',{method:'POST'}).then(function(r){return r.json();}).then(function(d){
+      sel.innerHTML='';
+      var nets=(d&&d.networks)||[];
+      if(!nets.length){ sel.innerHTML='<option value="">No networks found — tap Rescan</option>'; setMsg('No networks found yet. Move closer to your router and tap Rescan.','info'); return; }
+      nets.forEach(function(n){
+        var o=document.createElement('option'); o.value=n.ssid;
+        o.textContent=n.ssid+'  ('+(n.signal||0)+'% · '+(n.band||'')+')';
+        sel.appendChild(o);
+      });
+      setMsg('','');
+      document.getElementById('msg').className='';
+    }).catch(function(){ sel.innerHTML='<option value="">Couldn\\'t scan — tap Rescan</option>'; setMsg('Could not scan. Tap Rescan to try again.','err'); });
+  }
+
+  function connect(){
+    var ssid=chosenSsid();
+    if(!ssid){ setMsg('Please choose your WiFi network first.','err'); return; }
+    var pw=document.getElementById('pw').value;
+    document.getElementById('go').disabled=true;
+    setMsg('Connecting to “'+ssid+'”… your phone may drop off “CastAdhan Setup” now — that means it\\'s working. Give it a minute.','info');
+    var done=false;
+    var t=setTimeout(function(){ if(done)return; done=true;
+      setMsg('✅ Looks like it\\'s connecting. Your phone has left “CastAdhan Setup”. In about a minute your prayer clock will be online — you can close this page. If it doesn\\'t come on, rejoin “CastAdhan Setup” and try again.','ok');
+    }, 18000);
+    fetch('/api/wifi/connect',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({ssid:ssid,password:pw})}).then(function(r){return r.json();}).then(function(d){
+      if(done)return; done=true; clearTimeout(t);
+      if(d&&d.ok){ setMsg('✅ Connected to “'+ssid+'”! Your prayer clock is online. You can close this page.','ok'); }
+      else { document.getElementById('go').disabled=false;
+        setMsg('❌ '+((d&&d.error)||'Could not connect')+'. Check the password and try again.','err'); }
+    }).catch(function(){ if(done)return; done=true; clearTimeout(t);
+      setMsg('✅ Your phone has left “CastAdhan Setup” — that usually means it worked. Give it a minute; the clock will come online. If not, rejoin “CastAdhan Setup” and retry.','ok');
+    });
+  }
+  scan();
+</script>
+</body></html>"""
 
 @app.route("/api/update/status")
 def api_update_status():

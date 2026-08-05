@@ -300,6 +300,30 @@ systemctl enable castadhan-refresh.timer >/dev/null
 systemctl start castadhan-refresh.timer
 ok "speaker self-heal timer enabled (every 15 min)"
 
+# ---- 6b2. WiFi onboarding hotspot (captive-portal fallback, v1.16.2) --------
+# For a gift unit that reaches a recipient with NO Ethernet cable AND no
+# pre-baked WiFi: on boot, if there is still no network AND the unit is fresh
+# (no saved WiFi profile, first-run wizard not completed), the Pi broadcasts an
+# OPEN access point called "CastAdhan Setup". The recipient joins it from a
+# phone, a captive page auto-opens (deploy/castadhan-captive.py), they pick
+# their home WiFi and type the password (served by /wifi-setup, applied via the
+# existing /api/wifi/connect). See deploy/castadhan-hotspot.sh — it is
+# fail-safe and only ever broadcasts on a genuinely fresh, network-less unit; a
+# configured box that is merely offline for a moment never drops into setup mode.
+say "Installing WiFi onboarding hotspot (captive-portal fallback)"
+install -m 0644 "$SOURCE_DIR/deploy/castadhan-hotspot.service" /etc/systemd/system/castadhan-hotspot.service
+# NetworkManager shared-mode dnsmasq drop-in: hijacks DNS to the Pi ONLY while
+# the setup AP is up (loaded only for shared-mode connections — no effect when
+# the box is a normal WiFi/Ethernet client).
+if [ -d /etc/NetworkManager ]; then
+  mkdir -p /etc/NetworkManager/dnsmasq-shared.d
+  install -m 0644 "$SOURCE_DIR/deploy/captive-dnsmasq-shared.conf" \
+                  /etc/NetworkManager/dnsmasq-shared.d/50-castadhan-captive.conf
+fi
+systemctl daemon-reload
+systemctl enable castadhan-hotspot.service >/dev/null 2>&1 || true
+ok "onboarding hotspot enabled (broadcasts only on a fresh, network-less unit)"
+
 # ---- 6c. Tailscale auto-enrolment (v1.3.0, O17v3) -------------------------
 # Goal: every fresh-flashed CastAdhan Pi joins the maintainer's tailnet on
 # first boot so future bug fixes can be applied remotely. Without this, every
