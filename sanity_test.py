@@ -1296,13 +1296,87 @@ def L15_master_mute():
       "Repaired invisible master mute" in app,
       "startup must repair enabled.global=False + speaker(s) ON")
 
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Layer 16 — B-Belgium-74: portability. A CastAdhan travels; its speaker cache
+# must not. known_speakers.json was append-only, so every speaker the box ever
+# met stayed in the probe list for ever. An OFF-SUBNET cached IP is routed to the
+# gateway and black-holed, costing a full TCP SYN-retransmit timeout on EVERY
+# discovery cycle (Hall Green: 15–27s with one ghost vs ~8s without). Discovery
+# pre-warm runs 3 MINUTES before each adhan — enough ghosts and the prayer fires
+# mid-discovery.
+# ─────────────────────────────────────────────────────────────────────────────
+def L16_portability():
+    cat = "L16 portability"
+    try: app = src("app.py")
+    except Exception as e: err("HIGH", cat, "b74-source-app-readable", e); app = ""
+
+    # (HIGH) LIVE: no cached speaker may sit outside this box's own LAN.
+    try:
+        import ipaddress
+        nets = []
+        out = run(["ip", "-4", "-o", "addr", "show"]).stdout
+        for line in out.splitlines():
+            p = line.split()
+            if len(p) >= 4 and p[1] != "lo" and not p[1].startswith("tailscale"):
+                try: nets.append(ipaddress.ip_network(p[3], strict=False))
+                except Exception: pass
+        ks = json.loads(read(os.path.join(SRC_DIR, "known_speakers.json")))
+        foreign = {n: h for n, h in ks.items()
+                   if nets and not any(ipaddress.ip_address(h) in x for x in nets)}
+        t("HIGH", cat, "b74-no-foreign-cached-speakers", not foreign,
+          "cached speakers from another network: %s" % (foreign or "none"))
+    except FileNotFoundError:
+        t("HIGH", cat, "b74-no-foreign-cached-speakers", True, "no known_speakers.json yet")
+    except Exception as e:
+        err("HIGH", cat, "b74-no-foreign-cached-speakers", e)
+
+    if not app:
+        return
+    dbody = _fn_body(app, "def discover_casts(")
+
+    # (HIGH) Off-LAN cached IPs must never be probed — that is the travel cost.
+    t("HIGH", cat, "b74-skips-off-lan-known-hosts",
+      "_ip_is_on_this_lan(" in dbody and "foreign_map" in dbody,
+      "discover_casts must partition known_hosts by local subnet before probing")
+
+    # (HIGH) The cache must age out, or it grows without bound as the box travels.
+    t("HIGH", cat, "b74-known-speakers-retire",
+      "_KNOWN_SPEAKER_MISS_LIMIT" in dbody and "_save_speaker_misses(" in dbody,
+      "discover_casts must retire cached IPs after N consecutive misses")
+
+    # (HIGH) Prefix lengths must be read, not assumed — son's eero is a /22, where
+    # 192.168.4.x and 192.168.5.x are ONE LAN (Lesson 69 misread that as isolation).
+    _nb = _fn_body(app, "def _local_ipv4_networks(")
+    _code = _nb.split('"""')[2] if _nb.count('"""') >= 2 else _nb   # drop the docstring
+    t("HIGH", cat, "b74-real-prefix-not-assumed-24",
+      "strict=False" in _code and "/24" not in _code,
+      "_local_ipv4_networks must use the interface's real prefix, never assume /24")
+
+    # (MEDIUM) Unknown topology must degrade to old behaviour, never to "prune all".
+    lbody = _fn_body(app, "def _ip_is_on_this_lan(")
+    t("MEDIUM", cat, "b74-fail-open-on-unknown-topology",
+      "if not nets" in lbody and "return True" in lbody,
+      "_ip_is_on_this_lan must fail OPEN when the local networks are unknown")
+
+    # (MEDIUM) Retirement must not throw away tuned volumes / enable flags —
+    # B-Belgium-66 (Loft's volume was 91, a reset would have given 41).
+    _i = dbody.find("_load_speaker_misses()")
+    _j = dbody.find("Save updated known_hosts", _i + 1) if _i >= 0 else -1
+    _retire_block = dbody[_i:_j] if (_i >= 0 and _j > _i) else ""
+    t("MEDIUM", cat, "b74-retire-keeps-ui-state",
+      bool(_retire_block) and "new_known_map.pop(" in _retire_block
+      and "UI[" not in _retire_block,
+      "retirement must pop from the IP cache ONLY — never touch UI enabled/volumes")
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Run everything
 # ─────────────────────────────────────────────────────────────────────────────
 for fn in [L1_system, L2_config, L3_discovery, L4_scheduler, L5_api,
            L6_ui, L7_audio, L7b_scheduled_audio,
            L8_religion, L9_autoupdate, L9b_wifi_wizard, L10_tailscale, L11_history,
-           L12_connectivity, L13_volume_policy, L14_incident_net, L15_master_mute]:
+           L12_connectivity, L13_volume_policy, L14_incident_net, L15_master_mute,
+           L16_portability]:
     try:
         fn()
     except Exception as e:

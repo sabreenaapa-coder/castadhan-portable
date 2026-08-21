@@ -1813,6 +1813,88 @@ def _avahi_browse_cast_devices(timeout_s: float = 4.0):
         log.debug(f"avahi-browse helper failed (non-fatal): {e}")
         return []
 
+# B-Belgium-74 (v1.16.4): a CastAdhan is a PORTABLE product — it travels, and at
+# every new house it meets a new set of speakers on a new subnet. known_speakers.json
+# was append-only (`merged.update(found)` in refresh-known-speakers.py, `new_known_map
+# = dict(known_map)` here), so every speaker the box has ever met stayed in the probe
+# list forever. Cost is not theoretical:
+#   • Hall Green carried 'Hall speaker' @ 192.168.1.12 from the Llanarth house while
+#     sitting on 192.168.0.0/24 — an OFF-SUBNET IP is routed at the gateway and
+#     black-holed, so every probe paid a full TCP SYN-retransmit timeout:
+#     discovery 15–27 s, vs ~8 s once removed.
+#   • son has carried a dead 'Loft speaker' @ 192.168.4.255 for months — struck on
+#     literally every cycle, ~3.5 s each time (on-subnet, so it fails fast on ARP).
+# Discovery pre-warm runs just 3 MINUTES before each adhan. A box that has toured
+# three houses accumulates enough black-holed entries to eat that whole window, and
+# then the adhan fires mid-discovery. Two defences below: never probe an IP that
+# cannot be on this LAN, and retire an entry that keeps missing.
+_KNOWN_SPEAKER_MISS_LIMIT = 6     # consecutive misses before an entry is retired
+                                  # (~3 h at the 30-min discovery cadence)
+_SPEAKER_MISS_FILE = os.path.join(ROOT, "speaker_misses.json")
+
+
+def _local_ipv4_networks():
+    """The IPv4 networks this box is actually attached to, e.g. [192.168.0.0/24].
+
+    Used to tell "that speaker is elsewhere" from "that speaker is off". Reads real
+    prefix lengths rather than assuming /24 — son's eero hands out a /22, so
+    192.168.4.x and 192.168.5.x ARE the same LAN there (Lesson 69 misread this as
+    segmentation). Tailscale + loopback are excluded: they are not the speaker LAN.
+
+    FAIL-OPEN: on any parse failure returns [] and every caller then treats all
+    addresses as local — i.e. exactly the pre-v1.16.4 behaviour. Never raises."""
+    nets = []
+    try:
+        import ipaddress
+        out = subprocess.run(["ip", "-4", "-o", "addr", "show"],
+                             capture_output=True, text=True, timeout=5).stdout
+        for line in out.splitlines():
+            parts = line.split()
+            if len(parts) < 4:
+                continue
+            iface, cidr = parts[1], parts[3]
+            if iface == "lo" or iface.startswith("tailscale"):
+                continue
+            try:
+                nets.append(ipaddress.ip_network(cidr, strict=False))
+            except Exception:
+                continue
+    except Exception as e:
+        log.debug(f"_local_ipv4_networks failed (treating all IPs as local): {e}")
+    return nets
+
+
+def _ip_is_on_this_lan(ip: str, nets) -> bool:
+    """True if `ip` could be reached directly on this LAN. Fail-open when `nets`
+    is empty (unknown topology ⇒ don't rule anything out)."""
+    if not nets:
+        return True
+    try:
+        import ipaddress
+        addr = ipaddress.ip_address(ip)
+        return any(addr in n for n in nets)
+    except Exception:
+        return True
+
+
+def _load_speaker_misses() -> dict:
+    try:
+        if os.path.exists(_SPEAKER_MISS_FILE):
+            with open(_SPEAKER_MISS_FILE) as f:
+                return {k: int(v) for k, v in (json.load(f) or {}).items()}
+    except Exception as e:
+        log.debug(f"speaker_misses read failed: {e}")
+    return {}
+
+
+def _save_speaker_misses(misses: dict) -> None:
+    try:
+        with open(_SPEAKER_MISS_FILE, "w") as f:
+            json.dump(misses, f, indent=2)
+    except Exception as e:
+        log.debug(f"speaker_misses write failed: {e}")
+
+
 def _is_cast_port_alive(host: str, port: int = 8009, timeout: float = 1.5) -> bool:
     """O39 (v1.4.0, Tue 26 May 2026): quick TCP-probe a (host, port=8009) to
     determine whether a known speaker is currently reachable BEFORE handing
@@ -1914,12 +1996,27 @@ def discover_casts():
     KNOWN_HOSTS_FILE = os.path.join(ROOT, "known_speakers.json")
     known_hosts = []
     known_map = {}
+    foreign_map = {}     # B-Belgium-74: cached speakers that cannot be on this LAN
     try:
         if os.path.exists(KNOWN_HOSTS_FILE):
             with open(KNOWN_HOSTS_FILE) as f:
                 known_map = json.load(f)
-            known_hosts = list(set(known_map.values()))
+            # B-Belgium-74: an IP outside every local network is unreachable BY
+            # DEFINITION — probing it costs a full black-holed TCP timeout and can
+            # never succeed. Don't hand it to CastBrowser and don't probe it; just
+            # count the miss so it retires. This is the whole cost of travelling.
+            _nets = _local_ipv4_networks()
+            for _n, _h in known_map.items():
+                (known_hosts.append(_h) if _ip_is_on_this_lan(_h, _nets)
+                 else foreign_map.__setitem__(_n, _h))
+            known_hosts = list(set(known_hosts))
             log.info(f"Loaded {len(known_hosts)} known speaker IPs: {known_hosts}")
+            if foreign_map:
+                log.warning(
+                    f"🧳 Skipping {len(foreign_map)} cached speaker(s) from another "
+                    f"network — not on this LAN {[str(n) for n in _nets]}: {foreign_map}. "
+                    f"They will be retired after {_KNOWN_SPEAKER_MISS_LIMIT} misses "
+                    f"(B-Belgium-74).")
     except Exception as e:
         log.warning(f"Could not load known_speakers.json: {e}")
 
@@ -2014,6 +2111,8 @@ def discover_casts():
         for name, host in new_known_map.items():
             if name in found_names:
                 continue   # already discovered via browser
+            if name in foreign_map:
+                continue   # B-Belgium-74: another network's speaker — never reachable
             lname = name.lower()
             if include_token and include_token not in lname:
                 continue
@@ -2039,6 +2138,38 @@ def discover_casts():
                 log.info(f"✅ Fallback: constructed cast for '{name}' from cached IP {host}")
             except Exception as e:
                 log.warning(f"Fallback construction failed for {name} @ {host}: {e}")
+
+        # B-Belgium-74: age out cached speakers that keep missing, so the probe list
+        # can't grow without bound as the box travels. A hit resets the counter, so a
+        # speaker that is merely powered off for a few hours is never lost; one that
+        # is gone for good (another house, or a DHCP lease reused elsewhere — son's
+        # '8KG speakers' and 'Layth's room speaker' both claim 192.168.4.25) retires
+        # itself. Only the IP CACHE is pruned: ui_state keeps each speaker's tuned
+        # volume + enable flag, which is expensive to lose and free to keep
+        # (B-Belgium-66 — Loft's volume was 91, not the 41 a reset would have given).
+        try:
+            _misses = _load_speaker_misses()
+            _retired = {}
+            for _name in list(new_known_map.keys()):
+                if _name in found_names:
+                    _misses.pop(_name, None)
+                    continue
+                _misses[_name] = _misses.get(_name, 0) + 1
+                if _misses[_name] >= _KNOWN_SPEAKER_MISS_LIMIT:
+                    _retired[_name] = new_known_map.pop(_name)
+                    _misses.pop(_name, None)
+            for _name in list(_misses.keys()):
+                if _name not in new_known_map:
+                    _misses.pop(_name, None)
+            if _retired:
+                log.warning(
+                    f"🧹 Retired {len(_retired)} cached speaker IP(s) after "
+                    f"{_KNOWN_SPEAKER_MISS_LIMIT} consecutive misses: {_retired}. "
+                    f"Volumes + enable flags are kept; if a speaker comes back, mDNS "
+                    f"re-adds it automatically (B-Belgium-74).")
+            _save_speaker_misses(_misses)
+        except Exception as e:
+            log.error(f"known-speaker retirement pass failed: {e}")
 
         # Save updated known_hosts to disk for next discovery
         try:
