@@ -3364,9 +3364,19 @@ def play_on_cast(cast, media_url: str, volume: float, audio_type: str = None, pr
         dur = None
         # The >60s duration rule only applies to UNMAPPED types — compute duration
         # only then, so the adhan/common path never pays for an ffprobe call.
-        if audio_type and audio_type not in volume_policy.DEFAULT_POLICY["types"] and audio_type in AUDIO:
+        # BUG_REVIEW 2026-07-01 #1: scheduled:<id> clips live in _CUSTOM_AUDIO_DIR,
+        # not AUDIO, so they used to get duration_s=None here AND had no _classify
+        # rule — falling through to CORE+ALLOW = full master volume at night. The
+        # primary fix is the scheduled:* PERIPHERAL rule in volume_policy._classify;
+        # resolving the real duration here keeps the >60s rule as a second net.
+        if audio_type and audio_type not in volume_policy.DEFAULT_POLICY["types"]:
             try:
-                dur = _audio_duration_seconds(AUDIO[audio_type])
+                if audio_type in AUDIO:
+                    dur = _audio_duration_seconds(AUDIO[audio_type])
+                elif audio_type.startswith("scheduled:"):
+                    p = _custom_audio_file_path(audio_type.split(":", 1)[1])
+                    if os.path.isfile(p):
+                        dur = _audio_duration_seconds(p)
             except Exception:
                 dur = None
         vol_pct = volume_policy.resolve_play_volume(
