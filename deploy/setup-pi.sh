@@ -58,10 +58,11 @@ apt-get install -y --no-install-recommends \
   python3 python3-venv python3-pip \
   ffmpeg \
   avahi-daemon \
+  avahi-utils \
   ca-certificates curl \
   iw rfkill \
   >/dev/null
-ok "python3, ffmpeg, avahi-daemon, iw, rfkill installed"
+ok "python3, ffmpeg, avahi-daemon, avahi-utils, iw, rfkill installed"
 # v1.9.2 (B-Belgium-32): iw + rfkill are needed below for the WiFi-country
 # detection block. Bookworm Lite doesn't ship them by default, so Imager's
 # `[rfkill, unblock, wifi]` runcmd silently fails on a fresh Pi.

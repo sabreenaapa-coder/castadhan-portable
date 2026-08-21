@@ -229,6 +229,37 @@ if [ -f "$INSTALL_DIR/deploy/castadhan-refresh.service" ]; then
   log "speaker self-heal timer installed/refreshed (every 15 min)"
 fi
 
+# B-Belgium-76: unblock the WiFi radio on EVERY update, not just at install.
+# The rfkill/NetworkManager unblock landed in setup-pi.sh (commit d298010) — but
+# setup-pi.sh only ever runs when a unit is first imaged, and the updater swaps
+# the install dir without touching system state. So a unit imaged BEFORE that
+# commit can be running a release that contains the fix while its radio is still
+# soft-blocked: `nmcli wifi list` returns zero networks, no error, and the WiFi
+# wizard looks broken for ever. Confirmed on Rayan's box 21 Aug 2026 — v1.16.0
+# installed (which includes d298010), radio still blocked, wizard saw 0 networks.
+# A fix that lives only in the installer cannot reach the fleet. Idempotent.
+if command -v rfkill >/dev/null 2>&1; then
+  rfkill unblock wifi >/dev/null 2>&1 || true
+fi
+nmcli radio wifi on >/dev/null 2>&1 || true
+if [ "$(nmcli radio wifi 2>/dev/null)" = "enabled" ]; then
+  log "WiFi radio verified enabled (rfkill + NetworkManager) — B-Belgium-76"
+else
+  log "WARN: WiFi radio not reporting enabled — WiFi wizard may find no networks"
+fi
+
+# B-Belgium-77: ensure avahi-browse exists. setup-pi.sh installs avahi-daemon
+# (which PUBLISHES <hostname>.local) but avahi-browse lives in avahi-utils, and
+# was never installed. discover_casts() uses avahi-browse to catch Cast devices
+# that CastBrowser misses — the augmentation path that matters most when a
+# PORTABLE box arrives at a new house full of speakers it has never seen. Absent
+# on rayan + masood (21 Aug 2026); it failed open and silently did nothing.
+if ! command -v avahi-browse >/dev/null 2>&1; then
+  apt-get install -y --no-install-recommends avahi-utils >/dev/null 2>&1 \
+    && log "avahi-utils installed (avahi-browse discovery path) — B-Belgium-77" \
+    || log "WARN: could not install avahi-utils; avahi-browse discovery unavailable"
+fi
+
 # ---- 4. Update Python dependencies if requirements changed ------------------
 if [ -f "$INSTALL_DIR/requirements.txt" ]; then
   log "Refreshing Python dependencies"

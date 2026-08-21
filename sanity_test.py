@@ -1364,6 +1364,36 @@ def L16_portability():
     _i = dbody.find("_load_speaker_misses()")
     _j = dbody.find("Save updated known_hosts", _i + 1) if _i >= 0 else -1
     _retire_block = dbody[_i:_j] if (_i >= 0 and _j > _i) else ""
+    # (HIGH) B-Belgium-76: a fix that lives only in the INSTALLER never reaches
+    # the fleet. Rayan's box ran a release containing the rfkill fix with its
+    # radio still blocked, because setup-pi.sh only runs at imaging time.
+    try:
+        upd = src("deploy/castadhan-update.sh")
+        t("HIGH", cat, "b76-updater-unblocks-wifi-radio",
+          "rfkill unblock wifi" in upd and "nmcli radio wifi on" in upd,
+          "castadhan-update.sh must re-apply the WiFi unblock so EXISTING units heal")
+    except Exception as e:
+        err("HIGH", cat, "b76-updater-unblocks-wifi-radio", e)
+
+    # (HIGH) LIVE: the radio must actually be unblocked on this box.
+    try:
+        r = run("rfkill list wifi 2>/dev/null | grep -m1 'Soft blocked'")
+        blocked = "yes" in (r.stdout or "").lower()
+        t("HIGH", cat, "b76-wifi-radio-not-blocked", not blocked,
+          "wifi soft-blocked => WiFi wizard silently finds 0 networks")
+    except Exception as e:
+        err("HIGH", cat, "b76-wifi-radio-not-blocked", e)
+
+    # (MEDIUM) B-Belgium-77: avahi-browse is the discovery path that catches
+    # speakers CastBrowser misses — the one that matters most when a portable
+    # box lands somewhere new. avahi-daemon publishes; avahi-utils browses.
+    try:
+        r = run("command -v avahi-browse")
+        t("MEDIUM", cat, "b77-avahi-browse-present", bool((r.stdout or "").strip()),
+          "avahi-browse missing (apt install avahi-utils) — augmentation path dead")
+    except Exception as e:
+        err("MEDIUM", cat, "b77-avahi-browse-present", e)
+
     t("MEDIUM", cat, "b74-retire-keeps-ui-state",
       bool(_retire_block) and "new_known_map.pop(" in _retire_block
       and "UI[" not in _retire_block,
