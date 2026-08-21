@@ -1209,13 +1209,100 @@ def L14_incident_net():
     except Exception as e:
         err("MEDIUM", cat, "b45-version-not-drifted", e)
 
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Layer 15 — B-Belgium-73: the invisible master mute + the phantom chime
+# (Hall Green, 21 Aug 2026. "Disable All" was pressed at 10:42:09, the speaker
+#  toggled back ON two seconds later, and the master switch stayed off. Every
+#  prayer for the next 2.5h was silently dropped at the routing gate — logged as
+#  "PASS speakers_count=1" — while the 10s verifier woke the idle speaker to read
+#  its status, which LAUNCHED the media receiver and made it chime. Owner heard a
+#  ding and no adhan: an exact impersonation of B-Belgium-64 router isolation.)
+# ─────────────────────────────────────────────────────────────────────────────
+def L15_master_mute():
+    cat = "L15 master-mute"
+    try: app = src("app.py")
+    except Exception as e: err("CRITICAL", cat, "b73-source-app-readable", e); app = ""
+
+    # (CRITICAL) LIVE STATE: global=False while any speaker reads ON is the trap
+    # itself — nothing can play and the dashboard shows no reason why.
+    try:
+        _code, st = http_json("/api/state")
+        en = (st or {}).get("enabled") or {}
+        spk = en.get("speakers") or {}
+        trapped = (not en.get("global", True)) and any(bool(v) for v in spk.values())
+        t("CRITICAL", cat, "b73-no-invisible-master-mute", not trapped,
+          "enabled.global=%s speakers=%s" % (en.get("global"), spk))
+    except Exception as e:
+        err("CRITICAL", cat, "b73-no-invisible-master-mute", e)
+
+    if not app:
+        return
+
+    # (CRITICAL) Enabling a speaker must lift the master mute, or the trap can be
+    # re-entered with two taps at any time.
+    body = _fn_body(app, "def api_toggle_speaker(")
+    t("CRITICAL", cat, "b73-toggle-lifts-master",
+      'UI["enabled"]["global"] = True' in body and "master_lifted" in body,
+      "api_toggle_speaker must lift enabled.global when a speaker is switched on")
+
+    # (CRITICAL) The verifier must never LAUNCH the receiver to read status —
+    # that is the phantom chime, and it fires on every muted prayer.
+    vbody = _fn_body(app, "def _verify_playback_async(")
+    t("CRITICAL", cat, "b73-verifier-no-phantom-launch",
+      "_media_receiver_active(" in vbody,
+      "update_status() must be gated on _media_receiver_active() (pychromecast "
+      "auto-launches CC1AD845 for an unloaded namespace)")
+
+    # (CRITICAL) play_on_cast must report whether it actually played, or every
+    # caller counts silenced speakers as successes.
+    pbody = _fn_body(app, "def play_on_cast(")
+    t("CRITICAL", cat, "b73-play-on-cast-returns-bool",
+      "-> bool" in app[app.find("def play_on_cast("):app.find("\n", app.find("def play_on_cast("))]
+      and "return True" in pbody and "return False" in pbody,
+      "play_on_cast must return True only when media was handed to the speaker")
+
+    # (HIGH) A silenced play must never be recorded as PASS.
+    tbody = _fn_body(app, "def _play_to_targets(")
+    t("HIGH", cat, "b73-play-count-is-real",
+      "if play_on_cast(" in tbody and '"MUTED"' in tbody,
+      "_play_to_targets must count only real plays and record MUTED otherwise")
+
+    # (HIGH) A silenced play must leave a trace in the journal. It used to be
+    # log.debug — invisible at INFO, which is why 2.5h of dropped prayers left
+    # literally nothing to grep for.
+    t("HIGH", cat, "b73-mute-is-logged-loudly",
+      "routing disabled" not in pbody and ("log.warning" in pbody or "log.critical" in pbody),
+      "play_on_cast must log a skipped play at WARNING with the reason, not debug")
+
+    # (HIGH) No un-gated media_controller.stop(): stopping an idle speaker
+    # launches the receiver purely to stop it — another phantom chime.
+    raw_stops = [ln.strip() for ln in app.splitlines()
+                 if ".media_controller.stop()" in ln and not ln.strip().startswith("#")]
+    t("HIGH", cat, "b73-stops-gated", len(raw_stops) <= 1,
+      "media_controller.stop() must go through _stop_cast_quietly (%d raw call(s))"
+      % len(raw_stops))
+
+    # (HIGH) A speaker discovered after Disable All must be seeded OFF, not True —
+    # otherwise its tile renders ON (console: enabled?.speakers?.[n] !== false)
+    # while global vetoes it. Same trap, second door.
+    dbody = _fn_body(app, "def discover_casts(")
+    t("HIGH", cat, "b73-new-speaker-seeded-from-master",
+      '_master_on' in dbody and 'UI["enabled"]["speakers"][c.name] = True' not in dbody,
+      "discover_casts must seed a new speaker's enabled flag from enabled.global")
+
+    # (MEDIUM) Boxes already stuck in the trap must repair themselves on restart.
+    t("MEDIUM", cat, "b73-startup-selfheal",
+      "Repaired invisible master mute" in app,
+      "startup must repair enabled.global=False + speaker(s) ON")
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Run everything
 # ─────────────────────────────────────────────────────────────────────────────
 for fn in [L1_system, L2_config, L3_discovery, L4_scheduler, L5_api,
            L6_ui, L7_audio, L7b_scheduled_audio,
            L8_religion, L9_autoupdate, L9b_wifi_wizard, L10_tailscale, L11_history,
-           L12_connectivity, L13_volume_policy, L14_incident_net]:
+           L12_connectivity, L13_volume_policy, L14_incident_net, L15_master_mute]:
     try:
         fn()
     except Exception as e:

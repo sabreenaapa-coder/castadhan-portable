@@ -905,6 +905,23 @@ def _save_state(s):
 
 UI = _load_state()
 
+# B-Belgium-73 (v1.16.3): self-heal the invisible-master-mute state. A box that
+# was left with enabled.global=False while individual speakers read ON plays
+# NOTHING, and nothing in the UI says why (Hall Green, 21 Aug 2026 — 2.5h of
+# silent prayers). The combination is never intentional: "Disable All" switches
+# every speaker off too, so global=False + any speaker True can only be the trap.
+# Repair it on startup so existing fleet boxes recover on their next restart.
+try:
+    if (not UI.get("enabled", {}).get("global", True)
+            and any(UI.get("enabled", {}).get("speakers", {}).values())):
+        UI["enabled"]["global"] = True
+        _save_state(UI)
+        log.warning("🔊 Repaired invisible master mute on startup: enabled.global was "
+                    "False while speaker(s) read ON — nothing could ever play. "
+                    "Master switch restored (B-Belgium-73).")
+except Exception as e:
+    log.error(f"master-mute self-heal check failed: {e}")
+
 # ---------------- Enhanced Flask App ----------------
 app = Flask(__name__)
 
@@ -2058,9 +2075,20 @@ def discover_casts():
             log.info(f"Disconnected {len(stale_to_drop)} stale cast object(s) to prevent thread leak")
 
         with _state_lock:
+            # B-Belgium-73: seed a new speaker's enabled flag from the MASTER
+            # switch, not a bare True. A speaker discovered after "Disable All"
+            # used to be recorded True while enabled.global stayed False — the
+            # console then drew its tile ON (it renders
+            # `enabled?.speakers?.[name] !== false`) while _speaker_enabled()
+            # silently vetoed every play. That is the same invisible mute that
+            # cost Hall Green 2.5h of prayers, arriving by a second door.
+            _master_on = UI["enabled"].get("global", True)
             for c in found_general:
                 if c and c.name not in UI["enabled"]["speakers"]:
-                    UI["enabled"]["speakers"][c.name] = True
+                    UI["enabled"]["speakers"][c.name] = _master_on
+                    if not _master_on:
+                        log.warning(f"New speaker '{c.name}' recorded as OFF — the "
+                                    f"master switch is off (B-Belgium-73)")
                 if c and c.name not in UI["volumes"]:
                     UI["volumes"][c.name] = UI["volumes"].get("__default", _default_volume)
             # B-Belgium-46 (v1.9.7): purge orphan IP-keyed entries that
@@ -2171,6 +2199,42 @@ def ensure_connected(cast):
     except Exception as e:
         log.error(f"Failed to recreate connection for {name} @ {ip}: {e}")
         return cast
+
+def _media_receiver_active(cast) -> bool:
+    """True when the Default Media Receiver is ALREADY running on the device.
+
+    B-Belgium-73 (v1.16.3 — Hall Green, 21 Aug 2026): pychromecast's
+    BaseController.send_message() *launches* its supporting app (CC1AD845) when
+    that app's namespace isn't loaded. So a bare media_controller.update_status()
+    or .stop() aimed at an IDLE speaker wakes the receiver — and the speaker
+    CHIMES — with no media ever played. That phantom chime is what made a
+    silently-muted box look exactly like the B-Belgium-64 router-isolation bug:
+    a ding at every prayer and no adhan, for two entirely different reasons.
+
+    Gate every status read / stop on this. Never raises."""
+    try:
+        sc = getattr(cast, "socket_client", None)
+        ns = getattr(getattr(cast, "media_controller", None), "namespace", None)
+        return bool(sc and ns and ns in (getattr(sc, "app_namespaces", None) or []))
+    except Exception:
+        return False
+
+
+def _stop_cast_quietly(cast) -> bool:
+    """media_controller.stop(), but ONLY if the receiver is already up.
+
+    B-Belgium-73: stopping an IDLE speaker otherwise launches the receiver just
+    to tell it to stop — which chimes. An idle speaker is already stopped.
+    Returns True if a stop was actually sent. Never raises."""
+    if not _media_receiver_active(cast):
+        return False
+    try:
+        cast.media_controller.stop()
+        return True
+    except Exception as e:
+        log.debug(f"stop() failed on {getattr(cast, 'name', '?')}: {e}")
+        return False
+
 
 def _disconnect_cast_quietly(cast):
     """v1.7.3: stop a Chromecast object's socket_client thread so it doesn't
@@ -2742,19 +2806,24 @@ def _play_custom_audio(audio_id: str, force: bool = False):
     try:
         url = _custom_audio_local_url(audio_id)
         played = 0
+        casts_played = []
         for cast in casts:
             try:
-                play_on_cast(cast, url, _speaker_volume(cast.name),
-                             structured_type, audio_id)
-                played += 1
+                # B-Belgium-73: count only speakers that actually got the media
+                if play_on_cast(cast, url, _speaker_volume(cast.name),
+                                structured_type, audio_id):
+                    played += 1
+                    casts_played.append(cast)
             except Exception as e:
                 log.error(f"play_on_cast failed for {cast.name}: {e}")
         _log_play(structured_type, audio_id,
-                  "PASS" if played else "NO_SPEAKERS",
+                  "PASS" if played else ("MUTED" if casts else "NO_SPEAKERS"),
                   speakers_count=played)
         if played:
-            # v1.9.9: async verification (10s) — scheduled:* types qualify
-            _verify_playback_async(casts, structured_type, audio_id)
+            # v1.9.9: async verification (10s) — scheduled:* types qualify.
+            # B-Belgium-73: verify only what really played, or the poller wakes
+            # an idle speaker (chime) and then reports it isn't playing.
+            _verify_playback_async(casts_played, structured_type, audio_id)
         play_logged = True   # v1.9.8.2: gate the outer except so we don't
                               # write a duplicate FAIL entry if the play
                               # itself succeeded and a later side-effect
@@ -2820,10 +2889,7 @@ def _arm_max_duration_timer(audio_id: str, max_minutes: int, casts: list):
     def stop_callback():
         log.info(f"Max duration ({max_minutes} min) reached for {audio_id} — stopping casts")
         for cast in casts:
-            try:
-                cast.media_controller.stop()
-            except Exception as e:
-                log.debug(f"Stop {cast.name} on max-duration: {e}")
+            _stop_cast_quietly(cast)   # B-Belgium-73: never wake an idle speaker
         _custom_audio_active_timers.pop(audio_id, None)
 
     timer = threading.Timer(max_minutes * 60, stop_callback)
@@ -2876,8 +2942,7 @@ def _quiet_test_custom_audio(audio_id: str):
     def stop_after_10s():
         log.info(f"Quiet test 10s elapsed for {audio_id}, stopping")
         for cast in casts:
-            try: cast.media_controller.stop()
-            except Exception: pass
+            _stop_cast_quietly(cast)   # B-Belgium-73
         _log_play(f"quiet_test:{audio_id}", audio_id, "QUIET_TEST_COMPLETED",
                   speakers_count=played)
 
@@ -3112,11 +3177,10 @@ def stop_all_audio():
         for c in all_casts:
             try:
                 ensure_connected(c)
-                # Try gentle stop first
-                try:
-                    c.media_controller.stop()
-                except Exception as e:
-                    log.debug(f"stop() failed on {c.name} ({e}), trying quit_app as fallback")
+                # Try gentle stop first. B-Belgium-73: _stop_cast_quietly skips
+                # idle speakers — sending stop() to one launches the receiver
+                # (chime) purely to stop something that isn't playing.
+                _stop_cast_quietly(c)
                 # Always also quit_app — guarantees audio dies even if stop() couldn't
                 try:
                     c.quit_app()
@@ -3135,15 +3199,29 @@ def stop_all_audio():
 
 _last_suppress_log = {}  # audio_type -> "YYYYmmddHHMM": dedupe SUPPRESSED log to once/event
 
-def play_on_cast(cast, media_url: str, volume: float, audio_type: str = None, prayer_name: str = None):
-    """Enhanced play function with better error handling and routing awareness"""
+def play_on_cast(cast, media_url: str, volume: float, audio_type: str = None, prayer_name: str = None) -> bool:
+    """Enhanced play function with better error handling and routing awareness.
+
+    B-Belgium-73 (v1.16.3): returns True ONLY if the media was actually handed to
+    the speaker. Every early return below is a NON-play, and callers used to count
+    them as successes — which is how a fully muted box logged "PASS speakers=1"
+    at every prayer while nothing came out."""
     if shutdown_event.is_set():
-        return
+        return False
 
     # Check if this audio type should play on this speaker
     if audio_type and not _should_play_on_speaker(cast.name, audio_type):
-        log.debug(f"Skipping {audio_type} on {cast.name} (routing disabled)")
-        return
+        # B-Belgium-73: this used to be log.debug — invisible at INFO. A silently
+        # muted box left NO trace in the journal at all (Hall Green, 21 Aug 2026:
+        # "Disable All" was pressed, the speaker tile still read on, and every
+        # adhan vanished here without a word). Say it out loud, with the reason.
+        with _state_lock:
+            master_off = not UI["enabled"]["global"]
+        reason = ("MASTER SWITCH IS OFF (Disable All) — no speaker can play anything"
+                  if master_off else
+                  f"'{cast.name}' is off, or {audio_type} is not routed to it")
+        log.warning(f"🔇 {audio_type} NOT played on {cast.name}: {reason}")
+        return False
 
     # v1.8.6/1.8.7: peripheral-audio volume + quiet-hours policy — the single choke
     # point. Attenuates/suppresses peripheral audio (dhikr/takbeeraat/duas) so it
@@ -3176,7 +3254,7 @@ def play_on_cast(cast, media_url: str, volume: float, audio_type: str = None, pr
             log.info(f"🔕 {audio_type} suppressed by quiet-hours policy ({cast.name})")
         except Exception:
             pass
-        return
+        return False
     volume = max(0.0, min(vol_pct / 100.0, 1.0))
 
     try:
@@ -3197,9 +3275,11 @@ def play_on_cast(cast, media_url: str, volume: float, audio_type: str = None, pr
 
         log.info("Cast playback started on %s: vol=%.0f%% url=%s audio_type=%s",
                  cast.name, volume * 100, media_url, audio_type or "unknown")
+        return True
 
     except Exception as e:
         log.error("Cast play failed on %s: %s", getattr(cast, "name", "?"), e)
+        return False
 
 def play_test_pattern():
     """Play test audio sequentially on each speaker to identify them"""
@@ -5019,19 +5099,27 @@ def log_feature_summary():
     log.info("=" * 50)
 
 # ---------------- Play Functions ----------------
-def _play_to_targets(media_relpath: str, target: Optional[str] = None, audio_type: Optional[str] = None, prayer_name: Optional[str] = None):
-    """Internal helper to play a given media file to enabled targets with routing awareness."""
+def _play_to_targets(media_relpath: str, target: Optional[str] = None, audio_type: Optional[str] = None, prayer_name: Optional[str] = None) -> int:
+    """Internal helper to play a given media file to enabled targets with routing awareness.
+
+    B-Belgium-73 (v1.16.3): returns the number of speakers that ACTUALLY played.
+    Until now `played` was incremented once per targeted speaker regardless of
+    whether play_on_cast did anything, so a muted or un-routed box recorded
+    "PASS speakers_count=1" at every prayer — the audit trail lied in exactly the
+    situation it exists to catch. A targeted-but-silenced play is now recorded as
+    MUTED, which is visible on the dashboard and distinguishable from
+    NO_SPEAKERS (nothing discovered at all)."""
     global _last_play_timestamp
     
     if shutdown_event.is_set():
-        return
+        return 0
 
     # Prevent rapid-fire manual triggers
     with _play_lock:
         now = time.time()
         if now - _last_play_timestamp < MIN_PLAY_INTERVAL_SECONDS:
             log.warning(f"Play requested too soon after last play, ignoring")
-            return
+            return 0
         _last_play_timestamp = now
 
     # B-Belgium-42 (v1.9.5): _play_to_targets now writes play_history.jsonl
@@ -5042,6 +5130,7 @@ def _play_to_targets(media_relpath: str, target: Optional[str] = None, audio_typ
     # making it impossible to audit "did the morning dhikr fire?" without
     # diving into castadhan.log.
     played = 0
+    targeted = 0        # B-Belgium-73: speakers we tried to play on
     casts_played = []   # v1.9.9: track actual cast objects for verification
     try:
         url = local_media_url(media_relpath)
@@ -5049,9 +5138,10 @@ def _play_to_targets(media_relpath: str, target: Optional[str] = None, audio_typ
         if target and target.lower() != "all":
             cast = _cast_by_name(target)
             if cast:
-                play_on_cast(cast, url, _speaker_volume(cast.name), audio_type, prayer_name)
-                played = 1
-                casts_played = [cast]
+                targeted = 1
+                if play_on_cast(cast, url, _speaker_volume(cast.name), audio_type, prayer_name):
+                    played = 1
+                    casts_played = [cast]
             else:
                 log.warning(f"Target {target} not found")
         else:
@@ -5061,23 +5151,38 @@ def _play_to_targets(media_relpath: str, target: Optional[str] = None, audio_typ
                 log.warning("No speakers available for playback")
                 if audio_type:
                     _log_play(audio_type, prayer_name, "NO_SPEAKERS", speakers_count=0)
-                return
+                return 0
 
+            targeted = len(casts)
             for cast in casts:
-                play_on_cast(cast, url, _speaker_volume(cast.name), audio_type, prayer_name)
-                played += 1
-            casts_played = list(casts)
+                if play_on_cast(cast, url, _speaker_volume(cast.name), audio_type, prayer_name):
+                    played += 1
+                    casts_played.append(cast)
         if audio_type:
-            _log_play(audio_type, prayer_name,
-                      "PASS" if played else "NO_SPEAKERS",
-                      speakers_count=played)
+            # B-Belgium-73: MUTED = speakers were there and were targeted, but
+            # every one of them was gated off (master switch / per-speaker off /
+            # audio-type routing). Not NO_SPEAKERS — discovery worked fine.
+            if played:
+                status = "PASS"
+            elif targeted:
+                status = "MUTED"
+                log.critical(f"🔇 {audio_type} {prayer_name or ''} reached NO speaker: "
+                             f"all {targeted} targeted speaker(s) are muted or un-routed")
+            else:
+                status = "NO_SPEAKERS"
+            _log_play(audio_type, prayer_name, status, speakers_count=played)
             # v1.9.9: async verification — confirms a speaker is actually
             # playing 10s from now (adhan + scheduled:* only; fail-open).
+            # casts_played is now only the speakers that really got the media,
+            # so a muted box no longer gets a phantom FAIL_VERIFIED (or the
+            # phantom chime the poller used to trigger — B-Belgium-73).
             _verify_playback_async(casts_played, audio_type, prayer_name)
+        return played
     except Exception as e:
         log.error(f"Error playing media {media_relpath}: {e}")
         if audio_type:
             _log_play(audio_type, prayer_name, "FAIL", speakers_count=played, error=e)
+        return played
 
 # ─────────────────────────────────────────────────────────────────────────────
 # O21 + O25 FIX (v1.2.0, Tue 26 May 2026 — post-Belgium silent-Maghrib lesson):
@@ -5161,7 +5266,10 @@ def _log_play(audio_type: str, prayer_name: Optional[str], status: str, speakers
     """Record a play attempt for visibility.
     status is one of: PASS, FAIL, NO_SPEAKERS, DISCOVERY_RECOVERED, SKIPPED_HOLD,
     SUPPRESSED (volume policy), SILENT_EXPECTED (v1.8.14 — NO_SPEAKERS for a
-    prayer in expected_silent_prayers; intentionally silent, not a failure)."""
+    prayer in expected_silent_prayers; intentionally silent, not a failure),
+    MUTED (B-Belgium-73 — speakers were discovered and targeted but every one
+    was gated off by the master switch / per-speaker toggle / audio routing;
+    dashboard-visible, deliberately NOT alerting, since a mute is a user act)."""
     try:
         # v1.8.14: a NO_SPEAKERS for an owner-whitelisted prayer is recorded as
         # SILENT_EXPECTED, NOT NO_SPEAKERS. This downstream-suppresses the
@@ -5243,11 +5351,16 @@ def _verify_playback_async(casts: list, audio_type: str, prayer_name: Optional[s
             for cast in casts:
                 try:
                     mc = cast.media_controller
-                    try:
-                        mc.update_status()
-                        time.sleep(1)
-                    except Exception:
-                        pass   # cached status is still usable
+                    # B-Belgium-73: update_status() on an IDLE speaker LAUNCHES
+                    # the media receiver — the speaker chimes and the poller
+                    # then reports "not playing" anyway. If the receiver isn't
+                    # up, the device cannot be playing: that IS the answer.
+                    if _media_receiver_active(cast):
+                        try:
+                            mc.update_status()
+                            time.sleep(1)
+                        except Exception:
+                            pass   # cached status is still usable
                     state = getattr(getattr(mc, "status", None), "player_state", None)
                     if state in ("PLAYING", "BUFFERING"):
                         playing.append(cast.name)
@@ -5346,7 +5459,8 @@ def play_adhan_all(target: Optional[str] = None, prayer_name: Optional[str] = No
 
     try:
         # Pass prayer_name so the volume mixer can play e.g. Fajr loud, other adhans quieter.
-        _play_to_targets(adhan_file, target=target, audio_type="adhan", prayer_name=prayer_name)
+        # B-Belgium-73: use the REAL count — len(casts) counted targeted, not played.
+        played = _play_to_targets(adhan_file, target=target, audio_type="adhan", prayer_name=prayer_name)
 
         # Chain follow-up audio based on context.
         #
@@ -5412,12 +5526,13 @@ def play_adhan_all(target: Optional[str] = None, prayer_name: Optional[str] = No
         except Exception as e:
             log.error(f"Follow-up audio chaining error: {e}")
 
-        # O25: record successful play attempt for the dashboard widget.
-        _log_play("adhan", prayer_name, "PASS", speakers_count=len(casts))
+        # O25: record the play attempt for the dashboard widget.
+        _log_play("adhan", prayer_name, "PASS" if played else "MUTED",
+                  speakers_count=played)
 
     except Exception as e:
         log.error(f"Error playing Adhan: {e}")
-        _log_play("adhan", prayer_name, "FAIL", speakers_count=len(casts), error=e)
+        _log_play("adhan", prayer_name, "FAIL", speakers_count=0, error=e)
 
 def play_sunrise_warning():
     """Play fajr warning audio 5 minutes before sunrise — end-of-Fajr reminder"""
@@ -5792,9 +5907,24 @@ def api_toggle_speaker():
         if not name:
             return jsonify({"ok": False, "error": "name required"}), 400
 
+        # B-Belgium-73 (v1.16.3 — Hall Green, 21 Aug 2026): _speaker_enabled()
+        # gates on enabled.global FIRST, so a speaker switched on while the
+        # master switch was off stayed silently muted — and the dashboard drew
+        # its tile as ON, because global has no UI of its own. That is exactly
+        # how Hall Green lost every prayer for 2.5h: "Disable All" at 10:42:09,
+        # the speaker toggled back on at 10:42:11, master left off. Turning a
+        # speaker ON is an unambiguous "I want this to play", so it lifts the
+        # master mute. (Disable All still mutes everything — it also switches
+        # every speaker off, so the tiles keep telling the truth.)
+        master_lifted = False
         with _state_lock:
             UI["enabled"]["speakers"][name] = enabled
+            if enabled and not UI["enabled"].get("global", True):
+                UI["enabled"]["global"] = True
+                master_lifted = True
             _save_state(UI)
+        if master_lifted:
+            log.warning(f"🔊 Master switch was OFF — lifted it so '{name}' can actually play")
 
         # Stop playback if disabling
         if not enabled:
@@ -5802,7 +5932,7 @@ def api_toggle_speaker():
             if c:
                 try:
                     ensure_connected(c)
-                    c.media_controller.stop()
+                    _stop_cast_quietly(c)   # B-Belgium-73: don't wake an idle speaker
                     with _cast_lock:
                         _speaker_playback_status[name] = False
                     log.info(f"Stopped playback on disabled speaker: {name}")
@@ -5810,7 +5940,8 @@ def api_toggle_speaker():
                     log.warning(f"Could not stop playback on {name}: {e}")
 
         log.info(f"Speaker {name} {'enabled' if enabled else 'disabled'}")
-        return jsonify({"ok": True, "name": name, "enabled": enabled})
+        return jsonify({"ok": True, "name": name, "enabled": enabled,
+                        "master_lifted": master_lifted})
 
     except Exception as e:
         log.error(f"Error toggling speaker: {e}")
@@ -5834,7 +5965,7 @@ def api_toggle_all():
             for c in _all_casts():
                 try:
                     ensure_connected(c)
-                    c.media_controller.stop()
+                    _stop_cast_quietly(c)   # B-Belgium-73: don't wake an idle speaker
                     with _cast_lock:
                         _speaker_playback_status[c.name] = False
                 except Exception as e:
@@ -6266,8 +6397,7 @@ def api_remove_speaker():
             if c:
                 try: ensure_connected(c)
                 except Exception: pass
-                try: c.media_controller.stop()
-                except Exception: pass
+                _stop_cast_quietly(c)   # B-Belgium-73: don't wake an idle speaker
                 try: c.disconnect(blocking=False)
                 except Exception: pass
                 with _cast_lock:
@@ -6867,8 +6997,8 @@ def api_play():
             played_count = 0
             for cast in _all_casts():
                 if _should_play_on_speaker(cast.name, audio_type):
-                    play_on_cast(cast, url, volume, audio_type)
-                    played_count += 1
+                    if play_on_cast(cast, url, volume, audio_type):   # B-Belgium-73
+                        played_count += 1
             return jsonify({"ok": True, "device": "all", "played_count": played_count})
         else:
             cast = _cast_by_name(device)
