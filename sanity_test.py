@@ -1008,6 +1008,21 @@ def L13_volume_policy():
         vk = vp.resolve_play_volume("wakeup", 100, None, _dt(2026, 1, 1, 6, 30))
         t("HIGH", cat, "alarms-sound-in-quiet-hours", vs == 50 and vk == 100,
           f"suhoor={vs} (expect 50) wakeup={vk} (expect 100)")
+
+        # BUG_REVIEW 2026-07-01 #1 (HIGH): scheduled Qur'an programs ("scheduled:<id>")
+        # must classify as PERIPHERAL, never the CORE+ALLOW fail-safe. Before the fix
+        # the resolver had no scheduled:* rule and play_on_cast passed duration_s=None
+        # (clip lives in custom_audio/, not AUDIO), so Surah al-Mulk at 22:00 played at
+        # FULL master volume inside 22:00–07:00 quiet hours. ATTENUATE at night =
+        # quiet-but-present (like surah_kahf), NOT suppressed and NOT master.
+        vn = vp.resolve_play_volume("scheduled:surah_mulk", 100, None, _dt(2026, 1, 1, 22, 30))
+        t("HIGH", cat, "scheduled-programs-peripheral-at-night",
+          vn is not None and 0 < vn <= 30,
+          f"vol={vn} (expect quiet-but-present <=30, not None, NEVER master 100)")
+        # Daytime too: rides the PERIPHERAL ratio, not master.
+        vday = vp.resolve_play_volume("scheduled:surah_mulk", 100, None, DAY)
+        t("HIGH", cat, "scheduled-programs-peripheral-by-day", vday == 30,
+          f"vol={vday} (expect 30 = PERIPHERAL ratio of master 100)")
     except Exception as e:
         err("HIGH", cat, "volume-policy-overall", e)
 

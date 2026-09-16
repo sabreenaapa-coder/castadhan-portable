@@ -28,6 +28,10 @@ FAIL-SAFE: an unknown type or ANY internal error resolves to the master volume
 Duration rule (owner ask): an UNMAPPED, non-adhan clip longer than 60s is treated
 as PERIPHERAL (neighbour-safe). Explicitly-classified types always win, so this
 never overrides the locked twilight (SECONDARY+ATTENUATE) protection.
+Scheduled Qur'an programs ("scheduled:<id>") are PERIPHERAL+ATTENUATE by prefix
+rule (quiet-but-present at night, like surah_kahf) — a long recitation must never
+ride the CORE fail-safe at full master volume inside quiet hours. A per-id entry
+in `types` still overrides this (BUG_REVIEW 2026-07-01 #1).
 """
 from datetime import datetime, time as _time
 
@@ -138,11 +142,16 @@ def in_quiet_hours(now, quiet_cfg):
 
 def _classify(audio_type, policy, duration_s):
     """Return the {category, quiet} spec for an audio type. Explicit map wins;
-    otherwise the duration rule (unmapped, non-adhan, >60s -> PERIPHERAL); else
-    the CORE+ALLOW fail-safe default."""
+    then scheduled Qur'an programs ("scheduled:<id>") are PERIPHERAL+ATTENUATE
+    (BUG_REVIEW 2026-07-01 #1 — without this they fell through to CORE+ALLOW
+    and played at full master volume inside quiet hours); otherwise the duration
+    rule (unmapped, non-adhan, >60s -> PERIPHERAL); else the CORE+ALLOW
+    fail-safe default."""
     spec = policy["types"].get(audio_type)
     if spec is not None:
         return spec
+    if str(audio_type).startswith("scheduled:"):
+        return {"category": "PERIPHERAL", "quiet": "ATTENUATE"}
     if (audio_type != "adhan" and duration_s is not None
             and duration_s > _DURATION_PERIPHERAL_THRESHOLD_S):
         return {"category": "PERIPHERAL", "quiet": "SUPPRESS"}
