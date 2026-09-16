@@ -1190,12 +1190,19 @@ body.cp-playing .cp-now{display:flex;}
           <div class="setting-item">
             <label>Calculation Method</label>
             <select id="config-method">
+              <option value="HAVERFORDWEST">Haverfordwest Mosque (Fajr 15°, Isha 15° + UK summer Isha windows) — default</option>
               <option value="ISNA">ISNA — Islamic Society of North America (Fajr 15°, Isha 15°)</option>
               <option value="MWL">MWL — Muslim World League (Fajr 18°, Isha 17°)</option>
               <option value="Egyptian">Egyptian General Authority (Fajr 19.5°, Isha 17.5°)</option>
               <option value="Karachi">Karachi (Fajr 18°, Isha 18°)</option>
               <option value="UmmAlQura">Umm Al-Qura, Makkah</option>
             </select>
+            <p class="muted" style="margin-top:6px">
+              <strong>Haverfordwest</strong> = ISNA angles, but summer Isha is a fixed gap after
+              Maghrib instead of drifting past 23:20 — Apr <strong>+60</strong>, 1–22 May
+              <strong>+75</strong>, 23 May–24 Jul <strong>+30</strong>, 25 Jul–30 Sep
+              <strong>+60</strong>. UK dates; outside the UK pick another method.
+            </p>
           </div>
 
           <!-- C-2 / U-2 (v1.6.3, Wed 27 May 2026): UI selector for the
@@ -1368,6 +1375,17 @@ body.cp-playing .cp-now{display:flex;}
             <label for="config-isha-always-apply" style="font-size:.9em;">
               Always apply this method
               <span style="color:var(--silver); font-weight:normal;">— ignore persistent-twilight detection (UK summer / mosque-published timetables)</span>
+            </label>
+          </div>
+          <!-- v1.9.9: precedence switch between the rule above and a calculation
+               method that ships its own summer Isha policy (currently only
+               Haverfordwest). On by default so an owner who deliberately chose a
+               high-latitude rule is never silently overruled by a preset. -->
+          <div class="setting-item">
+            <input type="checkbox" id="config-twilight-precedence" checked>
+            <label for="config-twilight-precedence" style="font-size:.9em;">
+              Persistent twilight overrides the calculation method
+              <span style="color:var(--silver); font-weight:normal;">— keep the rule above in charge while persistent twilight is active. Untick to let the Haverfordwest method use its own summer Isha (Maghrib + 60 min, the mosque's second jamat). No effect on other methods.</span>
             </label>
           </div>
           <div class="setting-item" id="static-offset-container">
@@ -3569,6 +3587,9 @@ async function loadConfig(options) {
       // B-Belgium-38 (v1.9.3): always-apply flag.
       if ($('config-isha-always-apply'))
         $('config-isha-always-apply').checked = cfg.rules.isha_method_always_apply === true;
+      // v1.9.9: default ON — only an explicit false unticks it.
+      if ($('config-twilight-precedence'))
+        $('config-twilight-precedence').checked = cfg.rules.persistent_twilight_precedence !== false;
       $('config-fajr-couple').checked = cfg.rules.fajr_at_start_when_isha_capped !== false;
       $('config-scan-frequency').value = cfg.rules.twilight_scan_frequency_days || 7;
       
@@ -3657,6 +3678,9 @@ async function saveConfig() {
         isha_max_time: ($('config-isha-max-time').value || '').trim(),
         // B-Belgium-38 (v1.9.3): persist the always-apply flag.
         isha_method_always_apply: !!($('config-isha-always-apply') && $('config-isha-always-apply').checked),
+        // v1.9.9: absent checkbox must not silently flip the default to false.
+        persistent_twilight_precedence: $('config-twilight-precedence')
+          ? $('config-twilight-precedence').checked : true,
         fajr_at_start_when_isha_capped: $('config-fajr-couple').checked,
         twilight_scan_frequency_days: parseInt($('config-scan-frequency').value),
         morning_dhikr_time: $('config-dhikr-time').value,
@@ -3877,13 +3901,35 @@ async function applyLocationChoice(place) {
 
   $('location-display').textContent = configCity ? `${configCity}, ${configCountry}` : (place.name || '');
 
-  // S3 FIX: auto-select the most likely timezone for this lat/lon (best-effort)
+  // S3 FIX: auto-select the most likely timezone for this lat/lon (instant,
+  // best-effort local guess — only covers Europe/N.America/Middle East).
   try {
-    const tz = guessTimezoneFromLatLon(parseFloat(place.lat), parseFloat(place.lon));
-    if (tz && $('config-timezone').querySelector(`option[value="${tz}"]`)) {
-      $('config-timezone').value = tz;
+    const guess = guessTimezoneFromLatLon(parseFloat(place.lat), parseFloat(place.lon));
+    if (guess && $('config-timezone').querySelector(`option[value="${guess}"]`)) {
+      $('config-timezone').value = guess;
     }
   } catch (e) { /* tz guess optional */ }
+
+  // Authoritative fix: ask the server to resolve the real IANA timezone from
+  // these exact coordinates (works worldwide, not just the three regions the
+  // local guess covers) and overwrite the placeholder above once it's back.
+  // Saving re-resolves this anyway server-side, but the dropdown should never
+  // show something different from what Save is about to store.
+  try {
+    const tzRes = await fetch(`/api/location/timezone?lat=${place.lat}&lon=${place.lon}`);
+    if (tzRes.ok) {
+      const tzData = await tzRes.json();
+      if (tzData.ok && tzData.timezone) {
+        const sel = $('config-timezone');
+        if (!Array.from(sel.options).some(o => o.value === tzData.timezone)) {
+          const opt = document.createElement('option');
+          opt.value = tzData.timezone; opt.textContent = tzData.timezone;
+          sel.appendChild(opt);
+        }
+        sel.value = tzData.timezone;
+      }
+    }
+  } catch (e) { /* server tz resolve optional — save() will still resolve it */ }
 
   // Reflect the confirmed choice in the box and close the list
   $('location-search').value = configCity ? `${configCity}, ${configCountry}` : (place.name || '');
@@ -4632,7 +4678,7 @@ window.addEventListener('load', () => {
     const path = location.pathname || '/';
     document.querySelectorAll('.cp-flip a').forEach(a => {
       const t = (a.textContent || '').trim().toLowerCase();
-      a.setAttribute('href', t === 'admin' ? path + '?view=admin' : path);
+      a.setAttribute('href', t === 'admin' ? path + '?view=admin' : path + '?view=clock');
     });
   })();
 
@@ -4640,7 +4686,11 @@ window.addEventListener('load', () => {
      when explicitly requested via ?view=admin (reachable from the flip pill).
      The legacy ?mode=clock (TV ambient) and ?mode=simple pages are left alone. */
   if (qp('mode') === 'clock' || qp('mode') === 'simple') return;
-  const _isAdmin = qp('view') === 'admin';
+  /* Default view is config-driven: window.CP_DEFAULT_VIEW is injected by app.py from
+     config app.default_view. Fleet/gift units default to 'clock' (family-facing); an
+     operator can set 'admin' per unit. An explicit ?view= (admin|clock) always wins. */
+  const _defaultView = (window.CP_DEFAULT_VIEW === 'admin') ? 'admin' : 'clock';
+  const _isAdmin = (qp('view') || _defaultView) === 'admin';
   if (_isAdmin) { if (adminFlip) adminFlip.style.display = 'block'; }   // pill to return to Clock
   else document.body.classList.add('cp-active');                        // (Admin: still define the dial helpers below)
 

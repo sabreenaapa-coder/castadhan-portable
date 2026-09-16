@@ -159,7 +159,13 @@ DEFAULT_CONFIG = {
             'latitude': 51.5074,
             'longitude': -0.1278
         },
-        'calculation_method': 'ISNA'
+        # v1.9.9: default method is now HAVERFORDWEST. Same 15°/15° Fajr/Isha
+        # angles as ISNA (so nothing changes for most of the year) plus the
+        # Haverfordwest summer Isha windows, which give a sane UK-summer Isha
+        # instead of Aladhan's raw 23:20+. Existing Pis keep whatever is already
+        # in their config.yaml — the updater preserves user config, so this only
+        # affects fresh installs.
+        'calculation_method': 'HAVERFORDWEST'
     },
     'audio': {
         'adhan': 'audio/adhan.mp3',
@@ -285,6 +291,16 @@ DEFAULT_CONFIG = {
         'isha_method_always_apply': False,
         'fajr_at_start_when_isha_capped': True,  # When Isha cap fires today, play Fajr at raw API time
         'twilight_scan_frequency_days': 7,
+        # v1.9.9: does the owner's persistent-twilight rule outrank a calculation
+        # method's own built-in summer Isha policy? Only HAVERFORDWEST has such a
+        # policy today. True (default) = while persistent twilight is active, the
+        # high_latitude_method configured above wins and the method's window
+        # stands down — an owner who deliberately chose "combine prayers" or a
+        # static offset should not be silently overruled by a preset. False =
+        # hand the twilight period to the method's own window (for Haverfordwest,
+        # Isha = Maghrib + 60, the mosque's second jamat). No effect on any other
+        # calculation method, and none at all outside persistent twilight.
+        'persistent_twilight_precedence': True,
         # B-Belgium-64: opt-in, per box. Cast audio from the PUBLIC internet URL
         # (GitHub) instead of the Pi's local HTTP server. For boxes whose router
         # blocks the speaker from reaching the Pi over the LAN (AP / client
@@ -455,12 +471,63 @@ ALADHAN_METHOD_MAP = {
     "EGYPTIAN":    5,   # Egyptian General Authority — Fajr 19.5°, Isha 17.5°
     "KARACHI":     1,   # University of Islamic Sciences, Karachi — Fajr 18°, Isha 18°
     "UMM AL-QURA": 4,   # Umm al-Qura, Makkah — Fajr 18.5°, Isha = Maghrib + 90 min
+    # v1.9.9: Haverfordwest Mosque (Pembrokeshire, UK) house convention.
+    # Fajr/Isha are the same 15°/15° angles as ISNA, so the Aladhan request is
+    # identical (method 2) — what makes it a distinct method is the summer Isha
+    # window table applied locally afterwards (HAVERFORDWEST_ISHA_WINDOWS).
+    # Verified against haverfordwestmosque.netlify.app over 245 days of 2026:
+    # Fajr / Sunrise / Dhuhr / Maghrib / Isha all matched within ±1 min.
+    "HAVERFORDWEST": 2,
     # Aliases / variants likely to occur in user-written config.yaml
     "UMM_AL_QURA": 4,
     "UMMALQURA":   4,
     "ISLAMIC SOCIETY OF NORTH AMERICA": 2,
     "MUSLIM WORLD LEAGUE": 3,
 }
+
+# v1.9.9: Haverfordwest Mosque summer Isha policy.
+#
+# Outside these windows Isha is the plain 15° angle straight from Aladhan. Inside
+# them the mosque committee sets Isha as a fixed offset after Maghrib, because at
+# 51.8°N the 15° depression either never arrives or lands past 23:00. The windows
+# are calendar-based (they switch on fixed dates, NOT on an astronomical trigger)
+# and are reproduced here exactly as the mosque publishes them.
+#
+#   ((start_month, start_day), (end_month, end_day), minutes_after_maghrib)
+#
+# Confirmed day-by-day against the mosque's published 2026 timetable, including
+# every boundary: 22→23 May and 24→25 Jul.
+#
+# On the 23 May – 24 Jul value: the mosque's printed "Isha begins" column shows
+# Maghrib + 30 for those dates, but the mosque annotates that same period as
+# "Pembrokeshire entered Persistent Twilight … no set time for Isha … two Jamats
+# for Isha, one straight after Maghrib and one an hour later." The +30 is a
+# nominal placeholder for a period the mosque explicitly says has no set Isha;
+# the congregation people actually pray is the second jamat, an hour after
+# Maghrib. CastAdhan casts an adhan for people to pray to, so it follows the
+# jamat (+60), not the placeholder.
+#
+# Note this window is normally moot anyway: see PERSISTENT_TWILIGHT_PRECEDENCE
+# below — at these latitudes persistent twilight is active across most of it, and
+# the user's own high-latitude rule wins unless they turn that off in Settings.
+HAVERFORDWEST_ISHA_WINDOWS = (
+    ((4, 1),  (4, 30), 60),
+    ((5, 1),  (5, 22), 75),
+    ((5, 23), (7, 24), 60),   # deep twilight — mosque's 2nd Isha jamat, Maghrib + 1h
+    ((7, 25), (9, 30), 60),
+)
+
+def haverfordwest_isha_offset(target_date: date):
+    """Minutes after Maghrib for Haverfordwest's Isha on `target_date`.
+
+    Returns None outside the summer windows, meaning "leave the calculated
+    15° Isha alone".
+    """
+    key = (target_date.month, target_date.day)
+    for start, end, minutes in HAVERFORDWEST_ISHA_WINDOWS:
+        if start <= key <= end:
+            return minutes
+    return None
 ALADHAN_SCHOOL_MAP = {
     "SHAFII":  0,   # default — shadow factor 1
     "SHAFI'I": 0,
@@ -609,13 +676,24 @@ def _refresh_location_globals_from_cfg():
     callers reading the module globals (notably the Aladhan fetcher) see the
     just-saved values without needing a service restart. Used by
     api_set_config() and the auto-detect handler — keeps both code paths
-    consistent so a future wizard variant can't reintroduce stale-globals."""
-    global CITY, COUNTRY, LATITUDE, LONGITUDE, TZ, LOCAL_TZ
+    consistent so a future wizard variant can't reintroduce stale-globals.
+
+    v1.9.9: METHOD joined the list. It was previously read once at import, so
+    switching calculation method in Settings needed a service restart to take
+    effect. That was already wrong for every method (the Aladhan method id is
+    resolved from this global), and it became load-bearing when HAVERFORDWEST
+    started keying its Isha-window logic off it — a switch would otherwise
+    half-apply: new angles, but no summer windows until reboot."""
+    global CITY, COUNTRY, LATITUDE, LONGITUDE, TZ, LOCAL_TZ, METHOD
     loc = (CFG.get("app", {}) or {}).get("location", {}) or {}
     CITY      = loc.get("city", "") or ""
     COUNTRY   = loc.get("country", "") or ""
     LATITUDE  = loc.get("latitude")
     LONGITUDE = loc.get("longitude")
+    new_method = (CFG.get("app", {}) or {}).get("calculation_method")
+    if new_method and new_method != METHOD:
+        log.info(f"Calculation method changed: {METHOD!r} -> {new_method!r}")
+        METHOD = new_method
     new_tz = (CFG.get("app", {}) or {}).get("timezone")
     if new_tz and new_tz != TZ:
         TZ = new_tz
@@ -3715,6 +3793,10 @@ def apply_high_latitude_overrides(raw_times: dict, target_date: date) -> dict:
     This is the "Filtered Truth" - the scheduler only sees processed times.
 
     Order of operations:
+      0) Haverfordwest Isha windows, when calculation_method is HAVERFORDWEST.
+         These replace the generic rules when they apply — but only when
+         persistent twilight is NOT active, or the user has turned the
+         persistent-twilight precedence off in Settings.
       1) Method-specific overrides (combine_prayers / 1_7_rule / static_offset),
          only when persistent twilight is active.
       2) Universal `isha_max_time` cap — applies year-round, regardless of method.
@@ -3724,6 +3806,53 @@ def apply_high_latitude_overrides(raw_times: dict, target_date: date) -> dict:
 
     # Create a copy to avoid modifying cache
     times = raw_times.copy()
+
+    # v1.9.9 — step 0. The Haverfordwest method carries its own summer Isha
+    # policy, so where it applies it replaces the generic high-latitude rules
+    # rather than stacking with them (static_offset's +90 would otherwise
+    # clobber the window value). Gated on the calculation method, so every other
+    # method behaves exactly as it did before this change.
+    #
+    # PRECEDENCE: the user's persistent-twilight rule outranks the window. While
+    # persistent twilight is active, whatever the owner has configured under
+    # high_latitude_method wins, and the Haverfordwest window stands down — an
+    # owner who has deliberately set "combine prayers" or a static offset should
+    # not have a calculation-method preset quietly overrule it. Turning
+    # rules.persistent_twilight_precedence off in Settings → Advanced hands the
+    # twilight period back to the Haverfordwest window.
+    #
+    # Outside persistent twilight the windows apply normally — they are
+    # calendar-driven, so 1 April is in a window with twilight nowhere near
+    # active. That is why this sits ahead of the _twilight_cache gate below.
+    if str(METHOD).upper() == 'HAVERFORDWEST':
+        with _twilight_lock:
+            twilight_now = _twilight_cache.get("persistent_twilight_active", False)
+        twilight_wins = twilight_now and bool(RULES.get('persistent_twilight_precedence', True))
+        offset = None if twilight_wins else haverfordwest_isha_offset(target_date)
+        if twilight_wins:
+            log.info("Haverfordwest: persistent twilight active and takes precedence — "
+                     "deferring to high_latitude_method "
+                     f"({RULES.get('high_latitude_method', 'static_offset')})")
+        maghrib_str = times.get('Maghrib')
+        if offset is not None and maghrib_str:
+            try:
+                maghrib_h, maghrib_m = map(int, maghrib_str.split(':'))
+                total_minutes = maghrib_h * 60 + maghrib_m + offset
+                # Clamp to same-day: Isha must never roll past midnight.
+                if total_minutes >= 24 * 60:
+                    total_minutes = 23 * 60 + 59
+                    log.warning("Haverfordwest window would cross midnight; clamping Isha to 23:59")
+                times['Isha'] = f"{total_minutes // 60:02d}:{total_minutes % 60:02d}"
+                log.info(f"Haverfordwest Isha window: Maghrib + {offset} min -> {times['Isha']}")
+            except Exception as e:
+                log.error(f"Failed to apply Haverfordwest Isha window (Maghrib={maghrib_str!r}): {e}")
+        elif not twilight_wins:
+            log.debug("Haverfordwest: outside summer windows, keeping calculated 15° Isha")
+        # Short-circuit only when Haverfordwest actually handled Isha. If
+        # persistent twilight took precedence we deliberately fall through so the
+        # owner's high_latitude_method (and should_play_isha) run as normal.
+        if not twilight_wins:
+            return _apply_isha_max_cap(times)
 
     # Check if we need to apply method-specific overrides.
     # B-Belgium-38 (v1.9.3): the previous gate fired ONLY when persistent
@@ -3792,8 +3921,16 @@ def apply_high_latitude_overrides(raw_times: dict, target_date: date) -> dict:
             times['Isha'] = f"{hours:02d}:{minutes:02d}"
             log.info(f"Applied static offset: Isha at {times['Isha']}")
 
-    # Universal Isha cap — applies year-round, after any method-specific override.
-    # Empty string / None means cap is disabled (useful when travelling).
+    return _apply_isha_max_cap(times)
+
+
+def _apply_isha_max_cap(times: dict) -> dict:
+    """Universal Isha cap — applies year-round, after any method-specific override.
+
+    Empty string / None means the cap is disabled (useful when travelling).
+    Extracted from apply_high_latitude_overrides() in v1.9.9 so the Haverfordwest
+    early-return path gets the same user safety net as every other method.
+    """
     isha_max = RULES.get('isha_max_time')
     if isha_max and times.get('Isha'):
         try:
@@ -3932,8 +4069,22 @@ def should_play_isha(target_date: date) -> bool:
 
     Locations without persistent twilight get persistent_twilight_active == False
     so this always returns True there — Isha plays normally.
+
+    v1.9.9: the HAVERFORDWEST method defines a real Isha time (Maghrib + 60 min)
+    across the summer, including dates where the generic skip rules would fire.
+    An active Haverfordwest window therefore plays — but only when it is actually
+    in charge. While persistent twilight is active, the owner's own twilight rule
+    outranks the window (rules.persistent_twilight_precedence, default True), so
+    the normal skip logic below decides. Turning that off in Settings → Advanced
+    hands the twilight period to the window and Isha plays.
     """
     try:
+        if str(METHOD).upper() == 'HAVERFORDWEST':
+            with _twilight_lock:
+                twilight_now = _twilight_cache.get("persistent_twilight_active", False)
+            twilight_wins = twilight_now and bool(RULES.get('persistent_twilight_precedence', True))
+            if not twilight_wins and haverfordwest_isha_offset(target_date) is not None:
+                return True
         with _twilight_lock:
             active = _twilight_cache.get("persistent_twilight_active", False)
             method = _twilight_cache.get("high_latitude_method", "combine_prayers")
@@ -6850,15 +7001,38 @@ def api_set_config():
         if not isinstance(data, dict):
             return jsonify({"ok": False, "error": "Invalid config format"}), 400
         
+        # Location is the source of truth for the clock: whenever the incoming
+        # lat/lon differ from what's already saved, re-derive timezone from
+        # those coordinates and fold it into this update — so a location
+        # search-and-save (console's "Search location", or the first-boot
+        # wizard's searchLoc(), which never sent a timezone field at all)
+        # automatically gets the right clock without the caller having to
+        # separately work out or send one. A caller that changes ONLY the
+        # timezone dropdown (no location change) is left alone — that's a
+        # deliberate manual override (e.g. a region that doesn't use its
+        # geographic timezone) and must not be clobbered by a re-resolve.
+        incoming_loc = (data.get("app") or {}).get("location") or {}
+        new_lat = incoming_loc.get("latitude")
+        new_lon = incoming_loc.get("longitude")
+        old_loc = (CFG.get("app") or {}).get("location") or {}
+        location_changed = (
+            new_lat is not None and new_lon is not None and
+            (new_lat != old_loc.get("latitude") or new_lon != old_loc.get("longitude"))
+        )
+        if location_changed:
+            resolved_tz = _resolve_timezone_from_coords(new_lat, new_lon)
+            if resolved_tz:
+                data.setdefault("app", {})["timezone"] = resolved_tz
+
         # Create a copy for validation before applying
         test_cfg = CFG.copy()
         deep_update(test_cfg, data)
-        
+
         # Validate the merged config
         valid, msg = validate_config(test_cfg)
         if not valid:
             return jsonify({"ok": False, "error": f"Invalid config: {msg}"}), 400
-        
+
         # O29 (v1.2.0, Tue 26 May 2026): if the timezone is being changed, also
         # sync the underlying Linux system timezone via `timedatectl set-timezone`.
         # Before this, app config tz and system tz could drift apart silently —
@@ -6895,23 +7069,7 @@ def api_set_config():
 
         # O29: sync system tz AFTER config save so a failure here doesn't lose user input
         if sync_system_tz:
-            try:
-                import subprocess
-                # Two strategies: timedatectl (systemd) first, then symlink fallback for non-systemd.
-                result = subprocess.run(
-                    ["sudo", "-n", "timedatectl", "set-timezone", new_tz],
-                    capture_output=True, text=True, timeout=10
-                )
-                if result.returncode == 0:
-                    log.info(f"✅ System timezone synced to {new_tz}")
-                else:
-                    log.warning(
-                        f"timedatectl set-timezone {new_tz} failed (rc={result.returncode}): "
-                        f"{result.stderr.strip()}. Prayer times are unaffected (app uses config tz directly), "
-                        f"but logs and cron will use the old system tz."
-                    )
-            except Exception as e:
-                log.warning(f"System tz sync failed for {new_tz}: {e}. Non-fatal — app config tz still applied.")
+            _sync_system_timezone(new_tz)
 
         # Refresh caches and schedule
         _prayer_cache["date"] = None
@@ -6931,6 +7089,65 @@ def api_set_config():
     except Exception as e:
         log.error(f"Error setting config: {e}")
         return jsonify({"ok": False, "error": str(e)}), 500
+
+def _resolve_timezone_from_coords(lat, lon) -> Optional[str]:
+    """SSOT for 'given where the box actually is, what clock should it use'.
+
+    Coordinates map to an IANA timezone deterministically — unlike IP-based
+    location (see O3: ISP POPs lie about city) this doesn't get less reliable
+    just because the box is far from its home country. Uses Open-Meteo's
+    timezone=auto resolution (same free, no-key API already used for the
+    weather widget) instead of the old client-side lat/lon band heuristic,
+    which only covered Europe/N.America/Middle East and silently guessed
+    nothing (leaving the previous timezone in place) everywhere else.
+    Returns None on failure so callers can fall back rather than clobber a
+    known-good value with a bad guess.
+    """
+    try:
+        lat = float(lat)
+        lon = float(lon)
+    except (TypeError, ValueError):
+        return None
+    try:
+        r = requests.get(
+            "https://api.open-meteo.com/v1/forecast",
+            params={"latitude": lat, "longitude": lon, "timezone": "auto", "current": "temperature_2m"},
+            timeout=REQUEST_TIMEOUT,
+        )
+        r.raise_for_status()
+        tz = (r.json() or {}).get("timezone")
+        if not tz:
+            return None
+        timezone(tz)  # validate it's a real pytz zone before trusting it
+        return tz
+    except Exception as e:
+        log.warning(f"Timezone resolution from ({lat}, {lon}) failed: {e}")
+        return None
+
+def _sync_system_timezone(new_tz: str):
+    """Best-effort sync of the underlying Linux system timezone (O29 / Lesson
+    26: app config tz and system tz are two different things — app tz drives
+    prayer-time math via pytz/zoneinfo, system tz drives logs/cron/systemd
+    timers and any naive-datetime code). Non-fatal: ignore failures (missing
+    sudoers rule, non-systemd OS, container without setcap)."""
+    if not new_tz:
+        return
+    try:
+        import subprocess
+        result = subprocess.run(
+            ["sudo", "-n", "timedatectl", "set-timezone", new_tz],
+            capture_output=True, text=True, timeout=10
+        )
+        if result.returncode == 0:
+            log.info(f"✅ System timezone synced to {new_tz}")
+        else:
+            log.warning(
+                f"timedatectl set-timezone {new_tz} failed (rc={result.returncode}): "
+                f"{result.stderr.strip()}. Prayer times are unaffected (app uses config tz directly), "
+                f"but logs and cron will use the old system tz."
+            )
+    except Exception as e:
+        log.warning(f"System tz sync failed for {new_tz}: {e}. Non-fatal — app config tz still applied.")
 
 def _detect_location_from_ip() -> Optional[dict]:
     """Query ip-api.com (free, no key) for IP-based geolocation.
@@ -6967,6 +7184,11 @@ def api_location_auto_detect():
             return jsonify({"ok": False, "error": "Failed to detect location from IP"}), 502
 
         if save:
+            # Coordinates, not the IP database, are the source of truth for the
+            # clock: ip-api's own "timezone" field can be as wrong as its city
+            # (O3), but a lat/lon always maps to exactly one real IANA zone.
+            resolved_tz = _resolve_timezone_from_coords(loc["lat"], loc["lon"]) or loc.get("timezone")
+
             update = {
                 "app": {
                     "location": {
@@ -6977,23 +7199,31 @@ def api_location_auto_detect():
                     },
                 }
             }
-            if loc.get("timezone"):
-                update["app"]["timezone"] = loc["timezone"]
+            if resolved_tz:
+                update["app"]["timezone"] = resolved_tz
 
+            old_tz = (CFG.get("app") or {}).get("timezone")
             deep_update(CFG, update)
-            global CITY, COUNTRY, LATITUDE, LONGITUDE, TZ
+            global CITY, COUNTRY, LATITUDE, LONGITUDE, TZ, LOCAL_TZ
             CITY      = loc["city"] or CITY
             COUNTRY   = loc["country"] or COUNTRY
             LATITUDE  = loc["lat"]
             LONGITUDE = loc["lon"]
-            if loc.get("timezone"):
-                TZ = loc["timezone"]
+            if resolved_tz:
+                TZ = resolved_tz
+                try:
+                    LOCAL_TZ = timezone(TZ)
+                except Exception as e:
+                    log.warning(f"auto-detect: pytz lookup failed for {TZ!r}: {e}")
 
             tmp_path = CFG_PATH + ".tmp"
             with open(tmp_path, "w") as f:
                 yaml.dump(CFG, f, default_flow_style=False, indent=2)
             os.replace(tmp_path, CFG_PATH)
             log.info(f"Auto-detect saved: {CITY}, {COUNTRY} ({LATITUDE}, {LONGITUDE}) tz={TZ}")
+
+            if resolved_tz and resolved_tz != old_tz:
+                _sync_system_timezone(resolved_tz)
 
             _prayer_cache["date"] = None
             try:
@@ -7086,6 +7316,26 @@ def api_location_reverse():
         log.error(f"Error in reverse geocoding: {e}")
         return jsonify({"ok": False, "error": str(e)}), 500
 
+@app.route("/api/location/timezone", methods=["GET"])
+def api_location_timezone():
+    """Resolve the IANA timezone for a lat/lon (see _resolve_timezone_from_coords).
+    Lets the console preview the clock a location will actually get before
+    Save is clicked — api_set_config re-resolves it server-side either way,
+    but the dropdown should never show something different from what saving
+    will produce."""
+    try:
+        lat = request.args.get("lat")
+        lon = request.args.get("lon")
+        if not lat or not lon:
+            return jsonify({"ok": False, "error": "lat and lon required"}), 400
+        tz = _resolve_timezone_from_coords(lat, lon)
+        if not tz:
+            return jsonify({"ok": False, "error": "Could not resolve timezone"}), 502
+        return jsonify({"ok": True, "timezone": tz})
+    except Exception as e:
+        log.error(f"Error resolving timezone: {e}")
+        return jsonify({"ok": False, "error": str(e)}), 500
+
 @app.route("/api/overview")
 def api_overview():
     """Get API overview"""
@@ -7104,7 +7354,7 @@ def api_overview():
                 "/api/state", "/api/test/play", "/api/test/pattern", "/api/test/stop",
                 "/api/emergency/stop", "/api/rediscover", "/api/speakers/force_discover",
                 "/api/schedule/refresh", "/api/twilight/scan", "/api/config/method",
-                "/api/config", "/api/location/search", "/api/location/reverse",
+                "/api/config", "/api/location/search", "/api/location/reverse", "/api/location/timezone",
                 "/api/speaker/toggle", "/api/speakers/toggle_all", "/api/speaker/volume",
                 "/api/speaker/routing", "/api/speaker/status", "/health", "/metrics"
             ]
@@ -7316,8 +7566,11 @@ def ensure_initialized():
     sanity_check_audio()
 
     # Optional: auto-detect location from IP before scheduling
-    # Portable default: True. Honours the configured value if user has disabled it.
-    if RULES.get("auto_detect_location_on_startup", True):
+    # Portable default: False (O3 — ip-api.com returns the ISP's POP, not the
+    # customer's actual city; falling back to True here if the key is somehow
+    # missing from an older config would silently re-arm the thing O3 turned
+    # off). Honours the configured value if the user has enabled it.
+    if RULES.get("auto_detect_location_on_startup", False):
         log.info("auto_detect_location_on_startup=True — querying IP geolocation...")
         loc = _detect_location_from_ip()
         if loc:
@@ -7325,19 +7578,26 @@ def ensure_initialized():
             CFG["app"]["location"]["longitude"] = loc["lon"]
             CFG["app"]["location"]["city"]      = loc["city"] or CFG["app"]["location"].get("city", "")
             CFG["app"]["location"]["country"]   = loc["country"] or CFG["app"]["location"].get("country", "")
-            if loc.get("timezone"):
-                CFG["app"]["timezone"] = loc["timezone"]
-            LATITUDE  = loc["lat"]
-            LONGITUDE = loc["lon"]
-            CITY      = CFG["app"]["location"]["city"]
-            COUNTRY   = CFG["app"]["location"]["country"]
-            TZ        = CFG["app"]["timezone"]
+            # Coordinates, not the IP database, decide the clock (see
+            # _resolve_timezone_from_coords) — ip-api's own tz guess is only
+            # the fallback if that lookup can't be reached.
+            resolved_tz = _resolve_timezone_from_coords(loc["lat"], loc["lon"]) or loc.get("timezone")
+            if resolved_tz:
+                CFG["app"]["timezone"] = resolved_tz
             try:
                 with open(CFG_PATH + ".tmp", "w") as f:
                     yaml.dump(CFG, f, default_flow_style=False, indent=2)
                 os.replace(CFG_PATH + ".tmp", CFG_PATH)
             except Exception as e:
                 log.error(f"Could not persist auto-detected location: {e}")
+            # v1.8.12 pattern (see _refresh_location_globals_from_cfg docstring):
+            # this is the one function that reassigns CITY/COUNTRY/LATITUDE/
+            # LONGITUDE/TZ/LOCAL_TZ together with the `global` declarations
+            # needed for it to actually stick — a plain local reassignment
+            # here would silently vanish when this function returns.
+            _refresh_location_globals_from_cfg()
+            if resolved_tz:
+                _sync_system_timezone(resolved_tz)
             log.info(f"Auto-detected location: {CITY}, {COUNTRY} ({LATITUDE}, {LONGITUDE}) tz={TZ}")
         else:
             log.warning("Auto-detect failed; keeping configured location")
