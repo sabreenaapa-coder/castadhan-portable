@@ -5290,7 +5290,14 @@ window.addEventListener('load', () => {
   function tickCountdown(now){
     const el = $cp('cp-count'); if (!el) return;
     if (!cpNext || !cpNext.when) { el.textContent = 'Next: —'; return; }
-    const diff = +cpNext.when - +now;
+    // cpNext.when comes straight from new Date(effective_when_iso) — a real,
+    // correctly-timezoned absolute instant. Diffing it against anything but
+    // a real Date.now() is wrong: serverNow() is a DELIBERATELY shifted
+    // epoch (so its own local getters read the server-location's wall
+    // clock for display) and subtracting it from a genuinely real instant
+    // silently reintroduces the display/viewer timezone gap into the
+    // countdown. Ignore the passed `now` here on purpose.
+    const diff = +cpNext.when - Date.now();
     const nm = localName(cpNext.name);
     if (diff <= 0) { el.innerHTML = `Now: <b>${nm}</b>`; return; }
     const h = Math.floor(diff / 3600000);
@@ -5308,8 +5315,17 @@ window.addEventListener('load', () => {
       if (e === 'PASS') return 'fired';
       if (e === 'FAIL') return 'missed';
     }
-    if (name === 'Sunrise') return (t && t <= now) ? 'fired' : 'upcoming';
-    if (t && t <= now) return 'fired';   // past adhan, no FAIL on record → assume played
+    // Hour-of-day comparison, not a raw Date/epoch one (matches drawF24's
+    // nowH / currentPeriodName): `t` comes from parseHM, which only ever
+    // sets/reads back an HH:MM via LOCAL getters — comparing epochs directly
+    // against `now` breaks the moment `now` isn't built the same way (e.g.
+    // serverNow(), which is deliberately a shifted epoch so its OWN local
+    // getters read the server-location's wall clock — safe to compare
+    // hour-of-day floats against, unsafe to subtract/compare as raw Dates).
+    const tH = t ? (t.getHours() + t.getMinutes() / 60) : null;
+    const nowH = now.getHours() + now.getMinutes() / 60;
+    if (name === 'Sunrise') return (tH != null && tH <= nowH) ? 'fired' : 'upcoming';
+    if (tH != null && tH <= nowH) return 'fired';   // past adhan, no FAIL on record → assume played
     return 'upcoming';
   }
 
@@ -5442,7 +5458,9 @@ window.addEventListener('load', () => {
       return { name: np.name, when: new Date(np.effective_when_iso || np.when_iso) };
     }
     if (typeof getNextPrayerFallback === 'function') {
-      const fb = getNextPrayerFallback(times, now);
+      // Real time only: this fallback compares against parseTime()-built
+      // (real, non-shifted) Date objects — same reasoning as tickCountdown.
+      const fb = getNextPrayerFallback(times, new Date());
       if (fb) return { name: fb.name, when: fb.when };
     }
     return null;
