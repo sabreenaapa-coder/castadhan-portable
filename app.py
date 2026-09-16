@@ -1035,14 +1035,17 @@ def pwa_service_worker():
 @app.route("/icon-192.png")
 @app.route("/icon-512.png")
 @app.route("/icon-maskable.png")
+@app.route("/favicon-32.png")
+@app.route("/favicon.ico")
 def pwa_icon():
-    """Serve PWA icons. We don't ship raster files in v1.6.0 (would bloat the
-    repo by ~30KB) — instead generate a minimal SVG-based placeholder PNG via
-    a 1×1 transparent fallback if the actual icon files don't exist on disk.
-    Real icons can be added by dropping icon-192.png / icon-512.png /
-    icon-maskable.png next to console.html. The browser tolerates a placeholder
-    fine for the PWA install flow."""
+    """Serve PWA icons + the browser-tab favicon. Real files (a gold
+    crescent-and-star on navy, matching the clock face's palette and the
+    brochure's 🕌 branding) now ship at icon-192.png / icon-512.png /
+    icon-maskable.png / favicon-32.png. Falls back to a 1×1 transparent PNG
+    if a file is ever missing, so a stripped-down build doesn't 404."""
     filename = request.path.lstrip("/")
+    if filename == "favicon.ico":
+        filename = "favicon-32.png"  # served as PNG bytes; every modern browser accepts this at this path
     icon_path = os.path.join(ROOT, filename)
     if os.path.exists(icon_path):
         return send_from_directory(ROOT, filename, mimetype="image/png")

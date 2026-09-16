@@ -13,6 +13,8 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Adhan">
+<link rel="icon" href="/favicon-32.png" sizes="32x32" type="image/png">
+<link rel="icon" href="/icon-192.png" sizes="192x192" type="image/png">
 <link rel="apple-touch-icon" href="/icon-192.png">
 <script>
   /* Register service worker if available. Failures are non-fatal — the
@@ -4902,7 +4904,44 @@ window.addEventListener('load', () => {
   // "active period" image absorbs the earlier wedges exactly as it does live.
   let _windTime = null, _windRAF = null, _windWedges = null, _windWedgeKey = null;
   let _windSecAngle = null, _windMinAngle = null;   // during the wind the fast hands sweep ≤1 turn (driven by progress, not virtual seconds)
-  function _clockNow(){ return _windTime || new Date(); }
+
+  /* Server-synced clock: the dial and digital readout must show the
+     CONFIGURED LOCATION's time, not whatever clock the viewing device
+     happens to have. new Date() alone reflects the viewer's own browser/OS
+     — correct for someone standing in front of the box only if that Pi's
+     Linux system clock is also correctly set (a separate, easy-to-miss
+     setting; see the timezone incident writeup), and outright wrong for
+     anyone checking the console remotely from a different timezone.
+
+     The naive fix — offset = parsed(server "now") - Date.now() — does
+     NOTHING: both sides are the same absolute instant (that's what a clock
+     is), so the offset is always ~0. The actual bug is that getHours() /
+     getMinutes() / toLocaleTimeString() always render using the VIEWER'S
+     OWN local timezone, no matter what instant the Date object holds. So
+     the offset has to bridge the gap between the server's timezone and the
+     browser's own — feed the browser a shifted instant such that ITS OWN
+     local getters land on the server-location's true wall-clock numbers. */
+  let _serverTimeOffsetMs = 0;
+  function serverNow(){ return new Date(Date.now() + _serverTimeOffsetMs); }
+  function _clockNow(){ return _windTime || serverNow(); }
+
+  // Offset (ms) of an ISO datetime string's own "+HH:MM"/"-HH:MM"/"Z" suffix.
+  function _isoUtcOffsetMs(iso){
+    const m = /([+-])(\d{2}):?(\d{2})\s*$/.exec(String(iso || ''));
+    if (!m) return 0;                                    // 'Z' or no offset → UTC
+    const sign = m[1] === '-' ? -1 : 1;
+    return sign * (parseInt(m[2], 10) * 60 + parseInt(m[3], 10)) * 60000;
+  }
+  // Recompute _serverTimeOffsetMs from a fresh /api/state "now" ISO string:
+  // clock-drift correction (server epoch vs viewer epoch — normally ~0) PLUS
+  // the timezone-display correction described above (normally the big term).
+  function _syncServerTime(iso){
+    const parsedMs = new Date(iso).getTime();
+    if (isNaN(parsedMs)) return;
+    const serverOffsetMs = _isoUtcOffsetMs(iso);
+    const browserOffsetMs = -(new Date().getTimezoneOffset()) * 60000;
+    _serverTimeOffsetMs = (parsedMs - Date.now()) + (serverOffsetMs - browserOffsetMs);
+  }
 
   /* Which prayer-period wedge an angle (0 at top, clockwise) falls in. _windWedges
      ([{a0,a1,name}] per period, with wrap) is published by drawF24; used only to detect
@@ -4928,7 +4967,7 @@ window.addEventListener('load', () => {
     if (_windRAF){ cancelAnimationFrame(_windRAF); _windRAF = null; }
     _windWedgeKey = null; _windSecAngle = null; _windMinAngle = null;
     const use24 = !document.body.classList.contains('cp-active') || _mode24;   // admin/24h dial vs 12h Ottoman
-    const real = (testNow instanceof Date) ? testNow : new Date();
+    const real = (testNow instanceof Date) ? testNow : serverNow();
     const drawNormal = (d) => {
       if (use24){ drawF24(_lastTimes || window.currentPrayers || {}, _lastNext, _lastHist, d); setHands24(d); }
       else setHands(d);
@@ -4945,7 +4984,7 @@ window.addEventListener('load', () => {
     // The fast hands sweep at most ONE turn — not hundreds. Drive the second hand (and the
     // 12h minute hand) from the wind progress p (0° → their live angle at arrival), instead
     // of from the fast-forwarding virtual seconds. ≤360° total, landing on the real position.
-    const endT = new Date(Date.now() + durMs);                                  // ≈ wall-clock at arrival
+    const endT = new Date(serverNow().getTime() + durMs);                       // ≈ wall-clock at arrival
     const secTarget = ((endT.getSeconds() + endT.getMilliseconds() / 1000) / 60) * 360;
     const minTarget = ((endT.getMinutes() + endT.getSeconds() / 60) / 60) * 360;
     const render = (d, p) => {
@@ -4962,7 +5001,7 @@ window.addEventListener('load', () => {
       const p = Math.min(1, (ts - t0) / durMs);
       _windTime = new Date(startV + p * span); render(_windTime, p);
       if (p < 1) _windRAF = requestAnimationFrame(step);
-      else { _windTime = null; _windSecAngle = null; _windMinAngle = null; _windRAF = null; drawNormal(new Date()); }  // arrived → live dial
+      else { _windTime = null; _windSecAngle = null; _windMinAngle = null; _windRAF = null; drawNormal(serverNow()); }  // arrived → live dial
     };
     _windRAF = requestAnimationFrame(step);
   }
@@ -5188,7 +5227,7 @@ window.addEventListener('load', () => {
     document.body.classList.toggle('cp-mode24', _mode24);
     const tg = $cp('cp-modetoggle');                       // label = the style you'll switch TO
     if (tg) tg.textContent = _mode24 ? '12-hour clock' : '24-hour clock';
-    const now = new Date();
+    const now = serverNow();
     if (_mode24) { drawF24(_lastTimes || window.currentPrayers || {}, _lastNext, _lastHist, now); setHands24(now); }
     else setHands(now);
   }
@@ -5228,7 +5267,7 @@ window.addEventListener('load', () => {
   /* ---- digital time + date + countdown (1s tick). Hands glide via rAF
      (spin); only updated here when reduced-motion is preferred. ---- */
   function tickClock(){
-    const now = new Date();
+    const now = serverNow();
     const tEl = $cp('cp-time');
     if (tEl) tEl.textContent = now.toLocaleTimeString('en-GB',
       { hour: 'numeric', minute: '2-digit', hour12: true }).toLowerCase();
@@ -5313,7 +5352,7 @@ window.addEventListener('load', () => {
   /* ---- moon (local Conway age → emoji + phase name + dial glyph) ---- */
   function updateMoon(){
     try {
-      const now = new Date();
+      const now = serverNow();
       const y = now.getUTCFullYear(), mo = now.getUTCMonth() + 1, d = now.getUTCDate();
       let r = y % 100; r %= 19; if (r > 9) r -= 19;
       r = (r * 11) % 30 + mo + d; if (mo < 3) r += 2;
@@ -5344,7 +5383,7 @@ window.addEventListener('load', () => {
   /* ---- hijri (aladhan, once) ---- */
   let cpHijriShort = '';
   function updateHijri(){
-    const today = new Date();
+    const today = serverNow();
     const dmy = `${pad(today.getDate())}-${pad(today.getMonth() + 1)}-${today.getFullYear()}`;
     fetch(`https://api.aladhan.com/v1/gToH?date=${dmy}`)
       .then(r => r.json())
@@ -5353,7 +5392,7 @@ window.addEventListener('load', () => {
         cpHijriShort = `${h.day} ${h.month.en}`;
         cpHijriFull = `${h.day} ${h.month.en} ${h.year}`;
         const hs = $cp('cp-hijri-sub'); if (hs) hs.textContent = cpHijriShort;
-        updateDateLine(new Date());
+        updateDateLine(serverNow());
       }).catch(() => {});
   }
 
@@ -5413,7 +5452,7 @@ window.addEventListener('load', () => {
   function fmtClock(d){ return d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }); }
 
   async function refreshData(){
-    const now = new Date();
+    let now = new Date();
     let state;
     try {
       const res = await fetch('/api/state');
@@ -5421,6 +5460,16 @@ window.addEventListener('load', () => {
     } catch (e) {
       setOffline('Clock offline · last update ' + (cpLastOk ? fmtClock(cpLastOk) : '—'));
       return; // keep last good render; local clock keeps ticking
+    }
+
+    // Re-derive the viewer-clock ↔ server-clock offset from this fresh
+    // sample so serverNow()/_clockNow() track the box's own configured
+    // location time, not the viewing device's clock/timezone. Re-fetched
+    // every 15s (see the setInterval below), so it also self-corrects for
+    // drift.
+    if (state && state.now) {
+      _syncServerTime(state.now);
+      now = serverNow();
     }
 
     const times = { ...(state.prayer_times || {}) };
@@ -5492,13 +5541,14 @@ window.addEventListener('load', () => {
     buildFace24(DIAL_ADMIN);
     const reduce = !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
     const render = async () => {
-      const now = new Date();
+      let now = serverNow();
       try {
         const st = await (await fetch('/api/state')).json();
         const times = { ...(st.prayer_times || {}) };
         if (!times.Sunrise && st.sunrise_time) times.Sunrise = st.sunrise_time;
         _lastTimes = times;
         _lastNext = (st.next_prayer && st.next_prayer.name) || null;
+        if (st && st.now) { _syncServerTime(st.now); now = serverNow(); }
       } catch (e) { /* keep last good render */ }
       drawF24(_lastTimes || window.currentPrayers || {}, _lastNext, {}, now);   // DT() → DIAL_ADMIN here
       setHands24(now);
@@ -5510,7 +5560,7 @@ window.addEventListener('load', () => {
       let t0 = null;
       const loop = (ts) => { if (t0 == null) t0 = ts; setHands24(_clockNow()); requestAnimationFrame(loop); };
       requestAnimationFrame(loop);
-    } else { setHands24(new Date()); }
+    } else { setHands24(serverNow()); }
     windUpClock();                        // wind from midnight on admin load
   }
 
@@ -5599,7 +5649,7 @@ window.addEventListener('load', () => {
     setInterval(updateWeather, 15 * 60000);// weather
     setInterval(updateMoon, 60 * 60000);   // moon phase
     _reduce = !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
-    if (_reduce) { if (_mode24) setHands24(new Date()); else setHands(new Date()); drawAurora(0); }  // static
+    if (_reduce) { if (_mode24) setHands24(serverNow()); else setHands(serverNow()); drawAurora(0); }  // static
     else requestAnimationFrame(spin);      // smooth gliding hands + mandala + aurora
     windUpClock();                         // wind from midnight on clock-page load
   }
