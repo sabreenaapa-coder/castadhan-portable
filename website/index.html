@@ -1,0 +1,224 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mustafa Yunis — Ideas made tangible</title>
+<meta name="description" content="A working gallery of ideas made tangible — problems noticed, solutions designed, and things built for people to use.">
+<meta name="theme-color" content="#090910">
+<link rel="icon" href="/assets/mark.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/assets/mark.svg">
+<meta property="og:type" content="website">
+<meta property="og:title" content="Mustafa Yunis — Ideas made tangible">
+<meta property="og:description" content="A working gallery of ideas made tangible.">
+<meta property="og:url" content="https://mustafayunis.co.uk/">
+<link rel="canonical" href="https://mustafayunis.co.uk/">
+<link rel="stylesheet" href="/assets/site.css">
+<style>
+  /* ---- homepage atmosphere ---------------------------------------- */
+  .sky{ position:fixed; inset:0; z-index:0; overflow:hidden; background:var(--ink); }
+  /* layered surreal dusk: a low portal-sun below a deep indigo sky */
+  .sky::before{
+    content:""; position:absolute; inset:-10%;
+    background:
+      radial-gradient(120% 78% at 50% 116%, rgba(232,161,60,.30), rgba(232,161,60,0) 46%),
+      radial-gradient(90% 60% at 50% 120%, rgba(207,99,56,.34), rgba(207,99,56,0) 50%),
+      radial-gradient(140% 100% at 50% -10%, rgba(42,33,64,.55), rgba(42,33,64,0) 60%),
+      linear-gradient(180deg, #07070d 0%, #0a0a14 42%, #120f1c 74%, #1a1220 100%);
+  }
+  /* a distant horizon line + faint reflection, Dalí plain */
+  .sky::after{
+    content:""; position:absolute; left:-5%; right:-5%; bottom:20%;
+    height:1px; background:linear-gradient(90deg, transparent, rgba(217,180,90,.32) 30%, rgba(217,180,90,.4) 50%, rgba(217,180,90,.32) 70%, transparent);
+    box-shadow:0 0 40px 8px rgba(232,161,60,.06);
+  }
+  #scene{ position:fixed; inset:0; z-index:1; width:100%; height:100%; pointer-events:none; }
+
+  /* the floating dial: time as a portal — slow, deliberate */
+  .dial{
+    position:fixed; z-index:1; left:50%; top:52%;
+    width:min(78vh,72vw); aspect-ratio:1; transform:translate(-50%,-50%);
+    pointer-events:none; opacity:.5; mix-blend-mode:screen;
+  }
+  .dial svg{ width:100%; height:100%; overflow:visible; }
+  .dial .ring{ transform-origin:50% 50%; animation:spin 240s linear infinite; }
+  .dial .ring.slow{ animation-duration:520s; animation-direction:reverse; }
+  .dial .hand{ transform-origin:50% 50%; animation:spin 90s linear infinite; }
+  .dial .halo{ animation:breathe 9s var(--ease) infinite; transform-origin:50% 50%; }
+  @keyframes spin{ to{ transform:rotate(360deg); } }
+  @keyframes breathe{ 0%,100%{ opacity:.5; } 50%{ opacity:.9; } }
+
+  /* content plate */
+  main{ position:relative; z-index:3; }
+  .hero{ min-height:100svh; display:grid; align-items:center; }
+  .hero .wrap{ padding-top:14vh; }
+  .kicker{ margin-bottom:1.8em; opacity:0; animation:fade 1.4s var(--ease) .2s forwards; }
+  .hero h1{ margin-bottom:.32em; }
+  .hero h1 .l1{ display:block; opacity:0; animation:rise 1.3s var(--ease) .45s forwards; }
+  .hero h1 .l2{ display:block; color:var(--bone-70); opacity:0; animation:rise 1.3s var(--ease) .62s forwards; }
+  .hero h1 em{ font-style:italic; color:var(--gold); }
+  .hero .say{
+    max-width:40ch; margin-top:1.4em; color:var(--bone-70);
+    font-family:var(--serif); font-size:clamp(1.1rem,1.8vw,1.42rem); line-height:1.5;
+    opacity:0; animation:rise 1.3s var(--ease) .82s forwards;
+  }
+  .hero .acts{ margin-top:2.6em; display:flex; gap:16px 22px; flex-wrap:wrap; opacity:0; animation:rise 1.3s var(--ease) 1s forwards; }
+
+  @keyframes fade{ to{ opacity:1; } }
+  @keyframes rise{ from{ opacity:0; transform:translateY(20px); } to{ opacity:1; transform:none; } }
+  @media (prefers-reduced-motion: reduce){
+    .kicker,.hero h1 .l1,.hero h1 .l2,.hero .say,.hero .acts{ animation:none; opacity:1; }
+    .dial .ring,.dial .ring.slow,.dial .hand,.dial .halo{ animation:none; }
+  }
+
+  /* scroll cue */
+  .cue{ position:absolute; left:50%; bottom:3.2vh; transform:translateX(-50%); z-index:3;
+        font-size:.68rem; letter-spacing:.34em; text-transform:uppercase; color:var(--bone-28);
+        display:flex; flex-direction:column; align-items:center; gap:.9em; }
+  .cue .bar{ width:1px; height:46px; background:linear-gradient(var(--bone-28), transparent); animation:drop 2.6s var(--ease) infinite; }
+  @keyframes drop{ 0%{ transform:scaleY(0); transform-origin:top; } 40%{ transform:scaleY(1); transform-origin:top; } 60%{ transform:scaleY(1); transform-origin:bottom; } 100%{ transform:scaleY(0); transform-origin:bottom; } }
+
+  /* ---- thesis / process ------------------------------------------- */
+  .thesis .wrap{ max-width:min(940px,92vw); }
+  .thesis .lede em{ color:var(--gold); font-style:italic; }
+  .triad{ display:grid; grid-template-columns:repeat(3,1fr); gap:clamp(20px,4vw,56px); margin-top:clamp(40px,7vh,84px); }
+  .triad .step{ position:relative; padding-top:26px; }
+  .triad .step::before{ content:""; position:absolute; top:0; left:0; width:34px; height:1px; background:var(--gold); }
+  .triad .n{ font-family:var(--mono); color:var(--gold); font-size:.72rem; letter-spacing:.2em; }
+  .triad h3{ font-family:var(--serif); font-size:1.5rem; margin:.5em 0 .35em; }
+  .triad p{ color:var(--bone-45); font-size:.96rem; }
+  @media (max-width:720px){ .triad{ grid-template-columns:1fr; gap:30px; } }
+
+  /* ---- featured strip --------------------------------------------- */
+  .featured .wrap{ display:flex; align-items:flex-end; justify-content:space-between; gap:24px; flex-wrap:wrap; }
+  .marquee{ margin-top:clamp(30px,5vh,50px); border-top:1px solid var(--line); }
+  .marquee a{ display:flex; align-items:baseline; gap:clamp(14px,3vw,40px); padding:clamp(20px,3vh,30px) 0;
+              border-bottom:1px solid var(--line); transition:padding-left .5s var(--ease), background .5s var(--ease); }
+  .marquee a:hover{ padding-left:14px; background:linear-gradient(90deg, rgba(217,180,90,.05), transparent 60%); }
+  .marquee .idx{ font-family:var(--mono); font-size:.72rem; color:var(--gold); width:2.4em; flex:0 0 auto; }
+  .marquee .ttl{ font-family:var(--serif); font-size:clamp(1.3rem,2.6vw,2rem); }
+  .marquee .desc{ color:var(--bone-45); font-size:.9rem; margin-left:auto; text-align:right; max-width:34ch; }
+  .marquee .go{ color:var(--gold); flex:0 0 auto; transition:transform .5s var(--ease); }
+  .marquee a:hover .go{ transform:translateX(5px); }
+  @media (max-width:760px){ .marquee .desc{ display:none; } }
+</style>
+</head>
+<body>
+
+<!-- atmosphere -->
+<div class="sky" aria-hidden="true"></div>
+<canvas id="scene" aria-hidden="true"></canvas>
+<div class="dial" aria-hidden="true">
+  <svg viewBox="0 0 400 400">
+    <g class="halo"><circle cx="200" cy="200" r="150" fill="none" stroke="#d9b45a" stroke-width="1" opacity=".22"/></g>
+    <g class="ring">
+      <circle cx="200" cy="200" r="176" fill="none" stroke="#ece7dd" stroke-width="1" opacity=".10" stroke-dasharray="2 12"/>
+    </g>
+    <g class="ring slow">
+      <circle cx="200" cy="200" r="120" fill="none" stroke="#86b6c9" stroke-width="1" opacity=".14" stroke-dasharray="1 22"/>
+    </g>
+    <circle cx="200" cy="200" r="150" fill="none" stroke="#d9b45a" stroke-width="1" opacity=".3"/>
+    <g class="hand">
+      <line x1="200" y1="200" x2="200" y2="58" stroke="#ece7dd" stroke-width="2" opacity=".5" stroke-linecap="round"/>
+      <circle cx="200" cy="200" r="4" fill="#d9b45a"/>
+    </g>
+  </svg>
+</div>
+
+<!-- nav -->
+<header class="nav">
+  <a class="mark" href="/" aria-label="Mustafa Yunis — home">
+    <img class="glyph" src="/assets/mark.svg" alt="" width="20" height="20">
+    <span><b>Mustafa&nbsp;Yunis</b></span>
+  </a>
+  <nav class="nav-links" aria-label="Primary">
+    <a href="/work/">Work</a>
+    <a href="/contact/">Contact</a>
+  </nav>
+</header>
+
+<main>
+  <!-- HERO -->
+  <section class="hero">
+    <div class="wrap">
+      <p class="eyebrow kicker">A working gallery</p>
+      <h1 class="display">
+        <span class="l1">Ideas made</span>
+        <span class="l2"><em>tangible.</em></span>
+      </h1>
+      <p class="say">Different problems, one habit — notice what is missing, design an answer worth keeping, then build until the idea can be held.</p>
+      <div class="acts">
+        <a class="cta" href="/work/">Enter the gallery <span class="arrow" aria-hidden="true">→</span></a>
+        <a class="cta" href="/contact/">Make contact</a>
+      </div>
+    </div>
+    <a class="cue" href="#thesis" aria-label="Scroll">
+      <span>Scroll</span><span class="bar"></span>
+    </a>
+  </section>
+
+  <!-- THESIS -->
+  <section class="section thesis" id="thesis">
+    <div class="wrap">
+      <p class="eyebrow reveal">The process</p>
+      <p class="lede reveal" data-delay="80">Nothing here began as a product. Each started as a small friction in ordinary life — and was followed patiently until it became <em>something you could use.</em></p>
+      <div class="triad">
+        <div class="step reveal" data-delay="120"><span class="n">i · notice</span><h3>Notice</h3><p>A need most people learn to live around. The whole thing turns on seeing it clearly.</p></div>
+        <div class="step reveal" data-delay="200"><span class="n">ii · design</span><h3>Design</h3><p>The elegant answer, not the obvious one. Fewer parts, quieter surfaces, less to explain.</p></div>
+        <div class="step reveal" data-delay="280"><span class="n">iii · build</span><h3>Build</h3><p>Made real, put in hands, and refined against the way people actually live.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- FEATURED -->
+  <section class="section featured">
+    <div class="wrap">
+      <div class="section-head reveal">
+        <p class="eyebrow" style="margin-bottom:1.2em">Selected work</p>
+        <h2 class="serif">A few things that made it out of the sketchbook.</h2>
+      </div>
+    </div>
+    <div class="wrap">
+      <div class="marquee reveal" data-delay="100">
+        <a href="/work/castadhan/">
+          <span class="idx">01</span><span class="ttl">CastAdhan</span>
+          <span class="desc">A call to prayer, made ambient — cast to any room in the home.</span>
+          <span class="go" aria-hidden="true">→</span>
+        </a>
+        <a href="https://conflict.mustafayunis.co.uk" rel="noopener">
+          <span class="idx">02</span><span class="ttl">Conflict Simulator</span>
+          <span class="desc">Rehearse the hard conversation — an AI plays the person across the table.</span>
+          <span class="go" aria-hidden="true">↗</span>
+        </a>
+        <a href="/work/gobble/">
+          <span class="idx">03</span><span class="ttl">GOBBLE</span>
+          <span class="desc">One symbol is shared between your card and the screen. Find it first.</span>
+          <span class="go" aria-hidden="true">→</span>
+        </a>
+        <a href="/work/">
+          <span class="idx">—</span><span class="ttl" style="color:var(--bone-45)">See all work</span>
+          <span class="desc">Seven, and counting.</span>
+          <span class="go" aria-hidden="true">→</span>
+        </a>
+      </div>
+    </div>
+  </section>
+</main>
+
+<!-- footer -->
+<footer class="foot">
+  <div class="wrap">
+    <p class="cred">Ideas made <i>tangible.</i></p>
+    <nav aria-label="Footer">
+      <a href="/work/">Work</a>
+      <a href="/contact/">Contact</a>
+      <a href="https://conflict.mustafayunis.co.uk" rel="noopener">Conflict Simulator ↗</a>
+    </nav>
+    <p class="fine">© <span data-year></span> Mustafa Yunis · mustafayunis.co.uk — reveal capability, not personal information.</p>
+  </div>
+</footer>
+
+<script src="/assets/scene.js" defer></script>
+<script src="/assets/site.js" defer></script>
+</body>
+</html>

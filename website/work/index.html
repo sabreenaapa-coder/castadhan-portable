@@ -1,0 +1,209 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Work — Mustafa Yunis</title>
+<meta name="description" content="A gallery of ideas made tangible — CastAdhan, Conflict Simulator, GOBBLE, STOPCLOCK, the Mosque Timetable Creator and more.">
+<meta name="theme-color" content="#090910">
+<link rel="icon" href="/assets/mark.svg" type="image/svg+xml">
+<link rel="canonical" href="https://mustafayunis.co.uk/work/">
+<link rel="stylesheet" href="/assets/site.css">
+<style>
+  .page-atmos{ position:fixed; inset:0; z-index:0; pointer-events:none;
+    background:
+      radial-gradient(80% 50% at 78% -8%, rgba(42,33,64,.5), transparent 60%),
+      radial-gradient(70% 46% at 12% 108%, rgba(232,161,60,.10), transparent 60%),
+      linear-gradient(180deg, #08080f, #0b0b14 60%, #0a0a12); }
+  main{ position:relative; z-index:2; }
+
+  .lede-head{ padding:22vh 0 clamp(40px,7vh,72px); }
+  .lede-head h1{ font-family:var(--serif); font-size:clamp(2.4rem,6vw,4.4rem); line-height:1.02; letter-spacing:-.015em; }
+  .lede-head h1 em{ font-style:italic; color:var(--gold); }
+  .lede-head p{ max-width:52ch; margin-top:1.3em; color:var(--bone-70);
+                font-family:var(--serif); font-size:clamp(1.05rem,1.7vw,1.34rem); line-height:1.55; }
+
+  /* gallery ---------------------------------------------------------- */
+  .gallery{ border-top:1px solid var(--line); }
+  .item{ display:grid; grid-template-columns:5.2rem 1fr auto; gap:clamp(16px,3vw,48px);
+         align-items:start; padding:clamp(30px,5vh,54px) 0; border-bottom:1px solid var(--line);
+         position:relative; transition:background .6s var(--ease); }
+  .item::before{ content:""; position:absolute; left:0; top:0; bottom:0; width:0;
+                 background:linear-gradient(90deg, rgba(217,180,90,.06), transparent 70%); transition:width .6s var(--ease); }
+  .item:hover::before{ width:100%; }
+  .item:hover{ }
+  .item .rom{ font-family:var(--serif); font-style:italic; font-size:1.5rem; color:var(--gold); opacity:.8; padding-top:.15em; }
+  .item .body{ min-width:0; }
+  .item .titlerow{ display:flex; align-items:baseline; gap:.7em; flex-wrap:wrap; }
+  .item h2{ font-family:var(--serif); font-size:clamp(1.7rem,3.6vw,2.9rem); line-height:1.04; letter-spacing:-.01em; }
+  .item .ext{ font-size:.66rem; letter-spacing:.2em; text-transform:uppercase; color:var(--cyan);
+              border:1px solid rgba(134,182,201,.3); border-radius:2px; padding:.25em .6em; }
+  .item .theme{ font-family:var(--mono); font-size:.7rem; letter-spacing:.14em; color:var(--bone-45); text-transform:uppercase; margin-top:.9em; }
+  .item p{ margin-top:.7em; color:var(--bone-70); font-size:clamp(1rem,1.5vw,1.16rem); max-width:46ch; line-height:1.5; }
+  .item .meta{ margin-top:1.1em; display:flex; gap:14px 20px; flex-wrap:wrap; align-items:center; }
+  .item .disc{ font-size:.78rem; letter-spacing:.04em; color:var(--bone-45); }
+  .item .yr{ font-family:var(--mono); font-size:.72rem; color:var(--bone-28); letter-spacing:.08em; }
+  .item .go{ align-self:center; color:var(--gold); font-size:1.4rem; transition:transform .5s var(--ease); padding-top:.1em; }
+  .item:hover .go{ transform:translateX(6px); }
+  .item:hover h2{ color:#fff; }
+
+  .item.more{ grid-template-columns:5.2rem 1fr; opacity:.72; }
+  .item.more .rom{ font-style:normal; font-size:1.1rem; }
+  .item.more h2{ font-size:clamp(1.2rem,2.4vw,1.7rem); color:var(--bone-70); }
+
+  @media (max-width:720px){
+    .item{ grid-template-columns:2.6rem 1fr; }
+    .item .go{ display:none; }
+    .item .rom{ font-size:1.1rem; }
+  }
+
+  .tail{ padding:clamp(50px,9vh,110px) 0; }
+  .tail p{ font-family:var(--serif); font-size:clamp(1.2rem,2.4vw,1.9rem); color:var(--bone-70); max-width:34ch; }
+  .tail em{ color:var(--gold); font-style:italic; }
+</style>
+</head>
+<body>
+
+<div class="page-atmos" aria-hidden="true"></div>
+
+<header class="nav">
+  <a class="mark" href="/" aria-label="Mustafa Yunis — home">
+    <img class="glyph" src="/assets/mark.svg" alt="" width="20" height="20">
+    <span><b>Mustafa&nbsp;Yunis</b></span>
+  </a>
+  <nav class="nav-links" aria-label="Primary">
+    <a href="/work/" aria-current="page">Work</a>
+    <a href="/contact/">Contact</a>
+  </nav>
+</header>
+
+<main>
+  <div class="wrap">
+    <div class="lede-head">
+      <p class="eyebrow reveal" style="margin-bottom:1.6em">The gallery</p>
+      <h1 class="reveal" data-delay="60">Ideas made <em>tangible.</em></h1>
+      <p class="reveal" data-delay="140">Different problems, one process — notice a need, design an elegant answer, then build until the idea can be held. What follows are a few that made it all the way.</p>
+    </div>
+  </div>
+
+  <div class="wrap">
+    <div class="gallery">
+
+      <!-- I -->
+      <a class="item reveal" href="/work/castadhan/">
+        <span class="rom">I</span>
+        <div class="body">
+          <div class="titlerow"><h2>CastAdhan</h2></div>
+          <div class="theme">Time / Devotion</div>
+          <p>A call to prayer, made ambient — cast to any screen and speaker in the home.</p>
+          <div class="meta"><span class="disc">Product · Systems · Devices</span><span class="yr">2025 —</span></div>
+        </div>
+        <span class="go" aria-hidden="true">→</span>
+      </a>
+
+      <!-- II -->
+      <a class="item reveal" data-delay="60" href="https://conflict.mustafayunis.co.uk" rel="noopener">
+        <span class="rom">II</span>
+        <div class="body">
+          <div class="titlerow"><h2>Conflict Simulator</h2><span class="ext">Live ↗</span></div>
+          <div class="theme">Composure / Practice</div>
+          <p>Rehearse the conversations that matter. An AI plays the difficult person across the table — a boss, a relative, a stranger — so you can practise holding your ground before it counts.</p>
+          <div class="meta"><span class="disc">Applied AI · Communication · Interface</span><span class="yr">2025 —</span></div>
+        </div>
+        <span class="go" aria-hidden="true">↗</span>
+      </a>
+
+      <!-- III -->
+      <a class="item reveal" data-delay="60" href="/work/gobble/">
+        <span class="rom">III</span>
+        <div class="body">
+          <div class="titlerow"><h2>GOBBLE</h2></div>
+          <div class="theme">Pattern / Perception</div>
+          <p>One symbol is shared between your card and the screen. Find it first.</p>
+          <div class="meta"><span class="disc">Game Design · Combinatorics</span><span class="yr">2025 —</span></div>
+        </div>
+        <span class="go" aria-hidden="true">→</span>
+      </a>
+
+      <!-- IV -->
+      <a class="item reveal" data-delay="60" href="/work/stopclock/">
+        <span class="rom">IV</span>
+        <div class="body">
+          <div class="titlerow"><h2>STOPCLOCK</h2></div>
+          <div class="theme">Play / Synchrony</div>
+          <p>Words, numbers, and a clock that never stops — a room turned into a game.</p>
+          <div class="meta"><span class="disc">Game Design · Real-time Systems</span><span class="yr">2025 —</span></div>
+        </div>
+        <span class="go" aria-hidden="true">→</span>
+      </a>
+
+      <!-- V -->
+      <a class="item reveal" data-delay="60" href="/work/mosque-timetable/">
+        <span class="rom">V</span>
+        <div class="body">
+          <div class="titlerow"><h2>Mosque Timetable Creator</h2></div>
+          <div class="theme">Order / Community</div>
+          <p>Every prayer time, every jamā&lsquo;ah, every date in the year — composed for print and screen, computed rather than chased.</p>
+          <div class="meta"><span class="disc">Systems · Automation · Interface</span><span class="yr">2025 —</span></div>
+        </div>
+        <span class="go" aria-hidden="true">→</span>
+      </a>
+
+      <!-- VI -->
+      <a class="item reveal" data-delay="60" href="/work/seerah/">
+        <span class="rom">VI</span>
+        <div class="body">
+          <div class="titlerow"><h2>The Seerah for Children</h2></div>
+          <div class="theme">Story / Faith</div>
+          <p>The life of the Prophet&nbsp;&#65018;, retold for a new generation.</p>
+          <div class="meta"><span class="disc">Education · Story · Video</span><span class="yr">2020 —</span></div>
+        </div>
+        <span class="go" aria-hidden="true">→</span>
+      </a>
+
+      <!-- VII -->
+      <a class="item reveal" data-delay="60" href="/work/trading-systems/">
+        <span class="rom">VII</span>
+        <div class="body">
+          <div class="titlerow"><h2>Autonomous Trading Robots</h2></div>
+          <div class="theme">Discipline / Autonomy</div>
+          <p>Systems that act on a decision already made — without hesitation, and without a hand on the wheel.</p>
+          <div class="meta"><span class="disc">Systems · Automation</span><span class="yr">2023 —</span></div>
+        </div>
+        <span class="go" aria-hidden="true">→</span>
+      </a>
+
+      <!-- more -->
+      <div class="item more reveal">
+        <span class="rom">·</span>
+        <div class="body">
+          <h2>More, as they mature</h2>
+          <p style="max-width:52ch">Software, experiments and quieter projects join the gallery once they are ready to be seen.</p>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <div class="wrap">
+    <div class="tail reveal">
+      <p>Rather than tell you who I am, let the <em>work</em> say it.</p>
+    </div>
+  </div>
+</main>
+
+<footer class="foot">
+  <div class="wrap">
+    <p class="cred">Ideas made <i>tangible.</i></p>
+    <nav aria-label="Footer">
+      <a href="/">Home</a>
+      <a href="/work/">Work</a>
+      <a href="/contact/">Contact</a>
+    </nav>
+    <p class="fine">© <span data-year></span> Mustafa Yunis · mustafayunis.co.uk</p>
+  </div>
+</footer>
+
+<script src="/assets/site.js" defer></script>
+</body>
+</html>

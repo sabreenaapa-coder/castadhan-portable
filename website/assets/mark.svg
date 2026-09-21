@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" role="img" aria-label="M">
+  <defs>
+    <radialGradient id="g" cx="50%" cy="46%" r="55%">
+      <stop offset="0%" stop-color="#f0e4c4"/>
+      <stop offset="45%" stop-color="#d9b45a"/>
+      <stop offset="100%" stop-color="#cf6338"/>
+    </radialGradient>
+  </defs>
+  <!-- outer dial / eye -->
+  <circle cx="50" cy="50" r="44" fill="none" stroke="#d9b45a" stroke-width="2" opacity=".55"/>
+  <!-- iris / portal -->
+  <circle cx="50" cy="50" r="13" fill="url(#g)"/>
+  <circle cx="50" cy="50" r="13" fill="none" stroke="#090910" stroke-width="1.4" opacity=".4"/>
+  <!-- single hand -->
+  <line x1="50" y1="50" x2="50" y2="12" stroke="#ece7dd" stroke-width="2.4" stroke-linecap="round"/>
+  <!-- ticks -->
+  <g stroke="#ece7dd" stroke-width="1.6" stroke-linecap="round" opacity=".5">
+    <line x1="50" y1="6"  x2="50" y2="12"/>
+    <line x1="94" y1="50" x2="88" y2="50"/>
+    <line x1="50" y1="94" x2="50" y2="88"/>
+    <line x1="6"  y1="50" x2="12" y2="50"/>
+  </g>
+</svg>
