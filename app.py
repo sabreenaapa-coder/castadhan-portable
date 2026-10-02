@@ -4104,7 +4104,19 @@ def should_play_isha(target_date: date) -> bool:
 
 def compute_current_next():
     """Compute current and next prayer times"""
-    today = date.today()
+    # Use the app's own configured-timezone date, NOT date.today() (which
+    # reads the Pi's Linux system clock). Those two drift apart for hours
+    # every night on any box west of its system tz: if the system tz is
+    # still e.g. Europe/London (common — the sudoers rule _sync_system_timezone()
+    # needs is only ever installed at first imaging by setup-pi.sh, never
+    # re-applied by routine updates, so a unit whose golden image predates it
+    # can never pick it up), system midnight arrives hours before the real
+    # local one. A naive date.today() then returns "tomorrow" while it's
+    # still evening here, so every remaining prayer today (including Isha)
+    # looks already finished and this function jumps straight to tomorrow's
+    # Fajr. The actual adhan schedule is unaffected (APScheduler runs on
+    # LOCAL_TZ directly) — this was purely a console-display bug.
+    today = now_local().date()
     times = get_times_for(today)
     order = ["Fajr", "Dhuhr", "Asr", "Maghrib", "Isha"]
 
@@ -6124,7 +6136,10 @@ def api_state():
             enabled = UI["enabled"].copy()
             volumes = UI["volumes"].copy()
 
-        today = date.today()
+        # now_local().date(), not date.today() — see compute_current_next()
+        # for why: naive date.today() tracks the Pi's system clock, which can
+        # disagree with the app's own configured timezone for hours a night.
+        today = now_local().date()
         times = get_times_for(today)
         cn = compute_current_next()
         current = cn["current"]

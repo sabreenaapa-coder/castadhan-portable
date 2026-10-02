@@ -260,6 +260,34 @@ if ! command -v avahi-browse >/dev/null 2>&1; then
     || log "WARN: could not install avahi-utils; avahi-browse discovery unavailable"
 fi
 
+# B-Belgium-84: re-install the sudoers stanza on EVERY update, same reasoning
+# as B-76/77 above. The `timedatectl set-timezone` NOPASSWD rule (O29) is what
+# lets the app keep the Pi's *system* clock in sync with its own configured
+# timezone — but it's only ever written by setup-pi.sh at first imaging, and
+# this updater never re-applied it. A unit imaged before that rule existed (or
+# whose sudoers file is missing/stale for any other reason) silently fails
+# every `_sync_system_timezone()` call forever — non-fatal, so it never shows
+# up as an error, it just means the system clock quietly drifts from the app's
+# real timezone. Found 2 Oct 2026 on castadhan-a746d734-1: date.today() (used
+# in ~20 places, including the console's current/next-prayer display) reads
+# the SYSTEM clock, not the app's tz — so for hours every night, between the
+# Pi's (wrong) system midnight and the real local one, "today" silently became
+# "tomorrow" and the console skipped Isha entirely, jumping straight to the
+# next day's Fajr. The actual adhan schedule was unaffected (APScheduler runs
+# on the app's own tz directly) — this was a display bug with an infra root
+# cause. Re-applying here doesn't retroactively fix an already-wrong system
+# clock by itself, but it's the only way the next config save's
+# `_sync_system_timezone()` call can ever actually succeed on an affected box.
+if [ -f "$INSTALL_DIR/deploy/castadhan-sudoers" ]; then
+  install -m 0440 "$INSTALL_DIR/deploy/castadhan-sudoers" /etc/sudoers.d/castadhan
+  if visudo -c -f /etc/sudoers.d/castadhan >/dev/null 2>&1; then
+    log "sudoers stanza verified (timedatectl + update permissions) — B-Belgium-84"
+  else
+    log "WARN: sudoers stanza failed validation — removing to avoid a broken sudoers.d entry"
+    rm -f /etc/sudoers.d/castadhan
+  fi
+fi
+
 # ---- 4. Update Python dependencies if requirements changed ------------------
 if [ -f "$INSTALL_DIR/requirements.txt" ]; then
   log "Refreshing Python dependencies"
