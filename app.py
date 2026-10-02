@@ -4044,9 +4044,23 @@ def parse_hhmm(hhmm: str, base_day: date) -> datetime:
     return safe_localize(dt)
 
 def today_at(hhmm: str) -> datetime:
-    """Get datetime for today at specified time - DST safe version"""
+    """Get datetime for today at specified time - DST safe version.
+
+    "Today" is the app's own configured-timezone date (now_local().date()),
+    NOT date.today() (the Pi's Linux system clock). This is the function
+    schedule_today() uses to build every single prayer/warning/dhikr job's
+    actual trigger time (13 call sites) — so a system-tz drift here doesn't
+    just mis-draw the console, it mis-schedules the real adhan. Confirmed
+    live on castadhan-a746d734-1, 2 Oct 2026: a routine update's restart
+    landed inside the nightly window where the Pi's (still Europe/London)
+    system clock had already rolled to tomorrow while the app's own Eastern
+    time was still this evening — schedule_today() ran with the wrong
+    "today" and pushed every remaining job, including that night's Isha,
+    a full 24h out. See compute_current_next() for the parallel display-only
+    version of this same root cause.
+    """
     h, m = map(int, hhmm.split(":")[:2])
-    today = date.today()
+    today = now_local().date()
     dt = datetime(year=today.year, month=today.month, day=today.day,
                   hour=h, minute=m, second=0, microsecond=0)
     return safe_localize(dt)
@@ -4986,12 +5000,14 @@ def schedule_today():
             
         discover_casts()
 
-        times = get_times_for(date.today())
+        # now_local().date(), not date.today() — see today_at()'s docstring.
+        _today = now_local().date()
+        times = get_times_for(_today)
         prayers = ["Fajr", "Dhuhr", "Asr", "Maghrib", "Isha"]
         skip_isha = False
 
         if RULES and RULES.get("skip_isha_between"):
-            skip_isha = is_between_mmdd(date.today().strftime("%m-%d"),
+            skip_isha = is_between_mmdd(_today.strftime("%m-%d"),
                                         RULES["skip_isha_between"]["start"],
                                         RULES["skip_isha_between"]["end"])
 
@@ -5002,7 +5018,7 @@ def schedule_today():
 
         # Check if Isha should be skipped due to combination (with defensive error handling)
         try:
-            skip_isha_due_to_twilight = not should_play_isha(date.today())
+            skip_isha_due_to_twilight = not should_play_isha(_today)
         except Exception as e:
             log.error(f"Twilight logic failed, defaulting to play Isha: {e}")
             skip_isha_due_to_twilight = False
